@@ -16,6 +16,25 @@ function createTableRows(marketplace, usaReportId, deReportId, startDate) {
   ];
 }
 
+function bottomNavStyle() {
+  return {
+    display: "flex",
+    justifyContent: "center",
+    gap: "10px",
+    marginTop: "28px",
+    paddingBottom: "16px",
+  };
+}
+
+function smallButtonStyle() {
+  return {
+    padding: "8px 16px",
+    fontSize: "14px",
+    cursor: "pointer",
+    borderRadius: "8px",
+  };
+}
+
 export default function UpdatePage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -41,29 +60,40 @@ export default function UpdatePage() {
   }
 
   return (
-    <div style={{ padding: "20px", fontFamily: "Arial, sans-serif" }}>
-      <div style={{ display: "flex", gap: "12px", marginBottom: "20px" }}>
-        <button onClick={goHome}>Home</button>
-        <button onClick={goToSales}>Sales</button>
-      </div>
+    <div style={{ padding: "20px", fontFamily: "Arial, sans-serif", minHeight: "100vh" }}>
+      <h2 style={{ textAlign: "center" }}>Update Page</h2>
 
-      <h2>Update Page</h2>
-
-      <div style={{ background: "#f4f4f4", padding: "16px", borderRadius: "8px", marginBottom: "20px" }}>
+      <div
+        style={{
+          background: "#f4f4f4",
+          padding: "16px",
+          borderRadius: "8px",
+          marginBottom: "20px",
+          maxWidth: "700px",
+          marginInline: "auto",
+        }}
+      >
         <div><strong>USA Report ID:</strong> {usaReportId || "-"}</div>
         <div><strong>DE Report ID:</strong> {deReportId || "-"}</div>
         <div><strong>Start Date:</strong> {startDate || "-"}</div>
       </div>
 
-      <div style={{ display: "grid", gap: "18px" }}>
+      <div style={{ display: "grid", gap: "18px", maxWidth: "1000px", marginInline: "auto" }}>
         {MARKETPLACES.map((marketplace) => {
           const rows = createTableRows(marketplace, usaReportId, deReportId, startDate);
+
           return (
             <div
               key={marketplace}
-              style={{ background: "#fff", border: "1px solid #ddd", borderRadius: "8px", padding: "14px" }}
+              style={{
+                background: "#fff",
+                border: "1px solid #ddd",
+                borderRadius: "8px",
+                padding: "14px",
+              }}
             >
               <h3 style={{ marginTop: 0 }}>{marketplace.toUpperCase()}</h3>
+
               <table style={{ borderCollapse: "collapse", width: "100%" }}>
                 <thead>
                   <tr>
@@ -102,6 +132,15 @@ export default function UpdatePage() {
             </div>
           );
         })}
+      </div>
+
+      <div style={bottomNavStyle()}>
+        <button style={smallButtonStyle()} onClick={goHome}>
+          Home
+        </button>
+        <button style={smallButtonStyle()} onClick={goToSales}>
+          Sales
+        </button>
       </div>
     </div>
   );

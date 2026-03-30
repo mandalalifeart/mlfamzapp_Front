@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import "./App.css";
 
 const LA_TIME_ZONE = "America/Los_Angeles";
+const API_BASE = "https://us-central1-mlfamzapp.cloudfunctions.net";
 
 const presets = [
   { key: "today", label: "TODAY" },
@@ -93,7 +94,10 @@ function getPresetDates(preset) {
     case "lastMonth": {
       const [year, month] = laToday.split("-").map(Number);
       const previousMonthDate = new Date(Date.UTC(year, month - 2, 1));
-      const previousMonthStr = previousMonthDate.toISOString().slice(0, 7) + "-01";
+      const previousMonthStr = `${previousMonthDate.getUTCFullYear()}-${String(
+        previousMonthDate.getUTCMonth() + 1
+      ).padStart(2, "0")}-01`;
+
       return {
         startDate: startOfMonth(previousMonthStr),
         endDate: endOfMonth(previousMonthStr),
@@ -158,6 +162,25 @@ function buildApiDateRange(startDateStr, endDateStr) {
   };
 }
 
+function bottomNavStyle() {
+  return {
+    display: "flex",
+    justifyContent: "center",
+    gap: "10px",
+    marginTop: "28px",
+    paddingBottom: "16px",
+  };
+}
+
+function smallButtonStyle() {
+  return {
+    padding: "8px 16px",
+    fontSize: "14px",
+    cursor: "pointer",
+    borderRadius: "8px",
+  };
+}
+
 export default function App() {
   const [selectedPreset, setSelectedPreset] = useState("today");
   const [customStartDate, setCustomStartDate] = useState("");
@@ -165,6 +188,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
+
   const navigate = useNavigate();
 
   const resolvedDates = useMemo(() => {
@@ -210,21 +234,15 @@ export default function App() {
         marketplace: "de",
       };
 
-      const API_BASE = "https://us-central1-mlfamzapp.cloudfunctions.net";
-
       const [resUSA, resDE] = await Promise.all([
         fetch(`${API_BASE}/MlfReportReq`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payloadUSA),
         }),
         fetch(`${API_BASE}/MlfReportReq`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payloadDE),
         }),
       ]);
@@ -252,6 +270,8 @@ export default function App() {
       };
 
       setResult({
+        usaReportId: dataUSA?.data?.report_req_id || "",
+        deReportId: dataDE?.data?.report_req_id || "",
         startDate: apiDates.start_date,
         endDate: apiDates.end_date,
       });
@@ -270,9 +290,15 @@ export default function App() {
     }
   }
 
+  function goHome() {
+    navigate("/");
+  }
+
   function goToSales() {
     navigate("/sales", {
       state: {
+        usaReportId: result?.usaReportId || "",
+        deReportId: result?.deReportId || "",
         startDate: result?.startDate || "",
         endDate: result?.endDate || "",
       },
@@ -282,11 +308,6 @@ export default function App() {
   return (
     <div className="app">
       <div className="card">
-        <div style={{ display: "flex", gap: "12px", marginBottom: "20px" }}>
-          <button type="button" onClick={() => navigate("/")}>Home</button>
-          <button type="button" onClick={goToSales}>Sales</button>
-        </div>
-
         <form onSubmit={handleSubmit}>
           <div className="radio-list">
             {presets.map((preset) => (
@@ -332,10 +353,21 @@ export default function App() {
 
         {result && (
           <div className="result">
+            <div><strong>USA Request ID:</strong> {result.usaReportId}</div>
+            <div><strong>DE Request ID:</strong> {result.deReportId}</div>
             <div><strong>Start:</strong> {result.startDate}</div>
             <div><strong>End:</strong> {result.endDate}</div>
           </div>
         )}
+
+        <div style={bottomNavStyle()}>
+          <button type="button" style={smallButtonStyle()} onClick={goHome}>
+            Home
+          </button>
+          <button type="button" style={smallButtonStyle()} onClick={goToSales}>
+            Sales
+          </button>
+        </div>
       </div>
     </div>
   );
