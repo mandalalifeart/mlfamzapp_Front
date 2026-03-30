@@ -7,15 +7,6 @@ function getSourceReportId(marketplace, usaReportId, deReportId) {
   return NORTH_AMERICA_MARKETS.has(marketplace) ? usaReportId : deReportId;
 }
 
-function createTableRows(marketplace, usaReportId, deReportId, startDate) {
-  return [
-    ["Marketplace", marketplace.toUpperCase()],
-    ["Source Report ID", getSourceReportId(marketplace, usaReportId, deReportId) || ""],
-    ["Start Date", startDate || ""],
-    ["Type", "sales"],
-  ];
-}
-
 function bottomNavStyle() {
   return {
     display: "flex",
@@ -42,11 +33,6 @@ export default function UpdatePage() {
   const usaReportId = location.state?.usaReportId || "";
   const deReportId = location.state?.deReportId || "";
   const startDate = location.state?.startDate || "";
-  const endDate = location.state?.endDate || "";
-
-  function goHome() {
-    navigate("/");
-  }
 
   function goToSales() {
     navigate("/sales", {
@@ -54,7 +40,6 @@ export default function UpdatePage() {
         usaReportId,
         deReportId,
         startDate,
-        endDate,
       },
     });
   }
@@ -79,63 +64,56 @@ export default function UpdatePage() {
       </div>
 
       <div style={{ display: "grid", gap: "18px", maxWidth: "1000px", marginInline: "auto" }}>
-        {MARKETPLACES.map((marketplace) => {
-          const rows = createTableRows(marketplace, usaReportId, deReportId, startDate);
+        {MARKETPLACES.map((marketplace) => (
+          <div
+            key={marketplace}
+            style={{
+              background: "#fff",
+              border: "1px solid #ddd",
+              borderRadius: "8px",
+              padding: "14px",
+            }}
+          >
+            <h3 style={{ marginTop: 0 }}>{marketplace.toUpperCase()}</h3>
 
-          return (
-            <div
-              key={marketplace}
-              style={{
-                background: "#fff",
-                border: "1px solid #ddd",
-                borderRadius: "8px",
-                padding: "14px",
-              }}
-            >
-              <h3 style={{ marginTop: 0 }}>{marketplace.toUpperCase()}</h3>
-
-              <table style={{ borderCollapse: "collapse", width: "100%" }}>
-                <thead>
-                  <tr>
-                    <th
-                      style={{
-                        border: "1px solid #ccc",
-                        padding: "10px",
-                        textAlign: "left",
-                        background: "#f4f4f4",
-                        width: "220px",
-                      }}
-                    >
-                      Field
-                    </th>
-                    <th
-                      style={{
-                        border: "1px solid #ccc",
-                        padding: "10px",
-                        textAlign: "left",
-                        background: "#f4f4f4",
-                      }}
-                    >
-                      Value
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map(([field, value]) => (
-                    <tr key={field}>
-                      <td style={{ border: "1px solid #ccc", padding: "10px" }}>{field}</td>
-                      <td style={{ border: "1px solid #ccc", padding: "10px" }}>{value || "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          );
-        })}
+            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <thead>
+                <tr>
+                  <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4", width: "220px" }}>
+                    Field
+                  </th>
+                  <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
+                    Value
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>Marketplace</td>
+                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>{marketplace.toUpperCase()}</td>
+                </tr>
+                <tr>
+                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>Source Report ID</td>
+                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>
+                    {getSourceReportId(marketplace, usaReportId, deReportId) || "-"}
+                  </td>
+                </tr>
+                <tr>
+                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>Start Date</td>
+                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>{startDate || "-"}</td>
+                </tr>
+                <tr>
+                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>Type</td>
+                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>sales</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ))}
       </div>
 
       <div style={bottomNavStyle()}>
-        <button style={smallButtonStyle()} onClick={goHome}>
+        <button style={smallButtonStyle()} onClick={() => navigate("/")}>
           Home
         </button>
         <button style={smallButtonStyle()} onClick={goToSales}>

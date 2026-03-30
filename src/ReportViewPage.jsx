@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 function bottomNavStyle() {
@@ -23,16 +24,27 @@ export default function ResponsePage() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const responseData = location.state?.responseData;
+  const usaReportId = location.state?.usaReportId || "";
+  const deReportId = location.state?.deReportId || "";
   const startDate = location.state?.startDate || "";
   const endDate = location.state?.endDate || "";
 
-  const usaReportId = responseData?.usa?.data?.report_req_id || "";
-  const deReportId = responseData?.de?.data?.report_req_id || "";
+  useEffect(() => {
+    if (!usaReportId && !deReportId) return;
 
-  function goHome() {
-    navigate("/");
-  }
+    const timer = setTimeout(() => {
+      navigate("/report-view", {
+        state: {
+          usaReportId,
+          deReportId,
+          startDate,
+          endDate,
+        },
+      });
+    }, 7000);
+
+    return () => clearTimeout(timer);
+  }, [navigate, usaReportId, deReportId, startDate, endDate]);
 
   function goToSales() {
     navigate("/sales", {
@@ -45,24 +57,13 @@ export default function ResponsePage() {
     });
   }
 
-  function goToReportView() {
-    navigate("/report-view", {
-      state: {
-        usaReportId,
-        deReportId,
-        startDate,
-        endDate,
-      },
-    });
-  }
-
-  if (!responseData) {
+  if (!usaReportId && !deReportId) {
     return (
       <div style={{ padding: "20px", fontFamily: "Arial, sans-serif", minHeight: "100vh" }}>
         <h2>No response data found</h2>
 
         <div style={bottomNavStyle()}>
-          <button style={smallButtonStyle()} onClick={goHome}>
+          <button style={smallButtonStyle()} onClick={() => navigate("/")}>
             Home
           </button>
           <button style={smallButtonStyle()} onClick={goToSales}>
@@ -87,20 +88,18 @@ export default function ResponsePage() {
           marginInline: "auto",
         }}
       >
-        <div><strong>USA Request ID:</strong> {usaReportId || "-"}</div>
-        <div><strong>DE Request ID:</strong> {deReportId || "-"}</div>
-        <div><strong>Start:</strong> {startDate || "-"}</div>
-        <div><strong>End:</strong> {endDate || "-"}</div>
+        <div><strong>USA Request ID:</strong> {usaReportId}</div>
+        <div><strong>DE Request ID:</strong> {deReportId}</div>
+        <div><strong>Start:</strong> {startDate}</div>
+        <div><strong>End:</strong> {endDate}</div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "center", marginTop: "24px" }}>
-        <button style={{ padding: "10px 18px", cursor: "pointer", borderRadius: "8px" }} onClick={goToReportView}>
-          Report View
-        </button>
+      <div style={{ textAlign: "center", marginTop: "20px" }}>
+        Forwarding to report view in 7 seconds...
       </div>
 
       <div style={bottomNavStyle()}>
-        <button style={smallButtonStyle()} onClick={goHome}>
+        <button style={smallButtonStyle()} onClick={() => navigate("/")}>
           Home
         </button>
         <button style={smallButtonStyle()} onClick={goToSales}>

@@ -49,10 +49,7 @@ function getTimeZoneParts(date, timeZone) {
 
 function getLosAngelesDateString(date = new Date()) {
   const parts = getTimeZoneParts(date, LA_TIME_ZONE);
-  const year = String(parts.year);
-  const month = String(parts.month).padStart(2, "0");
-  const day = String(parts.day).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
 function shiftDateString(dateStr, days) {
@@ -64,13 +61,13 @@ function shiftDateString(dateStr, days) {
 
 function startOfMonth(dateStr) {
   const [year, month] = dateStr.split("-").map(Number);
-  return `${String(year)}-${String(month).padStart(2, "0")}-01`;
+  return `${year}-${String(month).padStart(2, "0")}-01`;
 }
 
 function endOfMonth(dateStr) {
   const [year, month] = dateStr.split("-").map(Number);
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return `${String(year)}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  return `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 }
 
 function getPresetDates(preset) {
@@ -144,7 +141,6 @@ function zonedDateTimeToUtc(dateStr, timeStr, timeZone) {
 function buildApiDateRange(startDateStr, endDateStr) {
   const now = new Date();
   const laToday = getLosAngelesDateString(now);
-
   const startDate = zonedDateTimeToUtc(startDateStr, "00:00:00.000", LA_TIME_ZONE);
 
   if (endDateStr === laToday) {
@@ -182,14 +178,13 @@ function smallButtonStyle() {
 }
 
 export default function App() {
+  const navigate = useNavigate();
+
   const [selectedPreset, setSelectedPreset] = useState("today");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState(null);
-
-  const navigate = useNavigate();
 
   const resolvedDates = useMemo(() => {
     if (selectedPreset === "custom") {
@@ -247,14 +242,8 @@ export default function App() {
         }),
       ]);
 
-      const textUSA = await resUSA.text();
-      const textDE = await resDE.text();
-
-      let dataUSA = {};
-      let dataDE = {};
-
-      if (textUSA) dataUSA = JSON.parse(textUSA);
-      if (textDE) dataDE = JSON.parse(textDE);
+      const dataUSA = await resUSA.json();
+      const dataDE = await resDE.json();
 
       if (!resUSA.ok || !resDE.ok) {
         throw new Error("One of the requests failed");
@@ -264,21 +253,10 @@ export default function App() {
         throw new Error("One of the requests failed");
       }
 
-      const combinedData = {
-        usa: dataUSA,
-        de: dataDE,
-      };
-
-      setResult({
-        usaReportId: dataUSA?.data?.report_req_id || "",
-        deReportId: dataDE?.data?.report_req_id || "",
-        startDate: apiDates.start_date,
-        endDate: apiDates.end_date,
-      });
-
       navigate("/response", {
         state: {
-          responseData: combinedData,
+          usaReportId: dataUSA?.data?.report_req_id || "",
+          deReportId: dataDE?.data?.report_req_id || "",
           startDate: apiDates.start_date,
           endDate: apiDates.end_date,
         },
@@ -288,21 +266,6 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }
-
-  function goHome() {
-    navigate("/");
-  }
-
-  function goToSales() {
-    navigate("/sales", {
-      state: {
-        usaReportId: result?.usaReportId || "",
-        deReportId: result?.deReportId || "",
-        startDate: result?.startDate || "",
-        endDate: result?.endDate || "",
-      },
-    });
   }
 
   return (
@@ -351,20 +314,11 @@ export default function App() {
 
         {error && <div className="error">{error}</div>}
 
-        {result && (
-          <div className="result">
-            <div><strong>USA Request ID:</strong> {result.usaReportId}</div>
-            <div><strong>DE Request ID:</strong> {result.deReportId}</div>
-            <div><strong>Start:</strong> {result.startDate}</div>
-            <div><strong>End:</strong> {result.endDate}</div>
-          </div>
-        )}
-
         <div style={bottomNavStyle()}>
-          <button type="button" style={smallButtonStyle()} onClick={goHome}>
+          <button type="button" style={smallButtonStyle()} onClick={() => navigate("/")}>
             Home
           </button>
-          <button type="button" style={smallButtonStyle()} onClick={goToSales}>
+          <button type="button" style={smallButtonStyle()} onClick={() => navigate("/sales")}>
             Sales
           </button>
         </div>
