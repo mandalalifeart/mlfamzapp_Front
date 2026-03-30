@@ -2,6 +2,8 @@ import { useNavigate } from "react-router-dom";
 import { useMemo, useState } from "react";
 import "./App.css";
 
+const LA_TIME_ZONE = "America/Los_Angeles";
+
 const presets = [
   { key: "today", label: "TODAY" },
   { key: "yesterday", label: "YESTERDAY" },
@@ -13,48 +15,88 @@ const presets = [
   { key: "custom", label: "CUSTOM" },
 ];
 
-function formatDate(date) {
-  return date.toISOString().slice(0, 10);
+function getTimeZoneParts(date, timeZone) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(date);
+  const map = {};
+
+  for (const part of parts) {
+    if (part.type !== "literal") {
+      map[part.type] = part.value;
+    }
+  }
+
+  return {
+    year: Number(map.year),
+    month: Number(map.month),
+    day: Number(map.day),
+    hour: Number(map.hour),
+    minute: Number(map.minute),
+    second: Number(map.second),
+  };
 }
 
-function shiftDays(date, days) {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
+function getLosAngelesDateString(date = new Date()) {
+  const parts = getTimeZoneParts(date, LA_TIME_ZONE);
+  const year = String(parts.year);
+  const month = String(parts.month).padStart(2, "0");
+  const day = String(parts.day).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
-function startOfMonth(date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
+function shiftDateString(dateStr, days) {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const utcDate = new Date(Date.UTC(year, month - 1, day));
+  utcDate.setUTCDate(utcDate.getUTCDate() + days);
+  return utcDate.toISOString().slice(0, 10);
 }
 
-function endOfMonth(date) {
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+function startOfMonth(dateStr) {
+  const [year, month] = dateStr.split("-").map(Number);
+  return `${String(year)}-${String(month).padStart(2, "0")}-01`;
+}
+
+function endOfMonth(dateStr) {
+  const [year, month] = dateStr.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${String(year)}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 }
 
 function getPresetDates(preset) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const laToday = getLosAngelesDateString();
 
   switch (preset) {
     case "today":
-      return { startDate: formatDate(today), endDate: formatDate(today) };
+      return { startDate: laToday, endDate: laToday };
     case "yesterday": {
-      const d = shiftDays(today, -1);
-      return { startDate: formatDate(d), endDate: formatDate(d) };
+      const d = shiftDateString(laToday, -1);
+      return { startDate: d, endDate: d };
     }
     case "last3days":
-      return { startDate: formatDate(shiftDays(today, -2)), endDate: formatDate(today) };
+      return { startDate: shiftDateString(laToday, -2), endDate: laToday };
     case "lastWeek":
-      return { startDate: formatDate(shiftDays(today, -6)), endDate: formatDate(today) };
+      return { startDate: shiftDateString(laToday, -6), endDate: laToday };
     case "last30days":
-      return { startDate: formatDate(shiftDays(today, -29)), endDate: formatDate(today) };
+      return { startDate: shiftDateString(laToday, -29), endDate: laToday };
     case "thisMonth":
-      return { startDate: formatDate(startOfMonth(today)), endDate: formatDate(today) };
+      return { startDate: startOfMonth(laToday), endDate: laToday };
     case "lastMonth": {
-      const m = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const [year, month] = laToday.split("-").map(Number);
+      const previousMonthDate = new Date(Date.UTC(year, month - 2, 1));
+      const previousMonthStr = previousMonthDate.toISOString().slice(0, 7) + "-01";
       return {
-        startDate: formatDate(startOfMonth(m)),
-        endDate: formatDate(endOfMonth(m)),
+        startDate: startOfMonth(previousMonthStr),
+        endDate: endOfMonth(previousMonthStr),
       };
     }
     default:
@@ -62,35 +104,53 @@ function getPresetDates(preset) {
   }
 }
 
-function parseLocalDate(dateStr) {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  return new Date(year, month - 1, day);
+function getTimeZoneOffsetMillis(date, timeZone) {
+  const parts = getTimeZoneParts(date, timeZone);
+  const asUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+    0
+  );
+  return asUtc - date.getTime();
 }
 
-function isSameLocalDay(dateA, dateB) {
-  return (
-    dateA.getFullYear() === dateB.getFullYear() &&
-    dateA.getMonth() === dateB.getMonth() &&
-    dateA.getDate() === dateB.getDate()
+function zonedDateTimeToUtc(dateStr, timeStr, timeZone) {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const [hour, minute, secondAndMs] = timeStr.split(":");
+  const [second, ms = "0"] = secondAndMs.split(".");
+
+  const utcGuess = Date.UTC(
+    year,
+    month - 1,
+    day,
+    Number(hour),
+    Number(minute),
+    Number(second),
+    Number(ms.padEnd(3, "0").slice(0, 3))
   );
+
+  const offset = getTimeZoneOffsetMillis(new Date(utcGuess), timeZone);
+  return new Date(utcGuess - offset);
 }
 
 function buildApiDateRange(startDateStr, endDateStr) {
   const now = new Date();
+  const laToday = getLosAngelesDateString(now);
 
-  const startDate = parseLocalDate(startDateStr);
-  startDate.setHours(0, 0, 0, 0);
+  const startDate = zonedDateTimeToUtc(startDateStr, "00:00:00.000", LA_TIME_ZONE);
 
-  const endDate = parseLocalDate(endDateStr);
-
-  if (isSameLocalDay(endDate, now)) {
+  if (endDateStr === laToday) {
     return {
       start_date: startDate.toISOString(),
       end_date: now.toISOString(),
     };
   }
 
-  endDate.setHours(23, 59, 59, 999);
+  const endDate = zonedDateTimeToUtc(endDateStr, "23:59:59.999", LA_TIME_ZONE);
 
   return {
     start_date: startDate.toISOString(),
@@ -144,18 +204,15 @@ export default function App() {
         marketplace: "usa",
       };
 
-      const payloadUK = {
+      const payloadDE = {
         start_date: apiDates.start_date,
         end_date: apiDates.end_date,
         marketplace: "de",
       };
 
-      console.log("resolved UI dates:", { startDate, endDate });
-      console.log("sending USA:", payloadUSA);
-      console.log("sending UK:", payloadUK);
-	  const API_BASE = "https://us-central1-mlfamzapp.cloudfunctions.net";
+      const API_BASE = "https://us-central1-mlfamzapp.cloudfunctions.net";
 
-      const [resUSA, resUK] = await Promise.all([
+      const [resUSA, resDE] = await Promise.all([
         fetch(`${API_BASE}/MlfReportReq`, {
           method: "POST",
           headers: {
@@ -168,33 +225,30 @@ export default function App() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(payloadUK),
+          body: JSON.stringify(payloadDE),
         }),
       ]);
 
       const textUSA = await resUSA.text();
-      const textUK = await resUK.text();
-
-      console.log("USA response:", textUSA);
-      console.log("UK response:", textUK);
+      const textDE = await resDE.text();
 
       let dataUSA = {};
-      let dataUK = {};
+      let dataDE = {};
 
       if (textUSA) dataUSA = JSON.parse(textUSA);
-      if (textUK) dataUK = JSON.parse(textUK);
+      if (textDE) dataDE = JSON.parse(textDE);
 
-      if (!resUSA.ok || !resUK.ok) {
+      if (!resUSA.ok || !resDE.ok) {
         throw new Error("One of the requests failed");
       }
 
-      if (dataUSA.status !== "success" || dataUK.status !== "success") {
+      if (dataUSA.status !== "success" || dataDE.status !== "success") {
         throw new Error("One of the requests failed");
       }
 
       const combinedData = {
         usa: dataUSA,
-        uk: dataUK,
+        de: dataDE,
       };
 
       setResult({
@@ -216,9 +270,23 @@ export default function App() {
     }
   }
 
+  function goToSales() {
+    navigate("/sales", {
+      state: {
+        startDate: result?.startDate || "",
+        endDate: result?.endDate || "",
+      },
+    });
+  }
+
   return (
     <div className="app">
       <div className="card">
+        <div style={{ display: "flex", gap: "12px", marginBottom: "20px" }}>
+          <button type="button" onClick={() => navigate("/")}>Home</button>
+          <button type="button" onClick={goToSales}>Sales</button>
+        </div>
+
         <form onSubmit={handleSubmit}>
           <div className="radio-list">
             {presets.map((preset) => (
@@ -264,7 +332,6 @@ export default function App() {
 
         {result && (
           <div className="result">
-            <div><strong>Request ID:</strong> {result.reportReqId}</div>
             <div><strong>Start:</strong> {result.startDate}</div>
             <div><strong>End:</strong> {result.endDate}</div>
           </div>
