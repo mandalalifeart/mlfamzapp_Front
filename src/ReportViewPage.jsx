@@ -11,7 +11,13 @@ function extractAmznGrValue(input) {
 
 function shouldIgnoreSalesChannel(salesChannel) {
   if (!salesChannel) return true;
-  return salesChannel === "Non-Amazon" || salesChannel.includes("Prod");
+
+  const normalized = salesChannel.trim().toLowerCase();
+
+  if (normalized.startsWith("non-amazon")) return true;
+  if (normalized.includes("prod")) return true;
+
+  return false;
 }
 
 function getDirectChildAmount(parentNode) {
@@ -25,6 +31,25 @@ function getDirectChildAmount(parentNode) {
     value: Number.isFinite(value) ? value : 0,
     currency,
   };
+}
+
+function getOrderItemAmount(orderItem) {
+  if (!orderItem) {
+    return { value: 0, currency: "" };
+  }
+
+  const itemPriceNode = orderItem.getElementsByTagName("ItemPrice")[0];
+  if (itemPriceNode) {
+    const amountNode = itemPriceNode.getElementsByTagName("Amount")[0];
+    const value = Number(amountNode?.textContent?.trim() || "0");
+    const currency = amountNode?.getAttribute("currency") || "";
+
+    if (Number.isFinite(value) && value > 0) {
+      return { value, currency };
+    }
+  }
+
+  return getDirectChildAmount(orderItem);
 }
 
 function extractSkuSalesFromXmlPayload(payload) {
@@ -58,7 +83,9 @@ function extractSkuSalesFromXmlPayload(payload) {
 
   for (const order of orderNodes) {
     const salesChannel = order.getElementsByTagName("SalesChannel")[0]?.textContent?.trim() || "";
+
     if (shouldIgnoreSalesChannel(salesChannel)) {
+      console.log("Ignoring order בגלל sales channel:", salesChannel);
       continue;
     }
 
@@ -66,11 +93,6 @@ function extractSkuSalesFromXmlPayload(payload) {
 
     const orderItems = Array.from(order.getElementsByTagName("OrderItem"));
     const orderAmount = getDirectChildAmount(order);
-
-    totalAmount += orderAmount.value;
-    if (!currency && orderAmount.currency) {
-      currency = orderAmount.currency;
-    }
 
     const normalizedItems = orderItems
       .map((orderItem) => {
@@ -83,7 +105,8 @@ function extractSkuSalesFromXmlPayload(payload) {
 
         const quantity = Number(orderItem.getElementsByTagName("Quantity")[0]?.textContent?.trim() || "0");
         const safeQty = Number.isFinite(quantity) ? quantity : 0;
-        const itemAmount = getDirectChildAmount(orderItem);
+
+        const itemAmount = getOrderItemAmount(orderItem);
 
         return {
           sku,
@@ -98,12 +121,28 @@ function extractSkuSalesFromXmlPayload(payload) {
     const totalItemAmounts = normalizedItems.reduce((sum, item) => sum + item.itemAmountValue, 0);
     const hasItemLevelAmounts = totalItemAmounts > 0;
 
+    if (hasItemLevelAmounts) {
+      totalAmount += totalItemAmounts;
+      if (!currency) {
+        const firstCurrency = normalizedItems.find((item) => item.itemAmountCurrency)?.itemAmountCurrency || "";
+        currency = firstCurrency;
+      }
+    } else {
+      totalAmount += orderAmount.value;
+      if (!currency && orderAmount.currency) {
+        currency = orderAmount.currency;
+      }
+    }
+
     for (const item of normalizedItems) {
       const existing = totals.get(item.sku) || { sku: item.sku, itemsSold: 0, value: 0 };
       existing.itemsSold += item.qty;
 
       if (hasItemLevelAmounts) {
         existing.value += item.itemAmountValue;
+        if (!currency && item.itemAmountCurrency) {
+          currency = item.itemAmountCurrency;
+        }
       } else if (totalQtyInOrder > 0 && orderAmount.value) {
         existing.value += (orderAmount.value * item.qty) / totalQtyInOrder;
       }
@@ -190,13 +229,6 @@ export default function ReportViewPage() {
   }
 
   useEffect(() => {
-    console.log("ReportViewPage mounted with state:", {
-      usaReportId,
-      deReportId,
-      startDate,
-      endDate,
-    });
-
     if (!selectedReportReqId) {
       setSuccessResponse(null);
       setError("Missing report request ID");
@@ -292,7 +324,7 @@ export default function ReportViewPage() {
     return () => {
       cancelled = true;
     };
-  }, [marketplace, selectedReportReqId, usaReportId, deReportId, startDate, endDate]);
+  }, [marketplace, selectedReportReqId]);
 
   return (
     <div style={{ padding: "20px", fontFamily: "Arial, sans-serif", minHeight: "100vh" }}>
