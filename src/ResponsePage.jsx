@@ -34,6 +34,7 @@ export default function ResponsePage() {
 
     const timer = setTimeout(() => {
       navigate("/report-view", {
+        replace: true,
         state: {
           usaReportId,
           deReportId,
@@ -60,7 +61,7 @@ export default function ResponsePage() {
   if (!usaReportId && !deReportId) {
     return (
       <div style={{ padding: "20px", fontFamily: "Arial, sans-serif", minHeight: "100vh" }}>
-        <h2>No response data found</h2>
+        <h2 style={{ textAlign: "center" }}>No response data found</h2>
 
         <div style={bottomNavStyle()}>
           <button style={smallButtonStyle()} onClick={() => navigate("/")}>
