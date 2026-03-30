@@ -1,0 +1,89 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #efefef;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.app {
+  min-height: 100vh;
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.card {
+  width: 100%;
+  max-width: 420px;
+  background: #efefef;
+}
+
+.radio-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 700;
+  color: #666;
+}
+
+.field {
+  margin-bottom: 20px;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 700;
+  color: #666;
+}
+
+.field input[type="date"] {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  background: #e8e8e8;
+  font-size: 16px;
+}
+
+button {
+  width: 160px;
+  padding: 18px;
+  border: none;
+  background: #7d94bc;
+  color: white;
+  font-weight: 700;
+  font-size: 22px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.error {
+  margin-top: 20px;
+  color: #b00020;
+  font-weight: 700;
+}
+
+.result {
+  margin-top: 20px;
+  padding: 16px;
+  background: white;
+  border-radius: 8px;
+  word-break: break-word;
+}
+
