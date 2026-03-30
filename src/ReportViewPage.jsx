@@ -3,6 +3,31 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 const API_BASE = "https://us-central1-mlfamzapp.cloudfunctions.net";
 
+/*
+  Base currency rules:
+  - USA region => everything shown in USD
+  - DE region  => everything shown in EUR
+
+  Update these rates whenever needed.
+*/
+const currencyRatesToUsd = {
+  USD: 1,
+  CAD: 0.74,
+  MXN: 0.049,
+};
+
+const currencyRatesToEur = {
+  EUR: 1,
+  PLN: 0.23,
+  SEK: 0.088,
+  GBP: 1.17,
+  CZK: 0.04,
+  HUF: 0.0025,
+  DKK: 0.134,
+  RON: 0.2,
+  BGN: 0.51,
+};
+
 function extractAmznGrValue(input) {
   if (typeof input !== "string") return input;
   const match = input.match(/^amzn\.gr\.([^-]+)/);
@@ -18,6 +43,35 @@ function shouldIgnoreSalesChannel(salesChannel) {
   if (normalized.includes("prod")) return true;
 
   return false;
+}
+
+function getBaseCurrencyForRegion(region) {
+  return region === "usa" ? "USD" : "EUR";
+}
+
+function convertCurrencyAmount(amount, fromCurrency, region) {
+  const safeAmount = Number(amount) || 0;
+  const from = (fromCurrency || "").toUpperCase().trim();
+
+  if (!from) {
+    return safeAmount;
+  }
+
+  if (region === "usa") {
+    const rate = currencyRatesToUsd[from];
+    if (!rate) {
+      console.warn(`Missing USD conversion rate for currency: ${from}`);
+      return safeAmount;
+    }
+    return safeAmount * rate;
+  }
+
+  const rate = currencyRatesToEur[from];
+  if (!rate) {
+    console.warn(`Missing EUR conversion rate for currency: ${from}`);
+    return safeAmount;
+  }
+  return safeAmount * rate;
 }
 
 function getDirectChildAmount(parentNode) {
@@ -52,14 +106,16 @@ function getOrderItemAmount(orderItem) {
   return getDirectChildAmount(orderItem);
 }
 
-function extractSkuSalesFromXmlPayload(payload) {
+function extractSkuSalesFromXmlPayload(payload, region) {
+  const baseCurrency = getBaseCurrencyForRegion(region);
+
   if (!payload || typeof payload !== "string") {
     return {
       rows: [],
       totalOrders: 0,
       totalItems: 0,
       totalAmount: 0,
-      currency: "",
+      currency: baseCurrency,
     };
   }
 
@@ -73,7 +129,7 @@ function extractSkuSalesFromXmlPayload(payload) {
       totalOrders: 0,
       totalItems: 0,
       totalAmount: 0,
-      currency: "",
+      currency: baseCurrency,
     };
   }
 
@@ -82,13 +138,12 @@ function extractSkuSalesFromXmlPayload(payload) {
   let totalOrders = 0;
   let totalItems = 0;
   let totalAmount = 0;
-  let currency = "";
 
   for (const order of orderNodes) {
     const salesChannel = order.getElementsByTagName("SalesChannel")[0]?.textContent?.trim() || "";
 
     if (shouldIgnoreSalesChannel(salesChannel)) {
-      console.log("Ignoring order because of sales channel:", salesChannel);
+      console.log(`Ignoring ${region} order because of sales channel:`, salesChannel);
       continue;
     }
 
@@ -106,21 +161,34 @@ function extractSkuSalesFromXmlPayload(payload) {
           sku = extractAmznGrValue(sku);
         }
 
-        const quantity = Number(orderItem.getElementsByTagName("Quantity")[0]?.textContent?.trim() || "0");
+        const quantity = Number(
+          orderItem.getElementsByTagName("Quantity")[0]?.textContent?.trim() || "0"
+        );
         const safeQty = Number.isFinite(quantity) ? quantity : 0;
 
         totalItems += safeQty;
 
         const itemAmount = getOrderItemAmount(orderItem);
+        const convertedItemAmount = convertCurrencyAmount(
+          itemAmount.value,
+          itemAmount.currency,
+          region
+        );
 
         return {
           sku,
           qty: safeQty,
-          itemAmountValue: itemAmount.value,
-          itemAmountCurrency: itemAmount.currency,
+          itemAmountValue: convertedItemAmount,
+          itemAmountCurrency: baseCurrency,
         };
       })
       .filter(Boolean);
+
+    const convertedOrderAmount = convertCurrencyAmount(
+      orderAmount.value,
+      orderAmount.currency,
+      region
+    );
 
     const totalQtyInOrder = normalizedItems.reduce((sum, item) => sum + item.qty, 0);
     const totalItemAmounts = normalizedItems.reduce((sum, item) => sum + item.itemAmountValue, 0);
@@ -128,15 +196,8 @@ function extractSkuSalesFromXmlPayload(payload) {
 
     if (hasItemLevelAmounts) {
       totalAmount += totalItemAmounts;
-      if (!currency) {
-        const firstCurrency = normalizedItems.find((item) => item.itemAmountCurrency)?.itemAmountCurrency || "";
-        currency = firstCurrency;
-      }
     } else {
-      totalAmount += orderAmount.value;
-      if (!currency && orderAmount.currency) {
-        currency = orderAmount.currency;
-      }
+      totalAmount += convertedOrderAmount;
     }
 
     for (const item of normalizedItems) {
@@ -145,11 +206,8 @@ function extractSkuSalesFromXmlPayload(payload) {
 
       if (hasItemLevelAmounts) {
         existing.value += item.itemAmountValue;
-        if (!currency && item.itemAmountCurrency) {
-          currency = item.itemAmountCurrency;
-        }
-      } else if (totalQtyInOrder > 0 && orderAmount.value) {
-        existing.value += (orderAmount.value * item.qty) / totalQtyInOrder;
+      } else if (totalQtyInOrder > 0 && convertedOrderAmount) {
+        existing.value += (convertedOrderAmount * item.qty) / totalQtyInOrder;
       }
 
       totals.set(item.sku, existing);
@@ -161,14 +219,26 @@ function extractSkuSalesFromXmlPayload(payload) {
       ...row,
       value: Number(row.value.toFixed(2)),
     }))
-    .sort((a, b) => b.itemsSold - a.itemsSold || a.sku.localeCompare(b.sku));
+    .sort((a, b) => {
+      const aIsCover = a.sku.toLowerCase().startsWith("cover");
+      const bIsCover = b.sku.toLowerCase().startsWith("cover");
+
+      if (aIsCover && !bIsCover) return -1;
+      if (!aIsCover && bIsCover) return 1;
+
+      if (b.itemsSold !== a.itemsSold) {
+        return b.itemsSold - a.itemsSold;
+      }
+
+      return a.sku.localeCompare(b.sku);
+    });
 
   return {
     rows,
     totalOrders,
     totalItems,
     totalAmount: Number(totalAmount.toFixed(2)),
-    currency,
+    currency: baseCurrency,
   };
 }
 
@@ -191,6 +261,88 @@ function smallButtonStyle() {
   };
 }
 
+function sectionCardStyle() {
+  return {
+    background: "#f8f8f8",
+    borderRadius: "8px",
+    padding: "16px",
+    marginBottom: "20px",
+  };
+}
+
+function RegionTable({ title, summary }) {
+  return (
+    <div style={{ marginTop: 20 }}>
+      <h3 style={{ marginBottom: 12 }}>{title}</h3>
+
+      <div style={{ background: "#f8f8f8", borderRadius: 8, padding: 14, marginBottom: 16 }}>
+        <div><strong>Total Orders:</strong> {summary.totalOrders}</div>
+        <div><strong>Total Items:</strong> {summary.totalItems}</div>
+        <div><strong>Total Amount:</strong> {summary.totalAmount} {summary.currency}</div>
+      </div>
+
+      <table style={{ borderCollapse: "collapse", width: "100%", marginTop: 12 }}>
+        <thead>
+          <tr>
+            <th
+              style={{
+                border: "1px solid #ccc",
+                padding: "10px",
+                textAlign: "left",
+                background: "#f4f4f4",
+              }}
+            >
+              SKU
+            </th>
+            <th
+              style={{
+                border: "1px solid #ccc",
+                padding: "10px",
+                textAlign: "left",
+                background: "#f4f4f4",
+              }}
+            >
+              Number of Items Sold
+            </th>
+            <th
+              style={{
+                border: "1px solid #ccc",
+                padding: "10px",
+                textAlign: "left",
+                background: "#f4f4f4",
+              }}
+            >
+              Value ({summary.currency})
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {summary.rows.length > 0 ? (
+            summary.rows.map((row) => (
+              <tr key={row.sku}>
+                <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.sku}</td>
+                <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.itemsSold}</td>
+                <td style={{ border: "1px solid #ccc", padding: "10px" }}>
+                  {row.value} {summary.currency}
+                </td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td
+                colSpan={3}
+                style={{ border: "1px solid #ccc", padding: "12px", textAlign: "center" }}
+              >
+                No rows found
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function ReportViewPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -200,18 +352,24 @@ export default function ReportViewPage() {
   const startDate = location.state?.startDate || "";
   const endDate = location.state?.endDate || "";
 
-  const [marketplace, setMarketplace] = useState("usa");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [statusText, setStatusText] = useState("");
-  const [successResponse, setSuccessResponse] = useState(null);
+  const [loadingUsa, setLoadingUsa] = useState(false);
+  const [loadingDe, setLoadingDe] = useState(false);
+  const [errorUsa, setErrorUsa] = useState("");
+  const [errorDe, setErrorDe] = useState("");
+  const [statusUsa, setStatusUsa] = useState("");
+  const [statusDe, setStatusDe] = useState("");
+  const [usaResponse, setUsaResponse] = useState(null);
+  const [deResponse, setDeResponse] = useState(null);
 
-  const selectedReportReqId = marketplace === "usa" ? usaReportId : deReportId;
+  const usaSummary = useMemo(() => {
+    const payload = usaResponse?.data?.payload;
+    return extractSkuSalesFromXmlPayload(payload, "usa");
+  }, [usaResponse]);
 
-  const reportSummary = useMemo(() => {
-    const payload = successResponse?.data?.payload;
-    return extractSkuSalesFromXmlPayload(payload);
-  }, [successResponse]);
+  const deSummary = useMemo(() => {
+    const payload = deResponse?.data?.payload;
+    return extractSkuSalesFromXmlPayload(payload, "de");
+  }, [deResponse]);
 
   function goToSales() {
     navigate("/sales", {
@@ -241,21 +399,23 @@ export default function ReportViewPage() {
       startDate,
       endDate,
     });
+  }, [usaReportId, deReportId, startDate, endDate]);
 
-    if (!selectedReportReqId) {
-      setSuccessResponse(null);
-      setError("Missing report request ID");
+  useEffect(() => {
+    if (!usaReportId) {
+      setUsaResponse(null);
+      setErrorUsa("Missing USA report request ID");
       return;
     }
 
     let cancelled = false;
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    async function fetchReportWithRetry() {
-      setLoading(true);
-      setError("");
-      setSuccessResponse(null);
-      setStatusText("Starting...");
+    async function fetchUsaReport() {
+      setLoadingUsa(true);
+      setErrorUsa("");
+      setUsaResponse(null);
+      setStatusUsa("Starting USA report...");
 
       const maxAttempts = 12;
       const retryDelayMs = 30000;
@@ -263,28 +423,28 @@ export default function ReportViewPage() {
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         if (cancelled) return;
 
-        setStatusText(`Checking report... attempt ${attempt} of ${maxAttempts}`);
+        setStatusUsa(`Checking USA report... attempt ${attempt} of ${maxAttempts}`);
 
         try {
           const res = await fetch(`${API_BASE}/MlfReportGet`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              marketplace,
-              report_req_id: selectedReportReqId,
+              marketplace: "usa",
+              report_req_id: usaReportId,
             }),
           });
 
           const text = await res.text();
-          console.log("MlfReportGet raw response:", text);
+          console.log("USA MlfReportGet raw response:", text);
 
           let data = {};
           if (text) {
             data = JSON.parse(text);
           }
 
-          console.log("MlfReportGet parsed response:", data);
-          console.log("MlfReportGet payload:", data?.data?.payload);
+          console.log("USA MlfReportGet parsed response:", data);
+          console.log("USA MlfReportGet payload:", data?.data?.payload);
 
           if (!res.ok) {
             throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
@@ -301,43 +461,164 @@ export default function ReportViewPage() {
 
           if (isInProgress) {
             if (attempt === maxAttempts) {
-              setError("Report still processing after max attempts");
-              setLoading(false);
+              setErrorUsa("USA report still processing after max attempts");
+              setLoadingUsa(false);
               return;
             }
 
-            setStatusText(`Still processing... retry in 30s (attempt ${attempt}/${maxAttempts})`);
+            setStatusUsa(`USA still processing... retry in 30s (attempt ${attempt}/${maxAttempts})`);
             await sleep(retryDelayMs);
             continue;
           }
 
           if (status === "success") {
-            setSuccessResponse(data);
-            setLoading(false);
+            setUsaResponse(data);
+            setLoadingUsa(false);
             return;
           }
 
-          setLoading(false);
+          setLoadingUsa(false);
           return;
         } catch (err) {
           if (attempt === maxAttempts) {
-            setError(err.message || "Failed");
-            setLoading(false);
+            setErrorUsa(err.message || "USA fetch failed");
+            setLoadingUsa(false);
             return;
           }
 
-          setStatusText(`Error... retrying in 30s (attempt ${attempt})`);
+          setStatusUsa(`USA error... retrying in 30s (attempt ${attempt})`);
           await sleep(retryDelayMs);
         }
       }
     }
 
-    fetchReportWithRetry();
+    fetchUsaReport();
 
     return () => {
       cancelled = true;
     };
-  }, [marketplace, selectedReportReqId, usaReportId, deReportId, startDate, endDate]);
+  }, [usaReportId]);
+
+  useEffect(() => {
+    if (!deReportId) {
+      setDeResponse(null);
+      setErrorDe("Missing DE report request ID");
+      return;
+    }
+
+    let cancelled = false;
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    async function fetchDeReport() {
+      setLoadingDe(true);
+      setErrorDe("");
+      setDeResponse(null);
+      setStatusDe("Starting DE report...");
+
+      const maxAttempts = 12;
+      const retryDelayMs = 30000;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        if (cancelled) return;
+
+        setStatusDe(`Checking DE report... attempt ${attempt} of ${maxAttempts}`);
+
+        try {
+          const res = await fetch(`${API_BASE}/MlfReportGet`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              marketplace: "de",
+              report_req_id: deReportId,
+            }),
+          });
+
+          const text = await res.text();
+          console.log("DE MlfReportGet raw response:", text);
+
+          let data = {};
+          if (text) {
+            data = JSON.parse(text);
+          }
+
+          console.log("DE MlfReportGet parsed response:", data);
+          console.log("DE MlfReportGet payload:", data?.data?.payload);
+
+          if (!res.ok) {
+            throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
+          }
+
+          const status = data?.status;
+          const payloadStatus = data?.data?.payload;
+
+          const isInProgress =
+            status === "IN_PROCESS" ||
+            status === "IN_PROGRESS" ||
+            payloadStatus === "IN_PROCESS" ||
+            payloadStatus === "IN_PROGRESS";
+
+          if (isInProgress) {
+            if (attempt === maxAttempts) {
+              setErrorDe("DE report still processing after max attempts");
+              setLoadingDe(false);
+              return;
+            }
+
+            setStatusDe(`DE still processing... retry in 30s (attempt ${attempt}/${maxAttempts})`);
+            await sleep(retryDelayMs);
+            continue;
+          }
+
+          if (status === "success") {
+            setDeResponse(data);
+            setLoadingDe(false);
+            return;
+          }
+
+          setLoadingDe(false);
+          return;
+        } catch (err) {
+          if (attempt === maxAttempts) {
+            setErrorDe(err.message || "DE fetch failed");
+            setLoadingDe(false);
+            return;
+          }
+
+          setStatusDe(`DE error... retrying in 30s (attempt ${attempt})`);
+          await sleep(retryDelayMs);
+        }
+      }
+    }
+
+    fetchDeReport();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deReportId]);
+
+  const regionSummaryRows = [
+    {
+      region: "USA",
+      reportId: usaReportId || "-",
+      orders: usaSummary.totalOrders,
+      items: usaSummary.totalItems,
+      amount: `${usaSummary.totalAmount} ${usaSummary.currency}`,
+      loading: loadingUsa,
+      error: errorUsa,
+      status: statusUsa,
+    },
+    {
+      region: "DE",
+      reportId: deReportId || "-",
+      orders: deSummary.totalOrders,
+      items: deSummary.totalItems,
+      amount: `${deSummary.totalAmount} ${deSummary.currency}`,
+      loading: loadingDe,
+      error: errorDe,
+      status: statusDe,
+    },
+  ];
 
   return (
     <div style={{ padding: "20px", fontFamily: "Arial, sans-serif", minHeight: "100vh" }}>
@@ -346,7 +627,7 @@ export default function ReportViewPage() {
       <div
         style={{
           marginBottom: 16,
-          maxWidth: "720px",
+          maxWidth: "760px",
           marginInline: "auto",
           background: "#f8f8f8",
           padding: "16px",
@@ -359,80 +640,103 @@ export default function ReportViewPage() {
         <div><strong>End:</strong> {endDate || "-"}</div>
       </div>
 
-      <div style={{ marginBottom: 18, textAlign: "center" }}>
-        <strong>Marketplace</strong>
-        <div style={{ display: "flex", justifyContent: "center", gap: 24, marginTop: 10 }}>
-          <label>
-            <input
-              type="radio"
-              name="marketplace"
-              value="usa"
-              checked={marketplace === "usa"}
-              onChange={(e) => setMarketplace(e.target.value)}
-            />
-            {" "}USA
-          </label>
-
-          <label>
-            <input
-              type="radio"
-              name="marketplace"
-              value="de"
-              checked={marketplace === "de"}
-              onChange={(e) => setMarketplace(e.target.value)}
-            />
-            {" "}DE
-          </label>
-        </div>
-      </div>
-
       <div style={{ textAlign: "center", marginBottom: 18 }}>
-        <button style={{ padding: "10px 18px", borderRadius: "8px", cursor: "pointer" }} onClick={goToUpdate}>
+        <button
+          style={{ padding: "10px 18px", borderRadius: "8px", cursor: "pointer" }}
+          onClick={goToUpdate}
+        >
           Update
         </button>
       </div>
 
-      {loading && <div style={{ textAlign: "center" }}>{statusText}</div>}
-      {error && <div style={{ textAlign: "center", color: "red" }}>{error}</div>}
-
-      {!loading && !error && successResponse && (
-        <div style={{ marginTop: 20, maxWidth: "1000px", marginInline: "auto" }}>
-          <div style={{ background: "#f8f8f8", borderRadius: 8, padding: 14, marginBottom: 16 }}>
-            <div><strong>Total Orders:</strong> {reportSummary.totalOrders}</div>
-            <div><strong>Total Items:</strong> {reportSummary.totalItems}</div>
-            <div><strong>Total Amount:</strong> {reportSummary.totalAmount} {reportSummary.currency}</div>
-          </div>
-
-          <h3>Items Sold by SKU</h3>
+      <div style={{ maxWidth: "1100px", marginInline: "auto" }}>
+        <div style={sectionCardStyle()}>
+          <h3 style={{ marginTop: 0 }}>Summary by Region</h3>
 
           <table style={{ borderCollapse: "collapse", width: "100%", marginTop: 12 }}>
             <thead>
               <tr>
                 <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
-                  SKU
+                  Region
                 </th>
                 <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
-                  Number of Items Sold
+                  Report ID
                 </th>
                 <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
-                  Value
+                  Total Orders
+                </th>
+                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
+                  Total Items
+                </th>
+                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
+                  Total Amount
+                </th>
+                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
+                  Status
                 </th>
               </tr>
             </thead>
             <tbody>
-              {reportSummary.rows.map((row) => (
-                <tr key={row.sku}>
-                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.sku}</td>
-                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.itemsSold}</td>
+              {regionSummaryRows.map((row) => (
+                <tr key={row.region}>
+                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.region}</td>
+                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.reportId}</td>
+                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.orders}</td>
+                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.items}</td>
+                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.amount}</td>
                   <td style={{ border: "1px solid #ccc", padding: "10px" }}>
-                    {row.value} {reportSummary.currency}
+                    {row.error
+                      ? row.error
+                      : row.loading
+                        ? row.status
+                        : "Ready"}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      )}
+
+        {loadingUsa && (
+          <div style={sectionCardStyle()}>
+            <h3 style={{ marginTop: 0 }}>USA</h3>
+            <div>{statusUsa}</div>
+          </div>
+        )}
+
+        {errorUsa && (
+          <div style={sectionCardStyle()}>
+            <h3 style={{ marginTop: 0 }}>USA</h3>
+            <div style={{ color: "red" }}>{errorUsa}</div>
+          </div>
+        )}
+
+        {!loadingUsa && !errorUsa && (
+          <div style={sectionCardStyle()}>
+            <RegionTable title="USA Totals + SKU Table" summary={usaSummary} />
+          </div>
+        )}
+
+        {loadingDe && (
+          <div style={sectionCardStyle()}>
+            <h3 style={{ marginTop: 0 }}>DE</h3>
+            <div>{statusDe}</div>
+          </div>
+        )}
+
+        {errorDe && (
+          <div style={sectionCardStyle()}>
+            <h3 style={{ marginTop: 0 }}>DE</h3>
+            <div style={{ color: "red" }}>{errorDe}</div>
+          </div>
+        )}
+
+        {!loadingDe && !errorDe && (
+          <div style={sectionCardStyle()}>
+            <RegionTable title="DE Totals + SKU Table" summary={deSummary} />
+          </div>
+        )}
+      </div>
 
       <div style={bottomNavStyle()}>
         <button style={smallButtonStyle()} onClick={() => navigate("/")}>
