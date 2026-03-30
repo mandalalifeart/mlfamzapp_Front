@@ -57,6 +57,7 @@ function extractSkuSalesFromXmlPayload(payload) {
     return {
       rows: [],
       totalOrders: 0,
+      totalItems: 0,
       totalAmount: 0,
       currency: "",
     };
@@ -70,6 +71,7 @@ function extractSkuSalesFromXmlPayload(payload) {
     return {
       rows: [],
       totalOrders: 0,
+      totalItems: 0,
       totalAmount: 0,
       currency: "",
     };
@@ -78,6 +80,7 @@ function extractSkuSalesFromXmlPayload(payload) {
   const orderNodes = Array.from(xmlDoc.getElementsByTagName("Order"));
   const totals = new Map();
   let totalOrders = 0;
+  let totalItems = 0;
   let totalAmount = 0;
   let currency = "";
 
@@ -85,7 +88,7 @@ function extractSkuSalesFromXmlPayload(payload) {
     const salesChannel = order.getElementsByTagName("SalesChannel")[0]?.textContent?.trim() || "";
 
     if (shouldIgnoreSalesChannel(salesChannel)) {
-      console.log("Ignoring order בגלל sales channel:", salesChannel);
+      console.log("Ignoring order because of sales channel:", salesChannel);
       continue;
     }
 
@@ -105,6 +108,8 @@ function extractSkuSalesFromXmlPayload(payload) {
 
         const quantity = Number(orderItem.getElementsByTagName("Quantity")[0]?.textContent?.trim() || "0");
         const safeQty = Number.isFinite(quantity) ? quantity : 0;
+
+        totalItems += safeQty;
 
         const itemAmount = getOrderItemAmount(orderItem);
 
@@ -161,6 +166,7 @@ function extractSkuSalesFromXmlPayload(payload) {
   return {
     rows,
     totalOrders,
+    totalItems,
     totalAmount: Number(totalAmount.toFixed(2)),
     currency,
   };
@@ -229,6 +235,13 @@ export default function ReportViewPage() {
   }
 
   useEffect(() => {
+    console.log("ReportViewPage mounted with state:", {
+      usaReportId,
+      deReportId,
+      startDate,
+      endDate,
+    });
+
     if (!selectedReportReqId) {
       setSuccessResponse(null);
       setError("Missing report request ID");
@@ -324,7 +337,7 @@ export default function ReportViewPage() {
     return () => {
       cancelled = true;
     };
-  }, [marketplace, selectedReportReqId]);
+  }, [marketplace, selectedReportReqId, usaReportId, deReportId, startDate, endDate]);
 
   return (
     <div style={{ padding: "20px", fontFamily: "Arial, sans-serif", minHeight: "100vh" }}>
@@ -386,6 +399,7 @@ export default function ReportViewPage() {
         <div style={{ marginTop: 20, maxWidth: "1000px", marginInline: "auto" }}>
           <div style={{ background: "#f8f8f8", borderRadius: 8, padding: 14, marginBottom: 16 }}>
             <div><strong>Total Orders:</strong> {reportSummary.totalOrders}</div>
+            <div><strong>Total Items:</strong> {reportSummary.totalItems}</div>
             <div><strong>Total Amount:</strong> {reportSummary.totalAmount} {reportSummary.currency}</div>
           </div>
 
@@ -394,9 +408,15 @@ export default function ReportViewPage() {
           <table style={{ borderCollapse: "collapse", width: "100%", marginTop: 12 }}>
             <thead>
               <tr>
-                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>SKU</th>
-                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>Number of Items Sold</th>
-                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>Value</th>
+                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
+                  SKU
+                </th>
+                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
+                  Number of Items Sold
+                </th>
+                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
+                  Value
+                </th>
               </tr>
             </thead>
             <tbody>
