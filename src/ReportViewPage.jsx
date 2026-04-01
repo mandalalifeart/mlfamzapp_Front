@@ -28,6 +28,24 @@ const currencyRatesToEur = {
   BGN: 0.51,
 };
 
+const MARKETPLACE_OPTIONS = [
+  { value: "", label: "All marketplaces" },
+  { value: "amazon.com", label: "com" },
+  { value: "amazon.ca", label: "ca" },
+  { value: "amazon.com.mx", label: "mex" },
+  { value: "amazon.co.uk", label: "co.uk" },
+  { value: "amazon.de", label: "de" },
+  { value: "amazon.fr", label: "fr" },
+  { value: "amazon.it", label: "it" },
+  { value: "amazon.es", label: "es" },
+  { value: "amazon.se", label: "se" },
+  { value: "amazon.com.be", label: "com.be" },
+  { value: "amazon.co.jp", label: "jp" },
+  { value: "amazon.pl", label: "pl" },
+  { value: "amazon.nl", label: "nl" },
+  { value: "amazon.ie", label: "ie" },
+];
+
 function extractAmznGrValue(input) {
   if (typeof input !== "string") return input;
   const match = input.match(/^amzn\.gr\.([^-]+)/);
@@ -106,8 +124,13 @@ function getOrderItemAmount(orderItem) {
   return getDirectChildAmount(orderItem);
 }
 
-function extractSkuSalesFromXmlPayload(payload, region) {
+function normalizeSalesChannel(salesChannel) {
+  return (salesChannel || "").trim().toLowerCase();
+}
+
+function extractSkuSalesFromXmlPayload(payload, region, selectedMarketplace = "") {
   const baseCurrency = getBaseCurrencyForRegion(region);
+  const marketplaceFilter = normalizeSalesChannel(selectedMarketplace);
 
   if (!payload || typeof payload !== "string") {
     return {
@@ -141,9 +164,14 @@ function extractSkuSalesFromXmlPayload(payload, region) {
 
   for (const order of orderNodes) {
     const salesChannel = order.getElementsByTagName("SalesChannel")[0]?.textContent?.trim() || "";
+    const normalizedSalesChannel = normalizeSalesChannel(salesChannel);
 
     if (shouldIgnoreSalesChannel(salesChannel)) {
       console.log(`Ignoring ${region} order because of sales channel:`, salesChannel);
+      continue;
+    }
+
+    if (marketplaceFilter && normalizedSalesChannel !== marketplaceFilter) {
       continue;
     }
 
@@ -249,6 +277,7 @@ function bottomNavStyle() {
     gap: "10px",
     marginTop: "28px",
     paddingBottom: "16px",
+    flexWrap: "wrap",
   };
 }
 
@@ -258,6 +287,24 @@ function smallButtonStyle() {
     fontSize: "14px",
     cursor: "pointer",
     borderRadius: "8px",
+  };
+}
+
+function updateButtonStyle() {
+  return {
+    padding: "6px 14px",
+    fontSize: "13px",
+    cursor: "pointer",
+    borderRadius: "8px",
+  };
+}
+
+function selectorStyle() {
+  return {
+    padding: "8px 12px",
+    fontSize: "14px",
+    borderRadius: "8px",
+    minWidth: "180px",
   };
 }
 
@@ -290,6 +337,17 @@ function RegionTable({ title, summary }) {
                 padding: "10px",
                 textAlign: "left",
                 background: "#f4f4f4",
+                width: "90px",
+              }}
+            >
+              Image
+            </th>
+            <th
+              style={{
+                border: "1px solid #ccc",
+                padding: "10px",
+                textAlign: "left",
+                background: "#f4f4f4",
               }}
             >
               SKU
@@ -304,27 +362,24 @@ function RegionTable({ title, summary }) {
             >
               Number of Items Sold
             </th>
-            <th
-              style={{
-                border: "1px solid #ccc",
-                padding: "10px",
-                textAlign: "left",
-                background: "#f4f4f4",
-              }}
-            >
-              Value ({summary.currency})
-            </th>
           </tr>
         </thead>
         <tbody>
           {summary.rows.length > 0 ? (
             summary.rows.map((row) => (
               <tr key={row.sku}>
+                <td style={{ border: "1px solid #ccc", padding: "10px" }}>
+                  <img
+                    src={`https://storage.googleapis.com/mlf-amz-images/${encodeURIComponent(row.sku)}.jpg`}
+                    alt={row.sku}
+                    style={{ width: "56px", height: "56px", objectFit: "cover", borderRadius: "6px" }}
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                </td>
                 <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.sku}</td>
                 <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.itemsSold}</td>
-                <td style={{ border: "1px solid #ccc", padding: "10px" }}>
-                  {row.value} {summary.currency}
-                </td>
               </tr>
             ))
           ) : (
@@ -360,16 +415,17 @@ export default function ReportViewPage() {
   const [statusDe, setStatusDe] = useState("");
   const [usaResponse, setUsaResponse] = useState(null);
   const [deResponse, setDeResponse] = useState(null);
+  const [selectedMarketplace, setSelectedMarketplace] = useState("");
 
   const usaSummary = useMemo(() => {
     const payload = usaResponse?.data?.payload;
-    return extractSkuSalesFromXmlPayload(payload, "usa");
-  }, [usaResponse]);
+    return extractSkuSalesFromXmlPayload(payload, "usa", selectedMarketplace);
+  }, [usaResponse, selectedMarketplace]);
 
   const deSummary = useMemo(() => {
     const payload = deResponse?.data?.payload;
-    return extractSkuSalesFromXmlPayload(payload, "de");
-  }, [deResponse]);
+    return extractSkuSalesFromXmlPayload(payload, "de", selectedMarketplace);
+  }, [deResponse, selectedMarketplace]);
 
   function goToSales() {
     navigate("/sales", {
@@ -600,25 +656,20 @@ export default function ReportViewPage() {
   const regionSummaryRows = [
     {
       region: "USA",
-      reportId: usaReportId || "-",
       orders: usaSummary.totalOrders,
       items: usaSummary.totalItems,
       amount: `${usaSummary.totalAmount} ${usaSummary.currency}`,
-      loading: loadingUsa,
-      error: errorUsa,
-      status: statusUsa,
     },
     {
       region: "DE",
-      reportId: deReportId || "-",
       orders: deSummary.totalOrders,
       items: deSummary.totalItems,
       amount: `${deSummary.totalAmount} ${deSummary.currency}`,
-      loading: loadingDe,
-      error: errorDe,
-      status: statusDe,
     },
   ];
+
+  const selectedMarketplaceLabel =
+    MARKETPLACE_OPTIONS.find((option) => option.value === selectedMarketplace)?.label || "All marketplaces";
 
   return (
     <div style={{ padding: "20px", fontFamily: "Arial, sans-serif", minHeight: "100vh" }}>
@@ -640,15 +691,6 @@ export default function ReportViewPage() {
         <div><strong>End:</strong> {endDate || "-"}</div>
       </div>
 
-      <div style={{ textAlign: "center", marginBottom: 18 }}>
-        <button
-          style={{ padding: "10px 18px", borderRadius: "8px", cursor: "pointer" }}
-          onClick={goToUpdate}
-        >
-          Update
-        </button>
-      </div>
-
       <div style={{ maxWidth: "1100px", marginInline: "auto" }}>
         <div style={sectionCardStyle()}>
           <h3 style={{ marginTop: 0 }}>Summary by Region</h3>
@@ -660,9 +702,6 @@ export default function ReportViewPage() {
                   Region
                 </th>
                 <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
-                  Report ID
-                </th>
-                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
                   Total Orders
                 </th>
                 <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
@@ -671,26 +710,15 @@ export default function ReportViewPage() {
                 <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
                   Total Amount
                 </th>
-                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
-                  Status
-                </th>
               </tr>
             </thead>
             <tbody>
               {regionSummaryRows.map((row) => (
                 <tr key={row.region}>
                   <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.region}</td>
-                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.reportId}</td>
                   <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.orders}</td>
                   <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.items}</td>
                   <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.amount}</td>
-                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>
-                    {row.error
-                      ? row.error
-                      : row.loading
-                        ? row.status
-                        : "Ready"}
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -713,7 +741,10 @@ export default function ReportViewPage() {
 
         {!loadingUsa && !errorUsa && (
           <div style={sectionCardStyle()}>
-            <RegionTable title="USA Totals + SKU Table" summary={usaSummary} />
+            <RegionTable
+              title={`USA Totals + SKU Table (${selectedMarketplaceLabel})`}
+              summary={usaSummary}
+            />
           </div>
         )}
 
@@ -733,7 +764,10 @@ export default function ReportViewPage() {
 
         {!loadingDe && !errorDe && (
           <div style={sectionCardStyle()}>
-            <RegionTable title="DE Totals + SKU Table" summary={deSummary} />
+            <RegionTable
+              title={`DE Totals + SKU Table (${selectedMarketplaceLabel})`}
+              summary={deSummary}
+            />
           </div>
         )}
       </div>
@@ -744,6 +778,20 @@ export default function ReportViewPage() {
         </button>
         <button style={smallButtonStyle()} onClick={goToSales}>
           Sales
+        </button>
+        <select
+          value={selectedMarketplace}
+          onChange={(e) => setSelectedMarketplace(e.target.value)}
+          style={selectorStyle()}
+        >
+          {MARKETPLACE_OPTIONS.map((option) => (
+            <option key={option.label} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <button style={updateButtonStyle()} onClick={goToUpdate}>
+          Update
         </button>
       </div>
     </div>
