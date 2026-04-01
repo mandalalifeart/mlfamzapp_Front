@@ -368,11 +368,11 @@ function RegionTable({ title, summary }) {
           {summary.rows.length > 0 ? (
             summary.rows.map((row) => (
               <tr key={row.sku}>
-                <td style={{ border: "1px solid #ccc", padding: "10px" }}>
+                <td style={{ border: "1px solid #ccc", padding: "12px" }}>
                   <img
                     src={`https://storage.googleapis.com/mlf-amz-images/${encodeURIComponent(row.sku)}.jpg`}
                     alt={row.sku}
-                    style={{ width: "56px", height: "56px", objectFit: "cover", borderRadius: "6px" }}
+                    style={{ width: "100px", height: "100px", objectFit: "cover", borderRadius: "6px" }}
                     onError={(e) => {
                       e.currentTarget.style.display = "none";
                     }}
