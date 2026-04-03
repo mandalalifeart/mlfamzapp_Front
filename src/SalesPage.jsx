@@ -136,7 +136,7 @@ function SummaryTable({ rows }) {
   );
 }
 
-function DepartmentTable({ title, rows, monthColumns }) {
+function DepartmentTable({ title, rows }) {
   if (!Array.isArray(rows) || rows.length === 0) {
     return (
       <div style={cardStyle()}>
@@ -146,95 +146,98 @@ function DepartmentTable({ title, rows, monthColumns }) {
     );
   }
 
+  const years = ["2026", "2025", "2024", "2023"];
+
+  function getMonthValue(row, year, monthIndex) {
+    const key = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
+    return row[key] ?? 0;
+  }
+
   return (
     <div style={cardStyle()}>
       <h3 style={{ marginTop: 0 }}>{title}</h3>
+
       <div style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "1600px" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "1400px" }}>
           <thead>
             <tr>
-              <th style={tableCellStyle({ background: "#f4f4f4", minWidth: "280px" })}>SKU</th>
-              <th style={tableCellStyle({ background: "#f4f4f4", minWidth: "140px" })}>ASIN</th>
-              <th style={numberCellStyle({ background: "#f4f4f4" })}>2023</th>
-              <th style={numberCellStyle({ background: "#f4f4f4" })}>2024</th>
-              <th style={numberCellStyle({ background: "#f4f4f4" })}>2025</th>
-              <th style={numberCellStyle({ background: "#f4f4f4" })}>2026</th>
-              {monthColumns.map((monthKey) => (
+              <th style={tableCellStyle({ background: "#f4f4f4" })}>SKU</th>
+              <th style={tableCellStyle({ background: "#f4f4f4" })}>ASIN</th>
+              <th style={tableCellStyle({ background: "#f4f4f4" })}>Year</th>
+              {Array.from({ length: 12 }).map((_, i) => (
                 <th
-                  key={monthKey}
-                  style={numberCellStyle({ background: "#f4f4f4", minWidth: "82px" })}
+                  key={i}
+                  style={numberCellStyle({ background: "#f4f4f4", minWidth: "70px" })}
                 >
-                  {monthKey}
+                  {i + 1}
                 </th>
               ))}
+              <th style={numberCellStyle({ background: "#f4f4f4" })}>Total</th>
             </tr>
           </thead>
+
           <tbody>
-            {rows.map((row, index) => {
-              const isTotal = index === 0 && row.ASIN === "ALL";
-              return (
-                <tr key={`${row.ASIN}-${index}`}>
-                  <td
-                    style={tableCellStyle({
-                      fontWeight: isTotal ? "700" : "400",
-                      background: isTotal ? "#f9fbff" : "#fff",
-                    })}
-                  >
-                    {row.SKU ?? ""}
-                  </td>
-                  <td
-                    style={tableCellStyle({
-                      fontWeight: isTotal ? "700" : "400",
-                      background: isTotal ? "#f9fbff" : "#fff",
-                    })}
-                  >
-                    {row.ASIN ?? ""}
-                  </td>
-                  <td
-                    style={numberCellStyle({
-                      fontWeight: isTotal ? "700" : "400",
-                      background: isTotal ? "#f9fbff" : "#fff",
-                    })}
-                  >
-                    {row.Y2023 ?? 0}
-                  </td>
-                  <td
-                    style={numberCellStyle({
-                      fontWeight: isTotal ? "700" : "400",
-                      background: isTotal ? "#f9fbff" : "#fff",
-                    })}
-                  >
-                    {row.Y2024 ?? 0}
-                  </td>
-                  <td
-                    style={numberCellStyle({
-                      fontWeight: isTotal ? "700" : "400",
-                      background: isTotal ? "#f9fbff" : "#fff",
-                    })}
-                  >
-                    {row.Y2025 ?? 0}
-                  </td>
-                  <td
-                    style={numberCellStyle({
-                      fontWeight: isTotal ? "700" : "400",
-                      background: isTotal ? "#f9fbff" : "#fff",
-                    })}
-                  >
-                    {row.Y2026 ?? 0}
-                  </td>
-                  {monthColumns.map((monthKey) => (
+            {rows.flatMap((row, rowIndex) => {
+              const isTotal = rowIndex === 0 && row.ASIN === "ALL";
+
+              return years.map((year, yIndex) => {
+                const yearlyTotal = row[`Y${year}`] ?? 0;
+                const isFirstYearRow = yIndex === 0;
+
+                return (
+                  <tr key={`${row.ASIN}-${year}`}>
                     <td
-                      key={monthKey}
-                      style={numberCellStyle({
+                      style={tableCellStyle({
                         fontWeight: isTotal ? "700" : "400",
+                        background: isTotal ? "#f9fbff" : "#fff",
+                        verticalAlign: "top",
+                      })}
+                    >
+                      {isFirstYearRow ? row.SKU : ""}
+                    </td>
+
+                    <td
+                      style={tableCellStyle({
+                        fontWeight: isTotal ? "700" : "400",
+                        background: isTotal ? "#f9fbff" : "#fff",
+                        verticalAlign: "top",
+                      })}
+                    >
+                      {isFirstYearRow ? row.ASIN : ""}
+                    </td>
+
+                    <td
+                      style={tableCellStyle({
+                        background: isTotal ? "#f9fbff" : "#fff",
+                        fontWeight: isTotal ? "700" : "400",
+                      })}
+                    >
+                      {year}
+                    </td>
+
+                    {Array.from({ length: 12 }).map((_, i) => (
+                      <td
+                        key={i}
+                        style={numberCellStyle({
+                          background: isTotal ? "#f9fbff" : "#fff",
+                          fontWeight: isTotal ? "700" : "400",
+                        })}
+                      >
+                        {getMonthValue(row, year, i)}
+                      </td>
+                    ))}
+
+                    <td
+                      style={numberCellStyle({
+                        fontWeight: "700",
                         background: isTotal ? "#f9fbff" : "#fff",
                       })}
                     >
-                      {row[monthKey] ?? 0}
+                      {yearlyTotal}
                     </td>
-                  ))}
-                </tr>
-              );
+                  </tr>
+                );
+              });
             })}
           </tbody>
         </table>
@@ -258,9 +261,10 @@ export default function SalesPage() {
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
 
-  const monthColumns = useMemo(() => {
-    return Array.isArray(result?.monthColumns) ? result.monthColumns : [];
-  }, [result]);
+  const departmentSummary = useMemo(
+    () => (Array.isArray(result?.departmentSummary) ? result.departmentSummary : []),
+    [result]
+  );
 
   async function loadSalesReport(selectedRegion) {
     setLoading(true);
@@ -477,25 +481,11 @@ export default function SalesPage() {
             </div>
           )}
 
-          <SummaryTable rows={result.departmentSummary || []} />
+          <SummaryTable rows={departmentSummary} />
 
-          <DepartmentTable
-            title="PAREO"
-            rows={result.departments?.PAREO || []}
-            monthColumns={monthColumns}
-          />
-
-          <DepartmentTable
-            title="P_RUG"
-            rows={result.departments?.P_RUG || []}
-            monthColumns={monthColumns}
-          />
-
-          <DepartmentTable
-            title="P_BOHO"
-            rows={result.departments?.P_BOHO || []}
-            monthColumns={monthColumns}
-          />
+          <DepartmentTable title="PAREO" rows={result.departments?.PAREO || []} />
+          <DepartmentTable title="P_RUG" rows={result.departments?.P_RUG || []} />
+          <DepartmentTable title="P_BOHO" rows={result.departments?.P_BOHO || []} />
 
           {!result.departments && (
             <div style={cardStyle()}>
