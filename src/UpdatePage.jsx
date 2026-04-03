@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 const API_BASE =
@@ -18,13 +18,15 @@ function bottomNavStyle() {
 
 function smallButtonStyle(disabled = false) {
   return {
-    padding: "8px 16px",
+    padding: "10px 18px",
     fontSize: "14px",
     cursor: disabled ? "not-allowed" : "pointer",
     borderRadius: "8px",
-    border: "1px solid #bbb",
-    background: disabled ? "#eee" : "#fff",
-    opacity: disabled ? 0.7 : 1,
+    border: "none",
+    background: disabled ? "#9bbcf7" : "#1976d2",
+    color: "#ffffff",
+    fontWeight: "600",
+    opacity: disabled ? 0.6 : 1,
   };
 }
 
@@ -34,6 +36,16 @@ function cardStyle() {
     border: "1px solid #ddd",
     borderRadius: "8px",
     padding: "16px",
+  };
+}
+
+function inputStyle() {
+  return {
+    width: "100%",
+    padding: "10px",
+    borderRadius: "8px",
+    border: "1px solid #ccc",
+    boxSizing: "border-box",
   };
 }
 
@@ -189,6 +201,13 @@ export default function UpdatePage() {
     };
   }, [startDate, endDate]);
 
+  useEffect(() => {
+    if (dateValidation.ok) {
+      setConfirmMonth(dateValidation.month);
+      setConfirmYear(dateValidation.year);
+    }
+  }, [dateValidation]);
+
   async function handleRunUpdate() {
     setError("");
     setResult(null);
@@ -198,12 +217,12 @@ export default function UpdatePage() {
       return;
     }
 
-    if (String(confirmMonth).trim() !== String(dateValidation.month)) {
+    if (Number(confirmMonth) !== Number(dateValidation.month)) {
       setError(`Please confirm month ${dateValidation.month}`);
       return;
     }
 
-    if (String(confirmYear).trim() !== String(dateValidation.year)) {
+    if (Number(confirmYear) !== Number(dateValidation.year)) {
       setError(`Please confirm year ${dateValidation.year}`);
       return;
     }
@@ -305,13 +324,13 @@ export default function UpdatePage() {
           marginBottom: "20px",
         }}
       >
-        <h3 style={{ marginTop: 0 }}>Confirm Update</h3>
+        <h3 style={{ marginTop: 0, textAlign: "center" }}>Confirm Update</h3>
 
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: "12px",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "16px",
             alignItems: "end",
           }}
         >
@@ -323,15 +342,8 @@ export default function UpdatePage() {
               type="number"
               value={confirmMonth}
               onChange={(e) => setConfirmMonth(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "10px",
-                borderRadius: "8px",
-                border: "1px solid #ccc",
-              }}
-              placeholder={
-                dateValidation.ok ? String(dateValidation.month) : ""
-              }
+              style={inputStyle()}
+              placeholder={dateValidation.ok ? String(dateValidation.month) : ""}
             />
           </div>
 
@@ -343,12 +355,7 @@ export default function UpdatePage() {
               type="number"
               value={confirmYear}
               onChange={(e) => setConfirmYear(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "10px",
-                borderRadius: "8px",
-                border: "1px solid #ccc",
-              }}
+              style={inputStyle()}
               placeholder={dateValidation.ok ? String(dateValidation.year) : ""}
             />
           </div>
@@ -360,12 +367,7 @@ export default function UpdatePage() {
             <select
               value={dryRun ? "dry" : "wet"}
               onChange={(e) => setDryRun(e.target.value === "dry")}
-              style={{
-                width: "100%",
-                padding: "10px",
-                borderRadius: "8px",
-                border: "1px solid #ccc",
-              }}
+              style={inputStyle()}
             >
               <option value="dry">Dry Run</option>
               <option value="wet">Wet Run</option>
@@ -373,9 +375,12 @@ export default function UpdatePage() {
           </div>
         </div>
 
-        <div style={{ marginTop: "16px" }}>
+        <div style={{ marginTop: "20px", textAlign: "center" }}>
           <button
-            style={smallButtonStyle(loading || !dateValidation.ok)}
+            style={{
+              ...smallButtonStyle(loading || !dateValidation.ok),
+              minWidth: "180px",
+            }}
             onClick={handleRunUpdate}
             disabled={loading || !dateValidation.ok}
           >
@@ -392,6 +397,7 @@ export default function UpdatePage() {
               border: "1px solid #f0caca",
               padding: "10px",
               borderRadius: "8px",
+              textAlign: "center",
             }}
           >
             {error}
@@ -414,7 +420,7 @@ export default function UpdatePage() {
               <tbody>
                 {Object.entries(result)
                   .filter(
-                    ([key, value]) =>
+                    ([, value]) =>
                       !Array.isArray(value) &&
                       (typeof value !== "object" || value === null)
                   )
