@@ -444,7 +444,7 @@ export default function ReportViewPage() {
         usaReportId,
         deReportId,
         startDate,
-		endDate,       
+		endDate,        
 	},
     });
   }
