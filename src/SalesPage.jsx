@@ -150,7 +150,11 @@ function DepartmentTable({ title, rows }) {
 
   function getMonthValue(row, year, monthIndex) {
     const key = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
-    return row[key] ?? 0;
+    return Number(row[key] ?? 0);
+  }
+
+  function getYearTotal(row, year) {
+    return Number(row[`Y${year}`] ?? 0);
   }
 
   return (
@@ -181,8 +185,8 @@ function DepartmentTable({ title, rows }) {
               const isTotal = rowIndex === 0 && row.ASIN === "ALL";
 
               return years.map((year, yIndex) => {
-                const yearlyTotal = row[`Y${year}`] ?? 0;
                 const isFirstYearRow = yIndex === 0;
+                const yearlyTotal = getYearTotal(row, year);
 
                 return (
                   <tr key={`${row.ASIN}-${year}`}>
@@ -257,6 +261,7 @@ export default function SalesPage() {
   const adminKey = location.state?.adminKey || "";
 
   const [region, setRegion] = useState(location.state?.defaultRegion || "all");
+  const [asin, setAsin] = useState(location.state?.defaultAsin || "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
@@ -266,7 +271,7 @@ export default function SalesPage() {
     [result]
   );
 
-  async function loadSalesReport(selectedRegion) {
+  async function loadSalesReport(selectedRegion, selectedAsin) {
     setLoading(true);
     setError("");
     setResult(null);
@@ -280,6 +285,7 @@ export default function SalesPage() {
         },
         body: JSON.stringify({
           region: selectedRegion,
+          asin: selectedAsin || null,
         }),
       });
 
@@ -304,7 +310,7 @@ export default function SalesPage() {
   }
 
   useEffect(() => {
-    loadSalesReport(region);
+    loadSalesReport(region, asin);
   }, [region]);
 
   function goHome() {
@@ -359,11 +365,11 @@ export default function SalesPage() {
           marginBottom: "20px",
         }}
       >
-        <h3 style={{ marginTop: 0 }}>Region</h3>
+        <h3 style={{ marginTop: 0 }}>Filters</h3>
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(220px, 320px) auto",
+            gridTemplateColumns: "minmax(220px, 320px) minmax(220px, 320px) auto",
             gap: "12px",
             alignItems: "end",
           }}
@@ -386,9 +392,21 @@ export default function SalesPage() {
           </div>
 
           <div>
+            <label style={{ display: "block", marginBottom: "6px" }}>
+              ASIN (optional)
+            </label>
+            <input
+              value={asin}
+              onChange={(e) => setAsin(e.target.value.toUpperCase())}
+              style={inputStyle()}
+              placeholder="B07Q4FM2CL"
+            />
+          </div>
+
+          <div>
             <button
               style={blueButtonStyle(loading)}
-              onClick={() => loadSalesReport(region)}
+              onClick={() => loadSalesReport(region, asin)}
               disabled={loading}
             >
               {loading ? "Loading..." : "Reload"}
@@ -452,6 +470,18 @@ export default function SalesPage() {
                   <td style={tableCellStyle()}>{result.region ?? "-"}</td>
                 </tr>
                 <tr>
+                  <td style={tableCellStyle({ background: "#f4f4f4" })}>ASIN Filter</td>
+                  <td style={tableCellStyle()}>{result.asinFilter ?? "-"}</td>
+                </tr>
+                <tr>
+                  <td style={tableCellStyle({ background: "#f4f4f4" })}>Mapped SKU Count</td>
+                  <td style={tableCellStyle()}>{result.mappedSkuCount ?? "-"}</td>
+                </tr>
+                <tr>
+                  <td style={tableCellStyle({ background: "#f4f4f4" })}>Matched Sales Rows</td>
+                  <td style={tableCellStyle()}>{result.matchedSalesRows ?? "-"}</td>
+                </tr>
+                <tr>
                   <td style={tableCellStyle({ background: "#f4f4f4" })}>Source Row Count</td>
                   <td style={tableCellStyle()}>{result.sourceRowCount ?? 0}</td>
                 </tr>
@@ -462,6 +492,20 @@ export default function SalesPage() {
               </tbody>
             </table>
           </div>
+
+          {Array.isArray(result.mappedSkus) && result.mappedSkus.length > 0 && (
+            <div style={cardStyle()}>
+              <h3 style={{ marginTop: 0 }}>Mapped SKUs</h3>
+              <div>{result.mappedSkus.join(", ")}</div>
+            </div>
+          )}
+
+          {Array.isArray(result.missingSkuExamples) && result.missingSkuExamples.length > 0 && (
+            <div style={cardStyle()}>
+              <h3 style={{ marginTop: 0 }}>Missing SKU Examples</h3>
+              <div>{result.missingSkuExamples.join(", ")}</div>
+            </div>
+          )}
 
           {result.mappingStats && (
             <div style={cardStyle()}>
