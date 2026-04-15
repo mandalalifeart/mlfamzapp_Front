@@ -350,120 +350,97 @@ function RegionTable({ title, summary, isMobile }) {
         <div><strong>Total Amount:</strong> {summary.totalAmount} {summary.currency}</div>
       </div>
 
-      <div
+      <table
         style={{
+          borderCollapse: "collapse",
           width: "100%",
-          overflowX: "auto",
-          overflowY: "hidden",
-          background: "#ffffff",
-          borderRadius: "8px",
-          WebkitOverflowScrolling: "touch",
+          tableLayout: "fixed", // ✅ IMPORTANT
+          background: "#fff",
         }}
       >
-        <table
-          style={{
-            borderCollapse: "collapse",
-            width: "100%",
-            minWidth: isMobile ? "420px" : "520px",
-            tableLayout: "fixed",
-            background: "#ffffff",
-          }}
-        >
-          <thead>
-            <tr>
-              <th
+        <thead>
+          <tr>
+            <th
+              style={{
+                border: "1px solid #ccc",
+                padding: isMobile ? "6px" : "10px",
+                background: "#f4f4f4",
+                width: "80px", // ✅ fixed small
+              }}
+            >
+              Image
+            </th>
+
+            <th
+              style={{
+                border: "1px solid #ccc",
+                padding: isMobile ? "6px" : "10px",
+                background: "#f4f4f4",
+                width: "auto",
+              }}
+            >
+              SKU
+            </th>
+
+            <th
+              style={{
+                border: "1px solid #ccc",
+                padding: isMobile ? "6px" : "10px",
+                background: "#f4f4f4",
+                width: "50px", // ✅ small column
+                textAlign: "center",
+              }}
+            >
+              #
+            </th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {summary.rows.map((row) => (
+            <tr key={row.sku}>
+              <td style={{ border: "1px solid #ccc", padding: "6px" }}>
+                <img
+                  src={`https://storage.googleapis.com/mlf-amz-images/${encodeURIComponent(row.sku)}.jpg`}
+                  alt={row.sku}
+                  style={{
+                    width: isMobile ? "60px" : "80px",
+                    height: isMobile ? "60px" : "80px",
+                    objectFit: "cover",
+                    borderRadius: "6px",
+                  }}
+                />
+              </td>
+
+              <td
                 style={{
                   border: "1px solid #ccc",
-                  padding: isMobile ? "8px" : "10px",
-                  textAlign: "left",
-                  background: "#f4f4f4",
-                  width: isMobile ? "92px" : "110px",
-                }}
-              >
-                Image
-              </th>
-              <th
-                style={{
-                  border: "1px solid #ccc",
-                  padding: isMobile ? "8px" : "10px",
-                  textAlign: "left",
-                  background: "#f4f4f4",
+                  padding: "8px",
+                  fontSize: isMobile ? "14px" : "16px",
+
+                  // ✅ THIS FIXES WIDTH ISSUE
                   wordBreak: "break-word",
                   overflowWrap: "anywhere",
+                  whiteSpace: "normal",
                 }}
               >
-                SKU
-              </th>
-              <th
+                {shortenSkuForMobile(row.sku, isMobile)}
+              </td>
+
+              <td
                 style={{
                   border: "1px solid #ccc",
-                  padding: isMobile ? "8px" : "10px",
-                  textAlign: "left",
-                  background: "#f4f4f4",
-                  width: isMobile ? "92px" : "120px",
-                  wordBreak: "break-word",
-                  overflowWrap: "anywhere",
+                  padding: "8px",
+                  textAlign: "center",
+                  fontWeight: "bold",
                 }}
               >
-                {isMobile ? "Sold" : "Number of Items Sold"}
-              </th>
+                {row.itemsSold}
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {summary.rows.length > 0 ? (
-              summary.rows.map((row) => (
-                <tr key={row.sku}>
-                  <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "12px" }}>
-                    <img
-                      src={`https://storage.googleapis.com/mlf-amz-images/${encodeURIComponent(row.sku)}.jpg`}
-                      alt={row.sku}
-                      style={{
-                        width: isMobile ? "64px" : "80px",
-                        height: isMobile ? "64px" : "80px",
-                        objectFit: "cover",
-                        borderRadius: "6px",
-                        display: "block",
-                      }}
-                      onError={(e) => {
-                        e.currentTarget.style.display = "none";
-                      }}
-                    />
-                  </td>
-                  <td
-                    style={{
-                      border: "1px solid #ccc",
-                      padding: isMobile ? "8px" : "10px",
-                      wordBreak: "break-word",
-                      overflowWrap: "anywhere",
-                      fontSize: isMobile ? "14px" : "16px",
-                    }}
-                  >
-                    {shortenSkuForMobile(row.sku, isMobile)}
-                  </td>
-                  <td
-                    style={{
-                      border: "1px solid #ccc",
-                      padding: isMobile ? "8px" : "10px",
-                      fontSize: isMobile ? "14px" : "16px",
-                    }}
-                  >
-                    {row.itemsSold}
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td
-                  colSpan={3}
-                  style={{ border: "1px solid #ccc", padding: "12px", textAlign: "center" }}
-                >
-                  No rows found
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
