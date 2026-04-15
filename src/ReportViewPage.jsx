@@ -128,6 +128,19 @@ function normalizeSalesChannel(salesChannel) {
   return (salesChannel || "").trim().toLowerCase();
 }
 
+function shortenSkuForMobile(sku, isMobile) {
+  if (!sku) return "";
+  if (!isMobile) return sku;
+
+  let shortSku = sku;
+
+  if (shortSku.startsWith("CoverPouf")) {
+    shortSku = shortSku.replace(/^CoverPouf/, "");
+  }
+
+  return shortSku;
+}
+
 function extractSkuSalesFromXmlPayload(payload, region, selectedMarketplace = "") {
   const baseCurrency = getBaseCurrencyForRegion(region);
   const marketplaceFilter = normalizeSalesChannel(selectedMarketplace);
@@ -163,8 +176,7 @@ function extractSkuSalesFromXmlPayload(payload, region, selectedMarketplace = ""
   let totalAmount = 0;
 
   for (const order of orderNodes) {
-    const salesChannel =
-      order.getElementsByTagName("SalesChannel")[0]?.textContent?.trim() || "";
+    const salesChannel = order.getElementsByTagName("SalesChannel")[0]?.textContent?.trim() || "";
     const normalizedSalesChannel = normalizeSalesChannel(salesChannel);
 
     if (shouldIgnoreSalesChannel(salesChannel)) {
@@ -315,86 +327,143 @@ function sectionCardStyle() {
     borderRadius: "8px",
     padding: "16px",
     marginBottom: "20px",
+    overflow: "hidden",
   };
 }
 
-function RegionTable({ title, summary }) {
+function RegionTable({ title, summary, isMobile }) {
   return (
     <div style={{ marginTop: 20 }}>
-      <h3 style={{ marginBottom: 12 }}>{title}</h3>
+      <h3 style={{ marginBottom: 12, textAlign: "center" }}>{title}</h3>
 
-      <div style={{ background: "#f8f8f8", borderRadius: 8, padding: 14, marginBottom: 16 }}>
+      <div
+        style={{
+          background: "#f8f8f8",
+          borderRadius: 8,
+          padding: 14,
+          marginBottom: 16,
+          textAlign: "center",
+        }}
+      >
         <div><strong>Total Orders:</strong> {summary.totalOrders}</div>
         <div><strong>Total Items:</strong> {summary.totalItems}</div>
         <div><strong>Total Amount:</strong> {summary.totalAmount} {summary.currency}</div>
       </div>
 
-      <table style={{ borderCollapse: "collapse", width: "100%", marginTop: 12 }}>
-        <thead>
-          <tr>
-            <th
-              style={{
-                border: "1px solid #ccc",
-                padding: "10px",
-                textAlign: "left",
-                background: "#f4f4f4",
-                width: "90px",
-              }}
-            >
-              Image
-            </th>
-            <th
-              style={{
-                border: "1px solid #ccc",
-                padding: "10px",
-                textAlign: "left",
-                background: "#f4f4f4",
-              }}
-            >
-              SKU
-            </th>
-            <th
-              style={{
-                border: "1px solid #ccc",
-                padding: "10px",
-                textAlign: "left",
-                background: "#f4f4f4",
-              }}
-            >
-              Number of Items Sold
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {summary.rows.length > 0 ? (
-            summary.rows.map((row) => (
-              <tr key={row.sku}>
-                <td style={{ border: "1px solid #ccc", padding: "12px" }}>
-                  <img
-                    src={`https://storage.googleapis.com/mlf-amz-images/${encodeURIComponent(row.sku)}.jpg`}
-                    alt={row.sku}
-                    style={{ width: "100px", height: "100px", objectFit: "cover", borderRadius: "6px" }}
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
-                  />
-                </td>
-                <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.sku}</td>
-                <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.itemsSold}</td>
-              </tr>
-            ))
-          ) : (
+      <div
+        style={{
+          width: "100%",
+          overflowX: "auto",
+          overflowY: "hidden",
+          background: "#ffffff",
+          borderRadius: "8px",
+          WebkitOverflowScrolling: "touch",
+        }}
+      >
+        <table
+          style={{
+            borderCollapse: "collapse",
+            width: "100%",
+            minWidth: isMobile ? "420px" : "520px",
+            tableLayout: "fixed",
+            background: "#ffffff",
+          }}
+        >
+          <thead>
             <tr>
-              <td
-                colSpan={3}
-                style={{ border: "1px solid #ccc", padding: "12px", textAlign: "center" }}
+              <th
+                style={{
+                  border: "1px solid #ccc",
+                  padding: isMobile ? "8px" : "10px",
+                  textAlign: "left",
+                  background: "#f4f4f4",
+                  width: isMobile ? "92px" : "110px",
+                }}
               >
-                No rows found
-              </td>
+                Image
+              </th>
+              <th
+                style={{
+                  border: "1px solid #ccc",
+                  padding: isMobile ? "8px" : "10px",
+                  textAlign: "left",
+                  background: "#f4f4f4",
+                  wordBreak: "break-word",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                SKU
+              </th>
+              <th
+                style={{
+                  border: "1px solid #ccc",
+                  padding: isMobile ? "8px" : "10px",
+                  textAlign: "left",
+                  background: "#f4f4f4",
+                  width: isMobile ? "92px" : "120px",
+                  wordBreak: "break-word",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {isMobile ? "Sold" : "Number of Items Sold"}
+              </th>
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {summary.rows.length > 0 ? (
+              summary.rows.map((row) => (
+                <tr key={row.sku}>
+                  <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "12px" }}>
+                    <img
+                      src={`https://storage.googleapis.com/mlf-amz-images/${encodeURIComponent(row.sku)}.jpg`}
+                      alt={row.sku}
+                      style={{
+                        width: isMobile ? "64px" : "80px",
+                        height: isMobile ? "64px" : "80px",
+                        objectFit: "cover",
+                        borderRadius: "6px",
+                        display: "block",
+                      }}
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                  </td>
+                  <td
+                    style={{
+                      border: "1px solid #ccc",
+                      padding: isMobile ? "8px" : "10px",
+                      wordBreak: "break-word",
+                      overflowWrap: "anywhere",
+                      fontSize: isMobile ? "14px" : "16px",
+                    }}
+                  >
+                    {shortenSkuForMobile(row.sku, isMobile)}
+                  </td>
+                  <td
+                    style={{
+                      border: "1px solid #ccc",
+                      padding: isMobile ? "8px" : "10px",
+                      fontSize: isMobile ? "14px" : "16px",
+                    }}
+                  >
+                    {row.itemsSold}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td
+                  colSpan={3}
+                  style={{ border: "1px solid #ccc", padding: "12px", textAlign: "center" }}
+                >
+                  No rows found
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -417,6 +486,7 @@ export default function ReportViewPage() {
   const [usaResponse, setUsaResponse] = useState(null);
   const [deResponse, setDeResponse] = useState(null);
   const [selectedMarketplace, setSelectedMarketplace] = useState("");
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
   const usaSummary = useMemo(() => {
     const payload = usaResponse?.data?.payload;
@@ -449,6 +519,15 @@ export default function ReportViewPage() {
       },
     });
   }
+
+  useEffect(() => {
+    function handleResize() {
+      setIsMobile(window.innerWidth <= 768);
+    }
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     console.log("ReportViewPage mounted with state:", {
@@ -671,21 +750,22 @@ export default function ReportViewPage() {
   ];
 
   const selectedMarketplaceLabel =
-    MARKETPLACE_OPTIONS.find((option) => option.value === selectedMarketplace)?.label ||
-    "All marketplaces";
+    MARKETPLACE_OPTIONS.find((option) => option.value === selectedMarketplace)?.label || "All marketplaces";
 
   return (
     <div
       style={{
-        padding: "20px",
+        padding: isMobile ? "12px" : "20px",
         fontFamily: "Arial, sans-serif",
         minHeight: "100vh",
         backgroundColor: "#ffffff",
         color: "#222",
         boxSizing: "border-box",
+        overflowX: "hidden",
+        width: "100%",
       }}
     >
-      <h2 style={{ textAlign: "center" }}>Report View</h2>
+      <h2 style={{ textAlign: "center", marginTop: 0 }}>Report View</h2>
 
       <div
         style={{
@@ -693,8 +773,9 @@ export default function ReportViewPage() {
           maxWidth: "760px",
           marginInline: "auto",
           background: "#f8f8f8",
-          padding: "16px",
+          padding: isMobile ? "12px" : "16px",
           borderRadius: "8px",
+          boxSizing: "border-box",
         }}
       >
         <div><strong>USA Request ID:</strong> {usaReportId || "-"}</div>
@@ -705,36 +786,54 @@ export default function ReportViewPage() {
 
       <div style={{ maxWidth: "1100px", marginInline: "auto" }}>
         <div style={sectionCardStyle()}>
-          <h3 style={{ marginTop: 0 }}>Summary by Region</h3>
+          <h3 style={{ marginTop: 0, textAlign: "center" }}>Summary by Region</h3>
 
-          <table style={{ borderCollapse: "collapse", width: "100%", marginTop: 12 }}>
-            <thead>
-              <tr>
-                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
-                  Region
-                </th>
-                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
-                  Total Orders
-                </th>
-                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
-                  Total Items
-                </th>
-                <th style={{ border: "1px solid #ccc", padding: "10px", textAlign: "left", background: "#f4f4f4" }}>
-                  Total Amount
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {regionSummaryRows.map((row) => (
-                <tr key={row.region}>
-                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.region}</td>
-                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.orders}</td>
-                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.items}</td>
-                  <td style={{ border: "1px solid #ccc", padding: "10px" }}>{row.amount}</td>
+          <div
+            style={{
+              width: "100%",
+              overflowX: "auto",
+              background: "#ffffff",
+              borderRadius: "8px",
+              WebkitOverflowScrolling: "touch",
+            }}
+          >
+            <table
+              style={{
+                borderCollapse: "collapse",
+                width: "100%",
+                minWidth: isMobile ? "320px" : "100%",
+                marginTop: 12,
+                background: "#ffffff",
+              }}
+            >
+              <thead>
+                <tr>
+                  <th style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px", textAlign: "left", background: "#f4f4f4" }}>
+                    Region
+                  </th>
+                  <th style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px", textAlign: "left", background: "#f4f4f4" }}>
+                    Orders
+                  </th>
+                  <th style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px", textAlign: "left", background: "#f4f4f4" }}>
+                    Items
+                  </th>
+                  <th style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px", textAlign: "left", background: "#f4f4f4" }}>
+                    Amount
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {regionSummaryRows.map((row) => (
+                  <tr key={row.region}>
+                    <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px" }}>{row.region}</td>
+                    <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px" }}>{row.orders}</td>
+                    <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px" }}>{row.items}</td>
+                    <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px" }}>{row.amount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {loadingUsa && (
@@ -756,6 +855,7 @@ export default function ReportViewPage() {
             <RegionTable
               title={`USA Totals + SKU Table (${selectedMarketplaceLabel})`}
               summary={usaSummary}
+              isMobile={isMobile}
             />
           </div>
         )}
@@ -779,6 +879,7 @@ export default function ReportViewPage() {
             <RegionTable
               title={`DE Totals + SKU Table (${selectedMarketplaceLabel})`}
               summary={deSummary}
+              isMobile={isMobile}
             />
           </div>
         )}

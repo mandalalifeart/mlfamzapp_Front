@@ -1,8 +1,9 @@
 html, body, #root {
   margin: 0;
   padding: 0;
-  background: #ffffff;
   min-height: 100%;
+  background: #ffffff;
+  overflow-x: hidden;
 }
 
 * {
