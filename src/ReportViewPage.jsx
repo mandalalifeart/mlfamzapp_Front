@@ -522,6 +522,7 @@ function collapsibleHeaderStyle() {
     width: "100%",
     border: "1px solid #ddd",
     background: "#ffffff",
+    color: "#222",
     borderRadius: "8px",
     padding: "10px 12px",
     cursor: "pointer",
@@ -531,11 +532,15 @@ function collapsibleHeaderStyle() {
     gap: "12px",
     fontSize: "16px",
     fontWeight: "bold",
+    lineHeight: 1.3,
     textAlign: "left",
+    appearance: "none",
+    WebkitAppearance: "none",
   };
 }
 
 function CollapsibleSection({ title, defaultOpen = true, children }) {
+  const safeTitle = title || "Section";
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
@@ -546,8 +551,10 @@ function CollapsibleSection({ title, defaultOpen = true, children }) {
         style={collapsibleHeaderStyle()}
         aria-expanded={isOpen}
       >
-        <span>{title}</span>
-        <span aria-hidden="true">{isOpen ? "▲" : "▼"}</span>
+        <span style={{ color: "#222", display: "inline-block" }}>{safeTitle}</span>
+        <span aria-hidden="true" style={{ color: "#222", display: "inline-block", flexShrink: 0 }}>
+          {isOpen ? "▲" : "▼"}
+        </span>
       </button>
 
       {isOpen && <div style={{ marginTop: 12 }}>{children}</div>}
