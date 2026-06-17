@@ -520,9 +520,10 @@ function sectionCardStyle() {
 function collapsibleHeaderStyle() {
   return {
     width: "100%",
+    boxSizing: "border-box",
     border: "1px solid #ddd",
-    background: "#ffffff",
-    color: "#222",
+    backgroundColor: "#ffffff",
+    color: "#222222",
     borderRadius: "8px",
     padding: "10px 12px",
     cursor: "pointer",
@@ -530,12 +531,14 @@ function collapsibleHeaderStyle() {
     alignItems: "center",
     justifyContent: "space-between",
     gap: "12px",
+    fontFamily: "Arial, sans-serif",
     fontSize: "16px",
-    fontWeight: "bold",
+    fontWeight: 700,
     lineHeight: 1.3,
     textAlign: "left",
-    appearance: "none",
-    WebkitAppearance: "none",
+    opacity: 1,
+    visibility: "visible",
+    minHeight: "42px",
   };
 }
 
@@ -545,17 +548,56 @@ function CollapsibleSection({ title, defaultOpen = true, children }) {
 
   return (
     <div style={{ marginTop: 20 }}>
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setIsOpen((current) => !current)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setIsOpen((current) => !current);
+          }
+        }}
         style={collapsibleHeaderStyle()}
         aria-expanded={isOpen}
+        title={safeTitle}
       >
-        <span style={{ color: "#222", display: "inline-block" }}>{safeTitle}</span>
-        <span aria-hidden="true" style={{ color: "#222", display: "inline-block", flexShrink: 0 }}>
+        <div
+          style={{
+            color: "#222222",
+            fontFamily: "Arial, sans-serif",
+            fontSize: "16px",
+            fontWeight: 700,
+            lineHeight: 1.3,
+            whiteSpace: "normal",
+            wordBreak: "break-word",
+            overflowWrap: "anywhere",
+            overflow: "visible",
+            opacity: 1,
+            visibility: "visible",
+            flex: "1 1 auto",
+            minWidth: 0,
+          }}
+        >
+          {safeTitle}
+        </div>
+
+        <div
+          aria-hidden="true"
+          style={{
+            color: "#222222",
+            fontFamily: "Arial, sans-serif",
+            fontSize: "16px",
+            fontWeight: 700,
+            lineHeight: 1.3,
+            opacity: 1,
+            visibility: "visible",
+            flex: "0 0 auto",
+          }}
+        >
           {isOpen ? "▲" : "▼"}
-        </span>
-      </button>
+        </div>
+      </div>
 
       {isOpen && <div style={{ marginTop: 12 }}>{children}</div>}
     </div>
