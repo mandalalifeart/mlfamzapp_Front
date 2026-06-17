@@ -141,6 +141,34 @@ function shortenSkuForMobile(sku, isMobile) {
   return shortSku;
 }
 
+function getFirstTagText(parentNode, tagNames) {
+  for (const tagName of tagNames) {
+    const node = parentNode.getElementsByTagName(tagName)[0];
+    const value = node?.textContent?.trim();
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function formatOrderDate(dateText) {
+  if (!dateText) return "-";
+
+  const date = new Date(dateText);
+  if (Number.isNaN(date.getTime())) {
+    return dateText;
+  }
+
+  return date.toLocaleDateString("en-GB", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
 function extractSkuSalesFromXmlPayload(payload, region, selectedMarketplace = "") {
   const baseCurrency = getBaseCurrencyForRegion(region);
   const marketplaceFilter = normalizeSalesChannel(selectedMarketplace);
@@ -176,7 +204,8 @@ function extractSkuSalesFromXmlPayload(payload, region, selectedMarketplace = ""
   let totalAmount = 0;
 
   for (const order of orderNodes) {
-    const salesChannel = order.getElementsByTagName("SalesChannel")[0]?.textContent?.trim() || "";
+    const salesChannel =
+      order.getElementsByTagName("SalesChannel")[0]?.textContent?.trim() || "";
     const normalizedSalesChannel = normalizeSalesChannel(salesChannel);
 
     if (shouldIgnoreSalesChannel(salesChannel)) {
@@ -283,6 +312,163 @@ function extractSkuSalesFromXmlPayload(payload, region, selectedMarketplace = ""
   };
 }
 
+function extractLastOrdersFromXmlPayload(payload, region, selectedMarketplace = "") {
+  const baseCurrency = getBaseCurrencyForRegion(region);
+  const marketplaceFilter = normalizeSalesChannel(selectedMarketplace);
+
+  if (!payload || typeof payload !== "string") {
+    return [];
+  }
+
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(payload, "application/xml");
+  const parserError = xmlDoc.querySelector("parsererror");
+
+  if (parserError) {
+    return [];
+  }
+
+  const orderNodes = Array.from(xmlDoc.getElementsByTagName("Order"));
+  const rows = [];
+
+  for (const order of orderNodes) {
+    const salesChannel =
+      order.getElementsByTagName("SalesChannel")[0]?.textContent?.trim() || "";
+    const normalizedSalesChannel = normalizeSalesChannel(salesChannel);
+
+    if (shouldIgnoreSalesChannel(salesChannel)) {
+      continue;
+    }
+
+    if (marketplaceFilter && normalizedSalesChannel !== marketplaceFilter) {
+      continue;
+    }
+
+    const orderNumber =
+      getFirstTagText(order, [
+        "AmazonOrderID",
+        "AmazonOrderId",
+        "OrderID",
+        "OrderId",
+        "OrderNumber",
+        "MerchantOrderID",
+        "MerchantOrderId",
+      ]) || "-";
+
+    const orderDateText =
+      getFirstTagText(order, [
+        "PurchaseDate",
+        "OrderDate",
+        "PostedDate",
+        "LastUpdatedDate",
+        "CreatedDate",
+      ]) || "";
+    const orderSortTime = new Date(orderDateText).getTime();
+
+    const orderItems = Array.from(order.getElementsByTagName("OrderItem"));
+    const orderAmount = getDirectChildAmount(order);
+    const convertedOrderAmount = convertCurrencyAmount(
+      orderAmount.value,
+      orderAmount.currency,
+      region
+    );
+
+    const normalizedItems = orderItems
+      .map((orderItem) => {
+        let sku = orderItem.getElementsByTagName("SKU")[0]?.textContent?.trim() || "";
+        if (!sku) return null;
+
+        if (sku.startsWith("amzn.gr")) {
+          sku = extractAmznGrValue(sku);
+        }
+
+        const quantity = Number(
+          orderItem.getElementsByTagName("Quantity")[0]?.textContent?.trim() || "0"
+        );
+        const safeQty = Number.isFinite(quantity) ? quantity : 0;
+
+        const itemAmount = getOrderItemAmount(orderItem);
+        const convertedItemAmount = convertCurrencyAmount(
+          itemAmount.value,
+          itemAmount.currency,
+          region
+        );
+
+        return {
+          sku,
+          qty: safeQty,
+          itemAmountValue: convertedItemAmount,
+        };
+      })
+      .filter(Boolean);
+
+    const totalQtyInOrder = normalizedItems.reduce((sum, item) => sum + item.qty, 0);
+    const totalItemAmounts = normalizedItems.reduce((sum, item) => sum + item.itemAmountValue, 0);
+    const hasItemLevelAmounts = totalItemAmounts > 0;
+
+    for (const item of normalizedItems) {
+      let price = 0;
+
+      if (hasItemLevelAmounts) {
+        price = item.itemAmountValue;
+      } else if (totalQtyInOrder > 0 && convertedOrderAmount) {
+        price = (convertedOrderAmount * item.qty) / totalQtyInOrder;
+      }
+
+      rows.push({
+        date: formatOrderDate(orderDateText),
+        sortTime: Number.isFinite(orderSortTime) ? orderSortTime : 0,
+        orderNumber,
+        sku: item.sku,
+        price: Number(price.toFixed(2)),
+        currency: baseCurrency,
+        quantity: item.qty,
+      });
+    }
+  }
+
+  return rows
+    .sort((a, b) => {
+      if (b.sortTime !== a.sortTime) return b.sortTime - a.sortTime;
+      return String(b.orderNumber).localeCompare(String(a.orderNumber));
+    })
+    .slice(0, 10);
+}
+
+function extractMarketplaceItemCounts(payload) {
+  if (!payload || typeof payload !== "string") return {};
+
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(payload, "application/xml");
+  const parserError = xmlDoc.querySelector("parsererror");
+
+  if (parserError) return {};
+
+  const orderNodes = Array.from(xmlDoc.getElementsByTagName("Order"));
+  const counts = {};
+
+  for (const order of orderNodes) {
+    const salesChannel =
+      order.getElementsByTagName("SalesChannel")[0]?.textContent?.trim() || "";
+
+    if (shouldIgnoreSalesChannel(salesChannel)) continue;
+
+    const normalizedSalesChannel = normalizeSalesChannel(salesChannel);
+    const orderItems = Array.from(order.getElementsByTagName("OrderItem"));
+
+    for (const orderItem of orderItems) {
+      const quantity = Number(
+        orderItem.getElementsByTagName("Quantity")[0]?.textContent?.trim() || "0"
+      );
+      const safeQty = Number.isFinite(quantity) ? quantity : 0;
+
+      counts[normalizedSalesChannel] = (counts[normalizedSalesChannel] || 0) + safeQty;
+    }
+  }
+
+  return counts;
+}
+
 function bottomNavStyle() {
   return {
     display: "flex",
@@ -317,7 +503,7 @@ function selectorStyle() {
     padding: "8px 12px",
     fontSize: "14px",
     borderRadius: "8px",
-    minWidth: "180px",
+    minWidth: "220px",
   };
 }
 
@@ -331,11 +517,47 @@ function sectionCardStyle() {
   };
 }
 
-function RegionTable({ title, summary, isMobile }) {
+function collapsibleHeaderStyle() {
+  return {
+    width: "100%",
+    border: "1px solid #ddd",
+    background: "#ffffff",
+    borderRadius: "8px",
+    padding: "10px 12px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    fontSize: "16px",
+    fontWeight: "bold",
+    textAlign: "left",
+  };
+}
+
+function CollapsibleSection({ title, defaultOpen = true, children }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
   return (
     <div style={{ marginTop: 20 }}>
-      <h3 style={{ marginBottom: 12, textAlign: "center" }}>{title}</h3>
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        style={collapsibleHeaderStyle()}
+        aria-expanded={isOpen}
+      >
+        <span>{title}</span>
+        <span aria-hidden="true">{isOpen ? "▲" : "▼"}</span>
+      </button>
 
+      {isOpen && <div style={{ marginTop: 12 }}>{children}</div>}
+    </div>
+  );
+}
+
+function RegionTable({ title, summary, isMobile }) {
+  return (
+    <CollapsibleSection title={title} defaultOpen={true}>
       <div
         style={{
           background: "#f8f8f8",
@@ -354,7 +576,7 @@ function RegionTable({ title, summary, isMobile }) {
         style={{
           borderCollapse: "collapse",
           width: "100%",
-          tableLayout: "fixed", // ✅ IMPORTANT
+          tableLayout: "fixed",
           background: "#fff",
         }}
       >
@@ -365,7 +587,7 @@ function RegionTable({ title, summary, isMobile }) {
                 border: "1px solid #ccc",
                 padding: isMobile ? "6px" : "10px",
                 background: "#f4f4f4",
-                width: "80px", // ✅ fixed small
+                width: "80px",
               }}
             >
               Image
@@ -387,7 +609,7 @@ function RegionTable({ title, summary, isMobile }) {
                 border: "1px solid #ccc",
                 padding: isMobile ? "6px" : "10px",
                 background: "#f4f4f4",
-                width: "50px", // ✅ small column
+                width: "50px",
                 textAlign: "center",
               }}
             >
@@ -417,8 +639,6 @@ function RegionTable({ title, summary, isMobile }) {
                   border: "1px solid #ccc",
                   padding: "8px",
                   fontSize: isMobile ? "14px" : "16px",
-
-                  // ✅ THIS FIXES WIDTH ISSUE
                   wordBreak: "break-word",
                   overflowWrap: "anywhere",
                   whiteSpace: "normal",
@@ -441,7 +661,87 @@ function RegionTable({ title, summary, isMobile }) {
           ))}
         </tbody>
       </table>
-    </div>
+    </CollapsibleSection>
+  );
+}
+
+function LastOrdersTable({ title, rows, isMobile }) {
+  return (
+    <CollapsibleSection title={title} defaultOpen={false}>
+      {rows.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "14px", background: "#fff", borderRadius: "8px" }}>
+          No orders found
+        </div>
+      ) : (
+        <div
+          style={{
+            width: "100%",
+            overflowX: "auto",
+            background: "#ffffff",
+            borderRadius: "8px",
+            WebkitOverflowScrolling: "touch",
+          }}
+        >
+          <table
+            style={{
+              borderCollapse: "collapse",
+              width: "100%",
+              minWidth: isMobile ? "720px" : "100%",
+              background: "#fff",
+            }}
+          >
+            <thead>
+              <tr>
+                <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "10px", textAlign: "left", background: "#f4f4f4", width: "90px" }}>
+                  Date
+                </th>
+                <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "10px", textAlign: "left", background: "#f4f4f4", width: "170px" }}>
+                  Order #
+                </th>
+                <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "10px", textAlign: "left", background: "#f4f4f4" }}>
+                  SKU
+                </th>
+                <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "10px", textAlign: "right", background: "#f4f4f4", width: "110px" }}>
+                  Price
+                </th>
+                <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "10px", textAlign: "center", background: "#f4f4f4", width: "70px" }}>
+                  Qty
+                </th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {rows.map((row, index) => (
+                <tr key={`${row.orderNumber}-${row.sku}-${index}`}>
+                  <td style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", whiteSpace: "nowrap" }}>
+                    {row.date}
+                  </td>
+                  <td style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", whiteSpace: "nowrap" }}>
+                    {row.orderNumber}
+                  </td>
+                  <td
+                    style={{
+                      border: "1px solid #ccc",
+                      padding: isMobile ? "6px" : "8px",
+                      wordBreak: "break-word",
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {shortenSkuForMobile(row.sku, isMobile)}
+                  </td>
+                  <td style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                    {row.price} {row.currency}
+                  </td>
+                  <td style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", textAlign: "center", fontWeight: "bold" }}>
+                    {row.quantity}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </CollapsibleSection>
   );
 }
 
@@ -474,6 +774,47 @@ export default function ReportViewPage() {
     const payload = deResponse?.data?.payload;
     return extractSkuSalesFromXmlPayload(payload, "de", selectedMarketplace);
   }, [deResponse, selectedMarketplace]);
+
+  const usaLastOrders = useMemo(() => {
+    const payload = usaResponse?.data?.payload;
+    return extractLastOrdersFromXmlPayload(payload, "usa", selectedMarketplace);
+  }, [usaResponse, selectedMarketplace]);
+
+  const deLastOrders = useMemo(() => {
+    const payload = deResponse?.data?.payload;
+    return extractLastOrdersFromXmlPayload(payload, "de", selectedMarketplace);
+  }, [deResponse, selectedMarketplace]);
+
+  const usaMpCounts = useMemo(() => {
+    return extractMarketplaceItemCounts(usaResponse?.data?.payload);
+  }, [usaResponse]);
+
+  const deMpCounts = useMemo(() => {
+    return extractMarketplaceItemCounts(deResponse?.data?.payload);
+  }, [deResponse]);
+
+  const mergedMpCounts = useMemo(() => {
+    const merged = { ...usaMpCounts };
+
+    for (const key of Object.keys(deMpCounts)) {
+      merged[key] = (merged[key] || 0) + deMpCounts[key];
+    }
+
+    return merged;
+  }, [usaMpCounts, deMpCounts]);
+
+  const sortedMarketplaceOptions = useMemo(() => {
+    return MARKETPLACE_OPTIONS
+      .filter((option) => option.value !== "")
+      .map((option) => ({
+        ...option,
+        count: mergedMpCounts[normalizeSalesChannel(option.value)] || 0,
+      }))
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.label.localeCompare(b.label);
+      });
+  }, [mergedMpCounts]);
 
   function goToSales() {
     navigate("/sales", {
@@ -727,7 +1068,8 @@ export default function ReportViewPage() {
   ];
 
   const selectedMarketplaceLabel =
-    MARKETPLACE_OPTIONS.find((option) => option.value === selectedMarketplace)?.label || "All marketplaces";
+    MARKETPLACE_OPTIONS.find((option) => option.value === selectedMarketplace)?.label ||
+    "All marketplaces";
 
   return (
     <div
@@ -834,6 +1176,12 @@ export default function ReportViewPage() {
               summary={usaSummary}
               isMobile={isMobile}
             />
+
+            <LastOrdersTable
+              title={`USA Last 10 Orders (${selectedMarketplaceLabel})`}
+              rows={usaLastOrders}
+              isMobile={isMobile}
+            />
           </div>
         )}
 
@@ -854,8 +1202,14 @@ export default function ReportViewPage() {
         {!loadingDe && !errorDe && (
           <div style={sectionCardStyle()}>
             <RegionTable
-              title={`DE Totals + SKU Table (${selectedMarketplaceLabel})`}
+              title={`EU Totals + SKU Table (${selectedMarketplaceLabel})`}
               summary={deSummary}
+              isMobile={isMobile}
+            />
+
+            <LastOrdersTable
+              title={`EU Last 10 Orders (${selectedMarketplaceLabel})`}
+              rows={deLastOrders}
               isMobile={isMobile}
             />
           </div>
@@ -869,17 +1223,23 @@ export default function ReportViewPage() {
         <button style={smallButtonStyle()} onClick={goToSales}>
           Sales
         </button>
+
         <select
           value={selectedMarketplace}
           onChange={(e) => setSelectedMarketplace(e.target.value)}
           style={selectorStyle()}
         >
-          {MARKETPLACE_OPTIONS.map((option) => (
-            <option key={option.label} value={option.value}>
-              {option.label}
+          <option value="">
+            All marketplaces ({usaSummary.totalItems + deSummary.totalItems})
+          </option>
+
+          {sortedMarketplaceOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label} ({option.count})
             </option>
           ))}
         </select>
+
         <button style={updateButtonStyle()} onClick={goToUpdate}>
           Update
         </button>
