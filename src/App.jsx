@@ -205,6 +205,41 @@ async function requestMarketplaceReport(payload) {
   return reportReqId;
 }
 
+function getRequestErrorText(reason) {
+  if (!reason) return "Unknown error";
+  if (typeof reason === "string") return reason;
+  if (reason.message) return reason.message;
+
+  try {
+    return JSON.stringify(reason);
+  } catch (err) {
+    return "Unknown error";
+  }
+}
+
+function buildMarketplaceDetails({ usaReportId, deReportId, usaError, deError, apiDates }) {
+  return [
+    {
+      marketplace: "USA",
+      requestId: usaReportId,
+      status: usaReportId === "0" ? "FAILED" : "SUCCESS",
+      message: usaReportId === "0" ? usaError || "Request failed" : "Report request created successfully",
+    },
+    {
+      marketplace: "DE/EU",
+      requestId: deReportId,
+      status: deReportId === "0" ? "FAILED" : "SUCCESS",
+      message: deReportId === "0" ? deError || "Request failed" : "Report request created successfully",
+    },
+    {
+      marketplace: "Date range",
+      requestId: "",
+      status: "INFO",
+      message: `start_date: ${apiDates.start_date} | end_date: ${apiDates.end_date}`,
+    },
+  ];
+}
+
 export default function App() {
   const navigate = useNavigate();
 
@@ -213,6 +248,7 @@ export default function App() {
   const [customEndDate, setCustomEndDate] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [errorDetails, setErrorDetails] = useState([]);
 
   const resolvedDates = useMemo(() => {
     if (selectedPreset === "custom") {
@@ -227,6 +263,7 @@ export default function App() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
+    setErrorDetails([]);
 
     const { startDate, endDate } = resolvedDates;
 
@@ -264,11 +301,22 @@ export default function App() {
 
       const usaReportId = usaResult.status === "fulfilled" ? usaResult.value : "0";
       const deReportId = deResult.status === "fulfilled" ? deResult.value : "0";
+      const usaError = usaResult.status === "rejected" ? getRequestErrorText(usaResult.reason) : "";
+      const deError = deResult.status === "rejected" ? getRequestErrorText(deResult.reason) : "";
+
+      const marketplaceDetails = buildMarketplaceDetails({
+        usaReportId,
+        deReportId,
+        usaError,
+        deError,
+        apiDates,
+      });
 
       if (usaReportId === "0" && deReportId === "0") {
         console.error("USA request failed:", usaResult.reason);
         console.error("DE request failed:", deResult.reason);
         setError("Both marketplace requests failed");
+        setErrorDetails(marketplaceDetails);
         return;
       }
 
@@ -287,11 +335,24 @@ export default function App() {
           startDate: apiDates.start_date,
           endDate: apiDates.end_date,
           partialFailure: usaReportId === "0" || deReportId === "0",
+          marketplaceErrors: {
+            usa: usaError,
+            de: deError,
+          },
+          marketplaceDetails,
         },
       });
     } catch (err) {
       console.error(err);
       setError(err.message || "Something went wrong");
+      setErrorDetails([
+        {
+          marketplace: "General",
+          requestId: "",
+          status: "FAILED",
+          message: err.message || "Something went wrong",
+        },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -342,6 +403,31 @@ export default function App() {
         </form>
 
         {error && <div className="error">{error}</div>}
+
+        {errorDetails.length > 0 && (
+          <div
+            style={{
+              marginTop: "14px",
+              padding: "12px",
+              background: "#fff3f3",
+              border: "1px solid #d9002f",
+              borderRadius: "8px",
+              fontSize: "14px",
+              lineHeight: "1.5",
+            }}
+          >
+            <strong>Error details:</strong>
+            {errorDetails.map((item) => (
+              <div key={`${item.marketplace}-${item.status}`} style={{ marginTop: "8px" }}>
+                <div>
+                  <strong>{item.marketplace}:</strong> {item.status}
+                  {item.requestId ? ` | Request ID: ${item.requestId}` : ""}
+                </div>
+                <div>{item.message}</div>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div style={bottomNavStyle()}>
           <button type="button" style={smallButtonStyle()} onClick={() => navigate("/")}>
