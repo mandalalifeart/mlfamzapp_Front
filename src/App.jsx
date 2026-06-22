@@ -177,6 +177,34 @@ function smallButtonStyle() {
   };
 }
 
+async function requestMarketplaceReport(payload) {
+  const response = await fetch(`${API_BASE}/MlfReportReq`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  let data = null;
+
+  try {
+    data = await response.json();
+  } catch (err) {
+    throw new Error(`Invalid JSON response for ${payload.marketplace}`);
+  }
+
+  if (!response.ok || data?.status !== "success") {
+    throw new Error(data?.message || `Request failed for ${payload.marketplace}`);
+  }
+
+  const reportReqId = data?.data?.report_req_id || data?.data?.reportId || data?.report_req_id || data?.reportId;
+
+  if (!reportReqId) {
+    throw new Error(`Missing report request ID for ${payload.marketplace}`);
+  }
+
+  return reportReqId;
+}
+
 export default function App() {
   const navigate = useNavigate();
 
@@ -229,39 +257,40 @@ export default function App() {
         marketplace: "de",
       };
 
-      const [resUSA, resDE] = await Promise.all([
-        fetch(`${API_BASE}/MlfReportReq`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payloadUSA),
-        }),
-        fetch(`${API_BASE}/MlfReportReq`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payloadDE),
-        }),
+      const [usaResult, deResult] = await Promise.allSettled([
+        requestMarketplaceReport(payloadUSA),
+        requestMarketplaceReport(payloadDE),
       ]);
 
-      const dataUSA = await resUSA.json();
-      const dataDE = await resDE.json();
+      const usaReportId = usaResult.status === "fulfilled" ? usaResult.value : "0";
+      const deReportId = deResult.status === "fulfilled" ? deResult.value : "0";
 
-      if (!resUSA.ok || !resDE.ok) {
-        throw new Error("One of the requests failed");
+      if (usaReportId === "0" && deReportId === "0") {
+        console.error("USA request failed:", usaResult.reason);
+        console.error("DE request failed:", deResult.reason);
+        setError("Both marketplace requests failed");
+        return;
       }
 
-      if (dataUSA.status !== "success" || dataDE.status !== "success") {
-        throw new Error("One of the requests failed");
+      if (usaReportId === "0") {
+        console.warn("USA request failed. Continuing with DE only:", usaResult.reason);
+      }
+
+      if (deReportId === "0") {
+        console.warn("DE request failed. Continuing with USA only:", deResult.reason);
       }
 
       navigate("/response", {
         state: {
-          usaReportId: dataUSA?.data?.report_req_id || "",
-          deReportId: dataDE?.data?.report_req_id || "",
+          usaReportId,
+          deReportId,
           startDate: apiDates.start_date,
           endDate: apiDates.end_date,
+          partialFailure: usaReportId === "0" || deReportId === "0",
         },
       });
     } catch (err) {
+      console.error(err);
       setError(err.message || "Something went wrong");
     } finally {
       setLoading(false);

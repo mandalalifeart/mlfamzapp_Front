@@ -21,7 +21,11 @@ function smallButtonStyle() {
 }
 
 function isValidReportId(reportId) {
-  return reportId && reportId !== "0";
+  return Boolean(reportId && reportId !== "0");
+}
+
+function reportStatusText(reportId) {
+  return isValidReportId(reportId) ? reportId : "0 - failed / skipped";
 }
 
 export default function ResponsePage() {
@@ -36,6 +40,7 @@ export default function ResponsePage() {
   const hasUsaReport = isValidReportId(usaReportId);
   const hasDeReport = isValidReportId(deReportId);
   const hasAnyReport = hasUsaReport || hasDeReport;
+  const hasPartialFailure = hasAnyReport && (!hasUsaReport || !hasDeReport);
 
   useEffect(() => {
     if (!hasAnyReport) return;
@@ -53,14 +58,7 @@ export default function ResponsePage() {
     }, 7000);
 
     return () => clearTimeout(timer);
-  }, [
-    navigate,
-    usaReportId,
-    deReportId,
-    startDate,
-    endDate,
-    hasAnyReport,
-  ]);
+  }, [navigate, usaReportId, deReportId, startDate, endDate, hasAnyReport]);
 
   function goToSales() {
     navigate("/sales", {
@@ -75,13 +73,7 @@ export default function ResponsePage() {
 
   if (!hasAnyReport) {
     return (
-      <div
-        style={{
-          padding: "20px",
-          fontFamily: "Arial, sans-serif",
-          minHeight: "100vh",
-        }}
-      >
+      <div style={{ padding: "20px", fontFamily: "Arial, sans-serif", minHeight: "100vh" }}>
         <h2 style={{ textAlign: "center", color: "#b00020" }}>
           Both marketplace requests failed
         </h2>
@@ -94,7 +86,6 @@ export default function ResponsePage() {
           <button style={smallButtonStyle()} onClick={() => navigate("/")}>
             Home
           </button>
-
           <button style={smallButtonStyle()} onClick={goToSales}>
             Sales
           </button>
@@ -104,13 +95,7 @@ export default function ResponsePage() {
   }
 
   return (
-    <div
-      style={{
-        padding: "20px",
-        fontFamily: "Arial, sans-serif",
-        minHeight: "100vh",
-      }}
-    >
+    <div style={{ padding: "20px", fontFamily: "Arial, sans-serif", minHeight: "100vh" }}>
       <h2 style={{ textAlign: "center" }}>Requested Reports</h2>
 
       <div
@@ -124,25 +109,20 @@ export default function ResponsePage() {
         }}
       >
         <div>
-          <strong>USA Request ID:</strong>{" "}
-          {hasUsaReport ? usaReportId : "0 - failed / skipped"}
+          <strong>USA Request ID:</strong> {reportStatusText(usaReportId)}
         </div>
-
         <div>
-          <strong>DE/EU Request ID:</strong>{" "}
-          {hasDeReport ? deReportId : "0 - failed / skipped"}
+          <strong>DE/EU Request ID:</strong> {reportStatusText(deReportId)}
         </div>
-
         <div>
           <strong>Start:</strong> {startDate}
         </div>
-
         <div>
           <strong>End:</strong> {endDate}
         </div>
       </div>
 
-      {(!hasUsaReport || !hasDeReport) && (
+      {hasPartialFailure && (
         <div
           style={{
             textAlign: "center",
@@ -151,8 +131,7 @@ export default function ResponsePage() {
             fontWeight: "bold",
           }}
         >
-          One marketplace request failed. Continuing with the available
-          marketplace.
+          One marketplace request failed. Continuing with the available marketplace.
         </div>
       )}
 
@@ -164,7 +143,6 @@ export default function ResponsePage() {
         <button style={smallButtonStyle()} onClick={() => navigate("/")}>
           Home
         </button>
-
         <button style={smallButtonStyle()} onClick={goToSales}>
           Sales
         </button>
