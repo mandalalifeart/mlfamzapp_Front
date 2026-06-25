@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 const API_BASE = "https://us-central1-mlfamzapp.cloudfunctions.net";
 const MAX_ATTEMPTS = 12;
 const RETRY_SECONDS = 30;
+const VERSION = "sku-table-price-fix-20260625";
 
 function bottomNavStyle() {
   return {
@@ -38,6 +39,23 @@ function errorBoxStyle() {
     background: "#fff0f0",
     border: "1px solid #d00000",
     color: "#8a0000",
+    textAlign: "left",
+    maxWidth: "900px",
+    marginInline: "auto",
+    whiteSpace: "pre-wrap",
+    fontFamily: "Arial, sans-serif",
+    fontSize: "14px",
+  };
+}
+
+function warningBoxStyle() {
+  return {
+    marginTop: "14px",
+    padding: "14px",
+    borderRadius: "8px",
+    background: "#fff7d6",
+    border: "1px solid #d6a900",
+    color: "#6b5200",
     textAlign: "left",
     maxWidth: "900px",
     marginInline: "auto",
@@ -82,6 +100,23 @@ function parseNumber(value) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function getItemPrice(item) {
+  const components = Array.from(item.querySelectorAll("ItemPrice Component"));
+  const principalComponent = components.find(
+    (component) => getXmlText(component, "Type").toLowerCase() === "principal"
+  );
+
+  const amountNode =
+    principalComponent?.querySelector("Amount") ||
+    item.querySelector("ItemPrice Component Amount") ||
+    item.querySelector("ItemPrice Amount");
+
+  return {
+    amount: parseNumber(amountNode?.textContent || "0"),
+    currency: amountNode?.getAttribute("currency") || "",
+  };
+}
+
 function parseAmazonXml(xmlText) {
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(xmlText, "text/xml");
@@ -104,19 +139,19 @@ function parseAmazonXml(xmlText) {
     const amazonOrderId = getXmlText(order, "AmazonOrderID");
     const salesChannel = getXmlText(order, "SalesChannel");
     const purchaseDate = getXmlText(order, "PurchaseDate");
+    const orderStatus = getXmlText(order, "OrderStatus");
 
     const orderItems = Array.from(order.getElementsByTagName("OrderItem"));
 
     for (const item of orderItems) {
       const sku = getXmlText(item, "SKU");
+      const asin = getXmlText(item, "ASIN");
       const title = getXmlText(item, "Title") || getXmlText(item, "ProductName");
+      const itemStatus = getXmlText(item, "ItemStatus");
       const quantity = parseNumber(getXmlText(item, "Quantity"));
-
-      // Amazon AllOrdersReport stores prices as:
-      // <ItemPrice><Component><Type>Principal</Type><Amount currency="EUR">25.55</Amount></Component></ItemPrice>
-      // So do not parse ItemPrice directly. Read the nested Amount instead.
-      const itemPriceNode = item.querySelector("ItemPrice Component Amount");
-      const itemPrice = parseNumber(itemPriceNode?.textContent || "0");
+      const price = getItemPrice(item);
+      const itemPrice = price.amount;
+      const currency = price.currency;
 
       itemCount += quantity;
       amount += itemPrice;
@@ -125,10 +160,14 @@ function parseAmazonXml(xmlText) {
         amazonOrderId,
         salesChannel,
         purchaseDate,
+        orderStatus,
+        asin,
         sku,
         title,
+        itemStatus,
         quantity,
         itemPrice,
+        currency,
       });
     }
   }
@@ -323,6 +362,45 @@ function ErrorDetails({ result }) {
   );
 }
 
+function ZeroAmountDebug({ result, title }) {
+  const isZeroAmountWithRows =
+    result?.status === "success" &&
+    (result.parsed?.rows?.length || 0) > 0 &&
+    Number(result.parsed?.amount || 0) === 0;
+
+  if (!isZeroAmountWithRows) return null;
+
+  return (
+    <div style={warningBoxStyle()}>
+      <strong>{title} loaded, but amount is 0</strong>
+      <div style={{ marginTop: "8px" }}>
+        This usually means the report was received, but the price field was not parsed correctly, or Amazon returned a report where prices are empty/hidden.
+      </div>
+      <div style={{ marginTop: "8px" }}>Orders: {result.parsed?.orderCount || 0}</div>
+      <div>Items: {result.parsed?.itemCount || 0}</div>
+      <div>Report request ID: {result.reportReqId || "missing"}</div>
+
+      <details style={{ marginTop: "12px" }}>
+        <summary style={{ cursor: "pointer", fontWeight: "bold" }}>
+          Show parsed rows
+        </summary>
+        <pre style={{ overflowX: "auto", whiteSpace: "pre-wrap" }}>
+          {safeText(result.parsed?.rows?.slice(0, 20) || [])}
+        </pre>
+      </details>
+
+      <details style={{ marginTop: "12px" }}>
+        <summary style={{ cursor: "pointer", fontWeight: "bold" }}>
+          Show backend response / XML payload
+        </summary>
+        <pre style={{ overflowX: "auto", whiteSpace: "pre-wrap" }}>
+          {safeText(result.fullResponse)}
+        </pre>
+      </details>
+    </div>
+  );
+}
+
 function MarketplaceSection({ title, result, attempt }) {
   return (
     <div style={infoBoxStyle()}>
@@ -336,13 +414,14 @@ function MarketplaceSection({ title, result, attempt }) {
           <div>Orders: {result.parsed?.orderCount || 0}</div>
           <div>Items: {result.parsed?.itemCount || 0}</div>
           <div>Amount: {Math.round(result.parsed?.amount || 0)}</div>
+          <ZeroAmountDebug result={result} title={title} />
         </div>
       )}
 
       {result?.status === "processing" && (
         <div>
-          {title} still processing... retry in {RETRY_SECONDS}s attempt{" "}
-          {attempt}/{MAX_ATTEMPTS}
+          {title} still processing... retry in {RETRY_SECONDS}s attempt {attempt}/
+          {MAX_ATTEMPTS}
         </div>
       )}
 
@@ -365,6 +444,85 @@ function MarketplaceSection({ title, result, attempt }) {
   );
 }
 
+function OrdersSkuTable({ rows }) {
+  if (!rows.length) {
+    return (
+      <div style={infoBoxStyle()}>
+        <h2>Orders / SKU Table</h2>
+        <div>No order rows to display yet.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={infoBoxStyle()}>
+      <h2>Orders / SKU Table</h2>
+      <div style={{ marginBottom: "12px", fontWeight: "bold" }}>
+        Rows: {rows.length}
+      </div>
+
+      <div style={{ overflowX: "auto", background: "white" }}>
+        <table
+          style={{
+            width: "100%",
+            minWidth: "1000px",
+            borderCollapse: "collapse",
+            background: "white",
+            fontSize: "14px",
+          }}
+        >
+          <thead>
+            <tr>
+              <th style={tableHeaderStyle()}>Market</th>
+              <th style={tableHeaderStyle()}>Date</th>
+              <th style={tableHeaderStyle()}>Order ID</th>
+              <th style={tableHeaderStyle()}>Channel</th>
+              <th style={tableHeaderStyle()}>Status</th>
+              <th style={tableHeaderStyle()}>SKU</th>
+              <th style={tableHeaderStyle()}>ASIN</th>
+              <th style={tableHeaderStyle()}>Qty</th>
+              <th style={tableHeaderStyle()}>Amount</th>
+              <th style={tableHeaderStyle()}>Title</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={`${row.marketplace}-${row.amazonOrderId}-${row.sku}-${index}`}>
+                <td style={tableCellStyle()}>{row.marketplace?.toUpperCase()}</td>
+                <td style={tableCellStyle()}>{formatDate(row.purchaseDate)}</td>
+                <td style={tableCellStyle()}>{row.amazonOrderId}</td>
+                <td style={tableCellStyle()}>{row.salesChannel}</td>
+                <td style={tableCellStyle()}>{row.orderStatus || row.itemStatus}</td>
+                <td style={{ ...tableCellStyle(), fontWeight: "bold" }}>{row.sku}</td>
+                <td style={tableCellStyle()}>{row.asin}</td>
+                <td style={tableCellStyle()}>{row.quantity}</td>
+                <td style={tableCellStyle()}>
+                  {formatAmount(row.itemPrice)} {row.currency}
+                </td>
+                <td style={{ ...tableCellStyle(), textAlign: "left", maxWidth: "360px" }}>
+                  {row.title}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function formatDate(value) {
+  if (!value) return "";
+  return String(value).replace("T", " ").replace("+00:00", "");
+}
+
+function formatAmount(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return "0";
+  return n.toFixed(2);
+}
+
 export default function ReportViewPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -377,6 +535,7 @@ export default function ReportViewPage() {
   const [usaResult, setUsaResult] = useState(null);
   const [deResult, setDeResult] = useState(null);
   const [attempt, setAttempt] = useState(1);
+  const [marketplaceFilter, setMarketplaceFilter] = useState("all");
 
   const timerRef = useRef(null);
 
@@ -425,9 +584,7 @@ export default function ReportViewPage() {
     const shouldRetry =
       currentAttempt < MAX_ATTEMPTS &&
       results.some(
-        (result) =>
-          result.status === "processing" ||
-          result.status === "error"
+        (result) => result.status === "processing" || result.status === "error"
       );
 
     if (shouldRetry) {
@@ -469,6 +626,32 @@ export default function ReportViewPage() {
       totalAmount: usaAmount + deAmount,
     };
   }, [usaResult, deResult]);
+
+  const allRows = useMemo(() => {
+    const usaRows = (usaResult?.parsed?.rows || []).map((row) => ({
+      ...row,
+      marketplace: "usa",
+    }));
+
+    const deRows = (deResult?.parsed?.rows || []).map((row) => ({
+      ...row,
+      marketplace: "de",
+    }));
+
+    return [...usaRows, ...deRows];
+  }, [usaResult, deResult]);
+
+  const filteredRows = useMemo(() => {
+    if (marketplaceFilter === "usa") {
+      return allRows.filter((row) => row.marketplace === "usa");
+    }
+
+    if (marketplaceFilter === "de") {
+      return allRows.filter((row) => row.marketplace === "de");
+    }
+
+    return allRows;
+  }, [allRows, marketplaceFilter]);
 
   function goToSales() {
     navigate("/sales", {
@@ -513,7 +696,7 @@ export default function ReportViewPage() {
           marginBottom: "20px",
         }}
       >
-        VERSION price-parser-fix-20260625
+        VERSION {VERSION}
       </div>
 
       <div
@@ -543,57 +726,61 @@ export default function ReportViewPage() {
       <div style={infoBoxStyle()}>
         <h2>Summary by Region</h2>
 
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            background: "white",
-            fontSize: "20px",
-          }}
-        >
-          <thead>
-            <tr>
-              <th style={tableHeaderStyle()}>Region</th>
-              <th style={tableHeaderStyle()}>Orders</th>
-              <th style={tableHeaderStyle()}>Items</th>
-              <th style={tableHeaderStyle()}>Amount</th>
-            </tr>
-          </thead>
+        <div style={{ overflowX: "auto" }}>
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              background: "white",
+              fontSize: "20px",
+            }}
+          >
+            <thead>
+              <tr>
+                <th style={tableHeaderStyle()}>Region</th>
+                <th style={tableHeaderStyle()}>Orders</th>
+                <th style={tableHeaderStyle()}>Items</th>
+                <th style={tableHeaderStyle()}>Amount</th>
+              </tr>
+            </thead>
 
-          <tbody>
-            <tr>
-              <td style={tableCellStyle()}>USA</td>
-              <td style={tableCellStyle()}>{summary.usaOrders}</td>
-              <td style={tableCellStyle()}>{summary.usaItems}</td>
-              <td style={tableCellStyle()}>
-                {Math.round(summary.usaAmount)} USD
-              </td>
-            </tr>
+            <tbody>
+              <tr>
+                <td style={tableCellStyle()}>USA</td>
+                <td style={tableCellStyle()}>{summary.usaOrders}</td>
+                <td style={tableCellStyle()}>{summary.usaItems}</td>
+                <td style={tableCellStyle()}>{formatAmount(summary.usaAmount)} USD</td>
+              </tr>
 
-            <tr>
-              <td style={tableCellStyle()}>DE</td>
-              <td style={tableCellStyle()}>{summary.deOrders}</td>
-              <td style={tableCellStyle()}>{summary.deItems}</td>
-              <td style={tableCellStyle()}>
-                {Math.round(summary.deAmount)} EUR
-              </td>
-            </tr>
-          </tbody>
-        </table>
+              <tr>
+                <td style={tableCellStyle()}>DE</td>
+                <td style={tableCellStyle()}>{summary.deOrders}</td>
+                <td style={tableCellStyle()}>{summary.deItems}</td>
+                <td style={tableCellStyle()}>{formatAmount(summary.deAmount)} EUR</td>
+              </tr>
+
+              <tr>
+                <td style={{ ...tableCellStyle(), fontWeight: "bold" }}>TOTAL</td>
+                <td style={{ ...tableCellStyle(), fontWeight: "bold" }}>
+                  {summary.totalOrders}
+                </td>
+                <td style={{ ...tableCellStyle(), fontWeight: "bold" }}>
+                  {summary.totalItems}
+                </td>
+                <td style={{ ...tableCellStyle(), fontWeight: "bold" }}>
+                  {formatAmount(summary.totalAmount)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <MarketplaceSection title="USA" result={usaResult} attempt={attempt} />
       <MarketplaceSection title="DE" result={deResult} attempt={attempt} />
 
-      <div style={bottomNavStyle()}>
-        <button type="button" style={smallButtonStyle()} onClick={() => navigate("/")}>
-          Home
-        </button>
-
-        <button type="button" style={smallButtonStyle()} onClick={goToSales}>
-          Sales
-        </button>
-
+      <div style={infoBoxStyle()}>
+        <h2>Marketplace Filter</h2>
         <select
           style={{
             padding: "12px 24px",
@@ -603,18 +790,25 @@ export default function ReportViewPage() {
             color: "white",
             minWidth: "260px",
           }}
-          defaultValue="all"
+          value={marketplaceFilter}
+          onChange={(event) => setMarketplaceFilter(event.target.value)}
         >
-          <option value="all">
-            All marketplaces ({summary.totalItems})
-          </option>
-          <option value="usa">
-            USA ({summary.usaItems})
-          </option>
-          <option value="de">
-            DE ({summary.deItems})
-          </option>
+          <option value="all">All marketplaces ({summary.totalItems})</option>
+          <option value="usa">USA ({summary.usaItems})</option>
+          <option value="de">DE ({summary.deItems})</option>
         </select>
+      </div>
+
+      <OrdersSkuTable rows={filteredRows} />
+
+      <div style={bottomNavStyle()}>
+        <button type="button" style={smallButtonStyle()} onClick={() => navigate("/")}>
+          Home
+        </button>
+
+        <button type="button" style={smallButtonStyle()} onClick={goToSales}>
+          Sales
+        </button>
 
         <button type="button" style={smallButtonStyle()} onClick={goToUpdate}>
           Update
@@ -627,16 +821,18 @@ export default function ReportViewPage() {
 function tableHeaderStyle() {
   return {
     border: "1px solid #ccc",
-    padding: "16px",
+    padding: "12px",
     textAlign: "left",
     background: "#f4f4f4",
+    whiteSpace: "nowrap",
   };
 }
 
 function tableCellStyle() {
   return {
     border: "1px solid #ccc",
-    padding: "16px",
+    padding: "10px",
     textAlign: "center",
+    verticalAlign: "top",
   };
 }
