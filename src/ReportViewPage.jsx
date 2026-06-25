@@ -13,6 +13,7 @@ function bottomNavStyle() {
     marginTop: "28px",
     paddingBottom: "16px",
     alignItems: "center",
+    flexWrap: "wrap",
   };
 }
 
@@ -55,6 +56,77 @@ function infoBoxStyle() {
     maxWidth: "1100px",
     textAlign: "center",
   };
+}
+
+
+function warningBoxStyle() {
+  return {
+    marginTop: "14px",
+    padding: "14px",
+    borderRadius: "8px",
+    background: "#fff8e1",
+    border: "1px solid #f0b400",
+    color: "#5f4300",
+    textAlign: "left",
+    maxWidth: "900px",
+    marginInline: "auto",
+    whiteSpace: "pre-wrap",
+    fontFamily: "Arial, sans-serif",
+    fontSize: "14px",
+  };
+}
+
+function compactPayloadPreview(payload) {
+  const text = safeText(payload);
+  if (!text) return "No payload found";
+  return text.length > 8000 ? `${text.slice(0, 8000)}\n\n...payload truncated...` : text;
+}
+
+function ZeroAmountDetails({ result }) {
+  if (!result || result.status !== "success") return null;
+
+  const amount = Number(result.parsed?.amount || 0);
+  const orders = Number(result.parsed?.orderCount || 0);
+  const items = Number(result.parsed?.itemCount || 0);
+
+  if (amount !== 0 || (orders === 0 && items === 0)) return null;
+
+  return (
+    <div style={warningBoxStyle()}>
+      <div>
+        <strong>{result.marketplace?.toUpperCase()} loaded, but amount is 0</strong>
+      </div>
+      <div style={{ marginTop: "8px" }}>
+        This usually means the report was received, but the price field was not parsed correctly,
+        or Amazon returned a report where prices are empty/hidden.
+      </div>
+      <div style={{ marginTop: "8px" }}>
+        <strong>Orders:</strong> {orders}
+        <br />
+        <strong>Items:</strong> {items}
+        <br />
+        <strong>Report request ID:</strong> {result.reportReqId || "missing"}
+      </div>
+
+      <details style={{ marginTop: "12px" }}>
+        <summary style={{ cursor: "pointer", fontWeight: "bold" }}>
+          Show parsed rows
+        </summary>
+        <pre style={{ overflowX: "auto", whiteSpace: "pre-wrap" }}>
+          {safeText(result.parsed?.rows || [])}
+        </pre>
+      </details>
+
+      <details style={{ marginTop: "12px" }}>
+        <summary style={{ cursor: "pointer", fontWeight: "bold" }}>
+          Show backend response / XML payload
+        </summary>
+        <pre style={{ overflowX: "auto", whiteSpace: "pre-wrap" }}>
+          {compactPayloadPreview(result.fullResponse || result.payload)}
+        </pre>
+      </details>
+    </div>
+  );
 }
 
 function isValidReportId(reportId) {
@@ -330,6 +402,7 @@ function MarketplaceSection({ title, result, attempt }) {
           <div>Orders: {result.parsed?.orderCount || 0}</div>
           <div>Items: {result.parsed?.itemCount || 0}</div>
           <div>Amount: {Math.round(result.parsed?.amount || 0)}</div>
+          <ZeroAmountDetails result={result} />
         </div>
       )}
 
@@ -560,6 +633,9 @@ export default function ReportViewPage() {
             </tr>
           </tbody>
         </table>
+
+        <ZeroAmountDetails result={usaResult} />
+        <ZeroAmountDetails result={deResult} />
       </div>
 
       <MarketplaceSection title="USA" result={usaResult} attempt={attempt} />
