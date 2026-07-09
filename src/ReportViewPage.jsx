@@ -128,6 +128,46 @@ function normalizeSalesChannel(salesChannel) {
   return (salesChannel || "").trim().toLowerCase();
 }
 
+function isPareoSku(sku = "") {
+  return sku.trim().toLowerCase().startsWith("pareo");
+}
+
+function buildCategorySummaryRows(summary) {
+  const covers = {
+    label: "Covers",
+    items: 0,
+    amount: 0,
+  };
+
+  const pareos = {
+    label: "Pareos",
+    items: 0,
+    amount: 0,
+  };
+
+  for (const row of summary.rows || []) {
+    const target = isPareoSku(row.sku) ? pareos : covers;
+    target.items += Number(row.itemsSold) || 0;
+    target.amount += Number(row.value) || 0;
+  }
+
+  return [
+    {
+      label: "Total",
+      items: Number(summary.totalItems) || 0,
+      amount: Number(summary.totalAmount) || 0,
+    },
+    {
+      ...covers,
+      amount: Number(covers.amount.toFixed(2)),
+    },
+    {
+      ...pareos,
+      amount: Number(pareos.amount.toFixed(2)),
+    },
+  ];
+}
+
 function shortenSkuForMobile(sku, isMobile) {
   if (!sku) return "";
   if (!isMobile) return sku;
@@ -154,7 +194,7 @@ function getFirstTagText(parentNode, tagNames) {
   return "";
 }
 
-function formatOrderDate(dateText) {
+function formatOrderTime(dateText) {
   if (!dateText) return "-";
 
   const date = new Date(dateText);
@@ -162,10 +202,10 @@ function formatOrderDate(dateText) {
     return dateText;
   }
 
-  return date.toLocaleDateString("en-GB", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
+  return date.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   });
 }
 
@@ -290,11 +330,13 @@ function extractSkuSalesFromXmlPayload(payload, region, selectedMarketplace = ""
       value: Number(row.value.toFixed(2)),
     }))
     .sort((a, b) => {
-      const aIsCover = a.sku.toLowerCase().startsWith("cover");
-      const bIsCover = b.sku.toLowerCase().startsWith("cover");
+      const aIsPareo = isPareoSku(a.sku);
+      const bIsPareo = isPareoSku(b.sku);
 
-      if (aIsCover && !bIsCover) return -1;
-      if (!aIsCover && bIsCover) return 1;
+      // Show all pouf covers first. Pareos go after covers.
+      if (aIsPareo !== bIsPareo) {
+        return aIsPareo ? 1 : -1;
+      }
 
       if (b.itemsSold !== a.itemsSold) {
         return b.itemsSold - a.itemsSold;
@@ -416,7 +458,7 @@ function extractLastOrdersFromXmlPayload(payload, region, selectedMarketplace = 
       }
 
       rows.push({
-        date: formatOrderDate(orderDateText),
+        time: formatOrderTime(orderDateText),
         sortTime: Number.isFinite(orderSortTime) ? orderSortTime : 0,
         orderNumber,
         sku: item.sku,
@@ -616,9 +658,48 @@ function RegionTable({ title, summary, isMobile }) {
           textAlign: "center",
         }}
       >
-        <div><strong>Total Orders:</strong> {summary.totalOrders}</div>
-        <div><strong>Total Items:</strong> {summary.totalItems}</div>
-        <div><strong>Total Amount:</strong> {summary.totalAmount} {summary.currency}</div>
+        <div style={{ marginBottom: 10 }}>
+          <strong>Total Orders:</strong> {summary.totalOrders}
+        </div>
+
+        <table
+          style={{
+            borderCollapse: "collapse",
+            width: "100%",
+            maxWidth: "520px",
+            marginInline: "auto",
+            background: "#fff",
+          }}
+        >
+          <thead>
+            <tr>
+              <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", background: "#f4f4f4", textAlign: "left" }}>
+                Type
+              </th>
+              <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", background: "#f4f4f4", textAlign: "center" }}>
+                Items
+              </th>
+              <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", background: "#f4f4f4", textAlign: "right" }}>
+                Amount
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {buildCategorySummaryRows(summary).map((row) => (
+              <tr key={row.label}>
+                <td style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", fontWeight: "bold", textAlign: "left" }}>
+                  {row.label}
+                </td>
+                <td style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", textAlign: "center" }}>
+                  {row.items}
+                </td>
+                <td style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                  {row.amount.toFixed(2)} {summary.currency}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       <table
@@ -741,11 +822,8 @@ function LastOrdersTable({ title, rows, isMobile }) {
           >
             <thead>
               <tr>
-                <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "10px", textAlign: "left", background: "#f4f4f4", width: "90px" }}>
-                  Date
-                </th>
-                <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "10px", textAlign: "left", background: "#f4f4f4", width: "170px" }}>
-                  Order #
+                <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "10px", textAlign: "left", background: "#f4f4f4", width: "80px" }}>
+                  Time
                 </th>
                 <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "10px", textAlign: "left", background: "#f4f4f4" }}>
                   SKU
@@ -756,6 +834,9 @@ function LastOrdersTable({ title, rows, isMobile }) {
                 <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "10px", textAlign: "center", background: "#f4f4f4", width: "70px" }}>
                   Qty
                 </th>
+                <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "10px", textAlign: "left", background: "#f4f4f4", width: "170px" }}>
+                  Order ID
+                </th>
               </tr>
             </thead>
 
@@ -763,10 +844,7 @@ function LastOrdersTable({ title, rows, isMobile }) {
               {rows.map((row, index) => (
                 <tr key={`${row.orderNumber}-${row.sku}-${index}`}>
                   <td style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", whiteSpace: "nowrap" }}>
-                    {row.date}
-                  </td>
-                  <td style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", whiteSpace: "nowrap" }}>
-                    {row.orderNumber}
+                    {row.time}
                   </td>
                   <td
                     style={{
@@ -783,6 +861,9 @@ function LastOrdersTable({ title, rows, isMobile }) {
                   </td>
                   <td style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", textAlign: "center", fontWeight: "bold" }}>
                     {row.quantity}
+                  </td>
+                  <td style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", whiteSpace: "nowrap" }}>
+                    {row.orderNumber}
                   </td>
                 </tr>
               ))}
