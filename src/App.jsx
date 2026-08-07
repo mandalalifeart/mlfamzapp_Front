@@ -1,5 +1,136 @@
+ChatGPT Plus
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+image(20260807-082002).png
+
+Pasted text(20260807-081901).txt
+Document
+i want this app to be aple to get params , like start date and end date as a param ,  so all vlaues should be supported , today , yesterday  , last 3 days , .....
+
+Worked for 1m 35s
+Yes. I updated the app so the date range can be supplied through URL parameters while keeping your existing presets and Los Angeles date logic. 
+
+ 
+
+
+Recommended usage
+You can pass a single range:
+
+?range=today
+?range=yesterday
+?range=last3days
+?range=lastWeek
+?range=last30days
+?range=thisMonth
+?range=lastMonth
+Or use preset:
+
+?preset=last3days
+Or explicitly pass start/end:
+
+?startDate=2026-08-01&endDate=2026-08-07
+The start/end parameters also understand your preset words:
+
+?startDate=today&endDate=today
+
+?startDate=yesterday&endDate=yesterday
+
+?startDate=last3days&endDate=last3days
+
+?startDate=lastWeek&endDate=lastWeek
+
+?startDate=last30days&endDate=last30days
+
+?startDate=thisMonth&endDate=thisMonth
+
+?startDate=lastMonth&endDate=lastMonth
+It also accepts variations such as last 3 days, last-3-days, and last_3_days.
+
+For example, opening:
+
+https://YOUR-APP/report?range=last3days
+will automatically select LAST 3 DAYS and calculate the correct dates. Explicit dates automatically select CUSTOM.
+
+I also support both naming styles:
+
+startDate / endDate
+start_date / end_date
+start / end
+The URL parameters currently populate/select the dates but do not automatically press SUBMIT.
+
+App_with_url_params.jsx
+
+If you want, the next useful addition is an autoSubmit=true parameter so a URL such as ?range=yesterday&autoSubmit=true immediately runs the report without requiring the SUBMIT click.
+
+
+App_with_url_params.jsx
+Code
+
+
+i want in the case when those parameters are set and valid to go directly to next stage 
+
+Worked for 52s
+Yes — that makes sense. When valid URL parameters are present, the app should behave exactly as if SUBMIT was pressed automatically: create the USA/DE report requests and then navigate directly to /response. Your existing manual Submit flow already does those steps. 
+
+ 
+
+
+I changed it to do that.
+
+Examples:
+
+?range=today
+?range=yesterday
+?range=last3days
+?range=lastWeek
+?range=last30days
+?range=thisMonth
+?range=lastMonth
+or:
+
+?startDate=2026-08-01&endDate=2026-08-07
+or:
+
+?startDate=last3days&endDate=today
+New behavior
+No parameters → normal page, TODAY selected, user presses SUBMIT.
+
+Valid parameters → automatically starts the report → goes directly to /response.
+
+Invalid parameters → stays on this page and shows an error.
+
+It also prevents accidental duplicate automatic API calls in React development mode.
+
+App_with_url_params_autosubmit.jsx
+
+
+App_with_url_params_autosubmit.jsx
+Code
+
+
+Library
+/
+App_with_url_params_autosubmit.jsx
+
+
 import { useNavigate } from "react-router-dom";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
 const LA_TIME_ZONE = "America/Los_Angeles";
@@ -15,6 +146,45 @@ const presets = [
   { key: "lastMonth", label: "LAST MONTH" },
   { key: "custom", label: "CUSTOM" },
 ];
+
+// URL parameter aliases. Values are case-insensitive and can contain spaces, - or _.
+// Examples: last3days, "last 3 days", last-3-days, last_3_days.
+const PRESET_PARAM_MAP = {
+  today: "today",
+  yesterday: "yesterday",
+  last3days: "last3days",
+  last3day: "last3days",
+  lastweek: "lastWeek",
+  last7days: "lastWeek",
+  last30days: "last30days",
+  thismonth: "thisMonth",
+  lastmonth: "lastMonth",
+  custom: "custom",
+};
+
+function normalizePresetParam(value) {
+  if (!value) return null;
+
+  const normalized = String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+
+  return PRESET_PARAM_MAP[normalized] || null;
+}
+
+function isValidDateString(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return false;
+
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
 
 function getTimeZoneParts(date, timeZone) {
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -103,6 +273,87 @@ function getPresetDates(preset) {
     default:
       return { startDate: "", endDate: "" };
   }
+}
+
+// A start/end URL parameter may be either an ISO date or one of the preset names.
+// For a preset value, startDate uses the preset start boundary and endDate uses
+// the preset end boundary.
+function resolveUrlDateValue(value, boundary) {
+  if (!value) return null;
+
+  if (isValidDateString(value)) {
+    return value;
+  }
+
+  const preset = normalizePresetParam(value);
+  if (!preset || preset === "custom") return null;
+
+  const dates = getPresetDates(preset);
+  return boundary === "start" ? dates.startDate : dates.endDate;
+}
+
+function getUrlDateConfig(search = window.location.search) {
+  const params = new URLSearchParams(search);
+
+  const startParam =
+    params.get("startDate") ||
+    params.get("start_date") ||
+    params.get("start");
+
+  const endParam =
+    params.get("endDate") ||
+    params.get("end_date") ||
+    params.get("end");
+
+  const presetParam =
+    params.get("preset") ||
+    params.get("range") ||
+    params.get("period");
+
+  const hasDateParams = startParam !== null || endParam !== null;
+  const hasPresetParam = presetParam !== null;
+  const hasUrlParams = hasDateParams || hasPresetParam;
+
+  // Explicit start/end take priority over preset/range.
+  if (hasDateParams) {
+    const startDate = resolveUrlDateValue(startParam, "start");
+    const endDate = resolveUrlDateValue(endParam, "end");
+    const isValid = Boolean(startDate && endDate && startDate <= endDate);
+
+    return {
+      selectedPreset: "custom",
+      customStartDate: startDate || "",
+      customEndDate: endDate || "",
+      hasUrlParams,
+      shouldAutoSubmit: isValid,
+      urlError: isValid
+        ? ""
+        : "Invalid URL date parameters. Provide both a valid startDate and endDate.",
+    };
+  }
+
+  if (hasPresetParam) {
+    const selectedPreset = normalizePresetParam(presetParam);
+    const isValid = Boolean(selectedPreset && selectedPreset !== "custom");
+
+    return {
+      selectedPreset: isValid ? selectedPreset : "today",
+      customStartDate: "",
+      customEndDate: "",
+      hasUrlParams,
+      shouldAutoSubmit: isValid,
+      urlError: isValid ? "" : "Invalid URL range/preset parameter.",
+    };
+  }
+
+  return {
+    selectedPreset: "today",
+    customStartDate: "",
+    customEndDate: "",
+    hasUrlParams: false,
+    shouldAutoSubmit: false,
+    urlError: "",
+  };
 }
 
 function getTimeZoneOffsetMillis(date, timeZone) {
@@ -243,12 +494,15 @@ function buildMarketplaceDetails({ usaReportId, deReportId, usaError, deError, a
 export default function App() {
   const navigate = useNavigate();
 
-  const [selectedPreset, setSelectedPreset] = useState("today");
-  const [customStartDate, setCustomStartDate] = useState("");
-  const [customEndDate, setCustomEndDate] = useState("");
+  const initialUrlConfig = useMemo(() => getUrlDateConfig(), []);
+
+  const [selectedPreset, setSelectedPreset] = useState(initialUrlConfig.selectedPreset);
+  const [customStartDate, setCustomStartDate] = useState(initialUrlConfig.customStartDate);
+  const [customEndDate, setCustomEndDate] = useState(initialUrlConfig.customEndDate);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialUrlConfig.urlError || "");
   const [errorDetails, setErrorDetails] = useState([]);
+  const autoSubmitStartedRef = useRef(false);
 
   const resolvedDates = useMemo(() => {
     if (selectedPreset === "custom") {
@@ -260,12 +514,9 @@ export default function App() {
     return getPresetDates(selectedPreset);
   }, [selectedPreset, customStartDate, customEndDate]);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function submitReport(startDate, endDate) {
     setError("");
     setErrorDetails([]);
-
-    const { startDate, endDate } = resolvedDates;
 
     if (!startDate || !endDate) {
       setError("Please choose start and end dates");
@@ -357,6 +608,34 @@ export default function App() {
       setLoading(false);
     }
   }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    submitReport(resolvedDates.startDate, resolvedDates.endDate);
+  }
+
+  // When valid URL parameters are present, behave exactly like pressing SUBMIT:
+  // create the USA + DE report requests and navigate directly to /response.
+  // The ref prevents duplicate API calls in React StrictMode during development.
+  useEffect(() => {
+    if (!initialUrlConfig.shouldAutoSubmit || autoSubmitStartedRef.current) {
+      return;
+    }
+
+    autoSubmitStartedRef.current = true;
+
+    const dates =
+      initialUrlConfig.selectedPreset === "custom"
+        ? {
+            startDate: initialUrlConfig.customStartDate,
+            endDate: initialUrlConfig.customEndDate,
+          }
+        : getPresetDates(initialUrlConfig.selectedPreset);
+
+    submitReport(dates.startDate, dates.endDate);
+    // This should run only once for the URL that loaded the page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="app">
