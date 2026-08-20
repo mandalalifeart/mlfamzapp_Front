@@ -50,6 +50,15 @@ function blueButtonStyle(disabled = false) {
   };
 }
 
+function selectorStyle() {
+  return {
+    padding: "8px 12px",
+    fontSize: "14px",
+    borderRadius: "8px",
+    minWidth: "220px",
+  };
+}
+
 function ghostButtonStyle() {
   return {
     padding: "8px 14px",
@@ -203,7 +212,7 @@ function GroupSection({ group, years, showAsin, expanded, onToggle }) {
 export default function SalesPage() {
   const navigate = useNavigate();
 
-  const [selectedMarketplaces, setSelectedMarketplaces] = useState(ALL_MARKETPLACE_VALUES);
+  const [selectedMarketplace, setSelectedMarketplace] = useState("");
   const [showAsin, setShowAsin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -248,10 +257,9 @@ export default function SalesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function toggleMarketplace(value) {
-    setSelectedMarketplaces((prev) =>
-      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
-    );
+  function handleMarketplaceChange(value) {
+    setSelectedMarketplace(value);
+    loadReport(value ? [value] : ALL_MARKETPLACE_VALUES);
   }
 
   function toggleGroup(name) {
@@ -296,46 +304,23 @@ export default function SalesPage() {
           marginBottom: "20px",
         }}
       >
-        <h3 style={{ marginTop: 0 }}>Marketplaces</h3>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginBottom: "12px" }}>
-          {MARKETPLACE_OPTIONS.map((option) => (
-            <label
-              key={option.value}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-                border: "1px solid #ddd",
-                borderRadius: "6px",
-                padding: "6px 10px",
-                cursor: "pointer",
-                background: selectedMarketplaces.includes(option.value) ? "#eaf2ff" : "#fff",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={selectedMarketplaces.includes(option.value)}
-                onChange={() => toggleMarketplace(option.value)}
-              />
-              {option.label}
-            </label>
-          ))}
-        </div>
-
+        <h3 style={{ marginTop: 0 }}>Marketplace</h3>
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-          <button style={ghostButtonStyle()} onClick={() => setSelectedMarketplaces(ALL_MARKETPLACE_VALUES)}>
-            Select All
-          </button>
-          <button style={ghostButtonStyle()} onClick={() => setSelectedMarketplaces([])}>
-            Clear
-          </button>
-          <button
-            style={blueButtonStyle(loading || selectedMarketplaces.length === 0)}
-            onClick={() => loadReport(selectedMarketplaces)}
-            disabled={loading || selectedMarketplaces.length === 0}
+          <select
+            value={selectedMarketplace}
+            onChange={(e) => handleMarketplaceChange(e.target.value)}
+            style={selectorStyle()}
+            disabled={loading}
           >
-            {loading ? "Loading..." : "Apply / Reload"}
-          </button>
+            <option value="">All marketplaces</option>
+            {MARKETPLACE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          {loading && <span>Loading...</span>}
 
           <label style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto" }}>
             <input type="checkbox" checked={showAsin} onChange={() => setShowAsin((v) => !v)} />
