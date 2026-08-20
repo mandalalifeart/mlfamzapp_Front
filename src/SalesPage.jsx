@@ -5,33 +5,35 @@ const API_BASE =
   import.meta.env.VITE_API_BASE ||
   "https://us-central1-mlfamzapp.cloudfunctions.net";
 
-const REGION_OPTIONS = [
-  { value: "all", label: "All Marketplaces" },
-  { value: "eu", label: "EU" },
+const IMAGE_BASE = "https://storage.googleapis.com/mlf-amz-images/";
+
+const MARKETPLACE_OPTIONS = [
   { value: "usa", label: "USA" },
-  { value: "ca", label: "CA" },
-  { value: "mx", label: "MX" },
+  { value: "eu", label: "EU" },
   { value: "uk", label: "UK" },
   { value: "de", label: "DE" },
   { value: "fr", label: "FR" },
-  { value: "it", label: "IT" },
   { value: "es", label: "ES" },
+  { value: "it", label: "IT" },
   { value: "se", label: "SE" },
-  { value: "ie", label: "IE" },
-  { value: "pl", label: "PL" },
   { value: "nl", label: "NL" },
   { value: "be", label: "BE" },
+  { value: "ie", label: "IE" },
+  { value: "pl", label: "PL" },
   { value: "jp", label: "JP" },
+  { value: "au", label: "AU" },
 ];
 
-function bottomNavStyle() {
+const ALL_MARKETPLACE_VALUES = MARKETPLACE_OPTIONS.map((o) => o.value);
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const YEAR_ROW_LABELS = ["This Year", "Last Year", "2 Years Ago", "3 Years Ago"];
+
+function cardStyle() {
   return {
-    display: "flex",
-    justifyContent: "center",
-    gap: "10px",
-    marginTop: "28px",
-    paddingBottom: "16px",
-    flexWrap: "wrap",
+    background: "#fff",
+    border: "1px solid #ddd",
+    borderRadius: "8px",
+    padding: "16px",
   };
 }
 
@@ -49,29 +51,23 @@ function blueButtonStyle(disabled = false) {
   };
 }
 
-function cardStyle() {
+function ghostButtonStyle() {
   return {
+    padding: "8px 14px",
+    fontSize: "13px",
+    cursor: "pointer",
+    borderRadius: "8px",
+    border: "1px solid #1976d2",
     background: "#fff",
-    border: "1px solid #ddd",
-    borderRadius: "8px",
-    padding: "16px",
-  };
-}
-
-function inputStyle() {
-  return {
-    width: "100%",
-    padding: "10px",
-    borderRadius: "8px",
-    border: "1px solid #ccc",
-    boxSizing: "border-box",
+    color: "#1976d2",
+    fontWeight: "600",
   };
 }
 
 function tableCellStyle(extra = {}) {
   return {
     border: "1px solid #ccc",
-    padding: "10px",
+    padding: "6px 8px",
     textAlign: "left",
     ...extra,
   };
@@ -85,167 +81,124 @@ function numberCellStyle(extra = {}) {
   });
 }
 
-function safeJsonPreview(value) {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
+function bottomNavStyle() {
+  return {
+    display: "flex",
+    justifyContent: "center",
+    gap: "10px",
+    marginTop: "28px",
+    paddingBottom: "16px",
+    flexWrap: "wrap",
+  };
 }
 
-function SummaryTable({ rows }) {
-  if (!Array.isArray(rows) || rows.length === 0) {
-    return (
-      <div style={cardStyle()}>
-        <h3 style={{ marginTop: 0 }}>Department Summary</h3>
-        <div>No data</div>
-      </div>
-    );
+function GrowthBadge({ pct }) {
+  if (pct === null || pct === undefined) {
+    return <span style={{ color: "#999" }}>–</span>;
   }
-
+  const positive = pct >= 0;
   return (
-    <div style={cardStyle()}>
-      <h3 style={{ marginTop: 0 }}>Department Summary</h3>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%" }}>
-          <thead>
-            <tr>
-              <th style={tableCellStyle({ background: "#f4f4f4" })}>Department</th>
-              <th style={numberCellStyle({ background: "#f4f4f4" })}>ASIN Count</th>
-              <th style={numberCellStyle({ background: "#f4f4f4" })}>2023</th>
-              <th style={numberCellStyle({ background: "#f4f4f4" })}>2024</th>
-              <th style={numberCellStyle({ background: "#f4f4f4" })}>2025</th>
-              <th style={numberCellStyle({ background: "#f4f4f4" })}>2026</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.department}>
-                <td style={tableCellStyle()}>{row.department}</td>
-                <td style={numberCellStyle()}>{row.asinCount ?? 0}</td>
-                <td style={numberCellStyle()}>{row.Y2023 ?? 0}</td>
-                <td style={numberCellStyle()}>{row.Y2024 ?? 0}</td>
-                <td style={numberCellStyle()}>{row.Y2025 ?? 0}</td>
-                <td style={numberCellStyle()}>{row.Y2026 ?? 0}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <span style={{ color: positive ? "#1b7a1b" : "#b00020", fontWeight: 700, whiteSpace: "nowrap" }}>
+      {positive ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
+    </span>
   );
 }
 
-function DepartmentTable({ title, rows }) {
-  if (!Array.isArray(rows) || rows.length === 0) {
+function ProductRows({ item, showAsin, years }) {
+  const rowCount = years.length;
+
+  return years.map((year, yIndex) => {
+    const yearRow = item.years.find((y) => y.year === year) || { months: Array(12).fill(0), total: 0 };
+    const isFirst = yIndex === 0;
+
     return (
-      <div style={cardStyle()}>
-        <h3 style={{ marginTop: 0 }}>{title}</h3>
-        <div>No data</div>
-      </div>
+      <tr key={`${item.asin}-${year}`}>
+        {isFirst && (
+          <td rowSpan={rowCount} style={tableCellStyle({ verticalAlign: "top", width: "70px" })}>
+            <img
+              src={`${IMAGE_BASE}${encodeURIComponent(item.mainSku)}.jpg`}
+              alt={item.mainSku}
+              style={{ width: "60px", height: "60px", objectFit: "cover", borderRadius: "6px" }}
+            />
+          </td>
+        )}
+
+        {isFirst && (
+          <td rowSpan={rowCount} style={tableCellStyle({ verticalAlign: "top", fontWeight: 600 })}>
+            {item.mainSku}
+            <div style={{ marginTop: "6px" }}>
+              <GrowthBadge pct={item.growthPct} />
+            </div>
+          </td>
+        )}
+
+        {showAsin && isFirst && (
+          <td rowSpan={rowCount} style={tableCellStyle({ verticalAlign: "top", fontFamily: "monospace" })}>
+            {item.asin}
+          </td>
+        )}
+
+        <td style={tableCellStyle({ color: isFirst ? "#000" : "#555" })}>
+          {YEAR_ROW_LABELS[yIndex] || year} <span style={{ color: "#999" }}>({year})</span>
+        </td>
+
+        {MONTH_LABELS.map((_, i) => (
+          <td key={i} style={numberCellStyle({ minWidth: "48px" })}>
+            {yearRow.months[i] || 0}
+          </td>
+        ))}
+
+        <td style={numberCellStyle({ fontWeight: 700 })}>{yearRow.total}</td>
+      </tr>
     );
-  }
+  });
+}
 
-  const years = ["2026", "2025", "2024", "2023"];
-
-  function getMonthValue(row, year, monthIndex) {
-    const key = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
-    return Number(row[key] ?? 0);
-  }
-
-  function getYearTotal(row, year) {
-    return Number(row[`Y${year}`] ?? 0);
-  }
-
+function GroupSection({ group, years, showAsin, expanded, onToggle }) {
   return (
     <div style={cardStyle()}>
-      <h3 style={{ marginTop: 0 }}>{title}</h3>
-
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "1400px" }}>
-          <thead>
-            <tr>
-              <th style={tableCellStyle({ background: "#f4f4f4" })}>SKU</th>
-              <th style={tableCellStyle({ background: "#f4f4f4" })}>ASIN</th>
-              <th style={tableCellStyle({ background: "#f4f4f4" })}>Year</th>
-              {Array.from({ length: 12 }).map((_, i) => (
-                <th
-                  key={i}
-                  style={numberCellStyle({ background: "#f4f4f4", minWidth: "70px" })}
-                >
-                  {i + 1}
-                </th>
-              ))}
-              <th style={numberCellStyle({ background: "#f4f4f4" })}>Total</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {rows.flatMap((row, rowIndex) => {
-              const isTotal = rowIndex === 0 && row.ASIN === "ALL";
-
-              return years.map((year, yIndex) => {
-                const isFirstYearRow = yIndex === 0;
-                const yearlyTotal = getYearTotal(row, year);
-
-                return (
-                  <tr key={`${row.ASIN}-${year}`}>
-                    <td
-                      style={tableCellStyle({
-                        fontWeight: isTotal ? "700" : "400",
-                        background: isTotal ? "#f9fbff" : "#fff",
-                        verticalAlign: "top",
-                      })}
-                    >
-                      {isFirstYearRow ? row.SKU : ""}
-                    </td>
-
-                    <td
-                      style={tableCellStyle({
-                        fontWeight: isTotal ? "700" : "400",
-                        background: isTotal ? "#f9fbff" : "#fff",
-                        verticalAlign: "top",
-                      })}
-                    >
-                      {isFirstYearRow ? row.ASIN : ""}
-                    </td>
-
-                    <td
-                      style={tableCellStyle({
-                        background: isTotal ? "#f9fbff" : "#fff",
-                        fontWeight: isTotal ? "700" : "400",
-                      })}
-                    >
-                      {year}
-                    </td>
-
-                    {Array.from({ length: 12 }).map((_, i) => (
-                      <td
-                        key={i}
-                        style={numberCellStyle({
-                          background: isTotal ? "#f9fbff" : "#fff",
-                          fontWeight: isTotal ? "700" : "400",
-                        })}
-                      >
-                        {getMonthValue(row, year, i)}
-                      </td>
-                    ))}
-
-                    <td
-                      style={numberCellStyle({
-                        fontWeight: "700",
-                        background: isTotal ? "#f9fbff" : "#fff",
-                      })}
-                    >
-                      {yearlyTotal}
-                    </td>
-                  </tr>
-                );
-              });
-            })}
-          </tbody>
-        </table>
+      <div
+        onClick={onToggle}
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          cursor: "pointer",
+        }}
+      >
+        <h3 style={{ margin: 0 }}>
+          {expanded ? "▾" : "▸"} {group.group}
+        </h3>
+        <div style={{ color: "#555", fontSize: "13px" }}>
+          {group.items.length} product{group.items.length === 1 ? "" : "s"} · {group.totalThisYear} units this year
+        </div>
       </div>
+
+      {expanded && (
+        <div style={{ overflowX: "auto", marginTop: "12px" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "1100px" }}>
+            <thead>
+              <tr>
+                <th style={tableCellStyle({ background: "#f4f4f4" })}>Image</th>
+                <th style={tableCellStyle({ background: "#f4f4f4" })}>Main SKU</th>
+                {showAsin && <th style={tableCellStyle({ background: "#f4f4f4" })}>ASIN</th>}
+                <th style={tableCellStyle({ background: "#f4f4f4" })}>Period</th>
+                {MONTH_LABELS.map((m) => (
+                  <th key={m} style={numberCellStyle({ background: "#f4f4f4" })}>
+                    {m}
+                  </th>
+                ))}
+                <th style={numberCellStyle({ background: "#f4f4f4" })}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {group.items.map((item) => (
+                <ProductRows key={item.asin} item={item} showAsin={showAsin} years={years} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -253,28 +206,18 @@ function DepartmentTable({ title, rows }) {
 export default function SalesPage() {
   const location = useLocation();
   const navigate = useNavigate();
-
-  const usaReportId = location.state?.usaReportId || "";
-  const deReportId = location.state?.deReportId || "";
-  const startDate = location.state?.startDate || "";
-  const endDate = location.state?.endDate || "";
   const adminKey = location.state?.adminKey || "";
 
-  const [region, setRegion] = useState(location.state?.defaultRegion || "all");
-  const [asin, setAsin] = useState(location.state?.defaultAsin || "");
+  const [selectedMarketplaces, setSelectedMarketplaces] = useState(ALL_MARKETPLACE_VALUES);
+  const [showAsin, setShowAsin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
+  const [collapsedGroups, setCollapsedGroups] = useState({});
 
-  const departmentSummary = useMemo(
-    () => (Array.isArray(result?.departmentSummary) ? result.departmentSummary : []),
-    [result]
-  );
-
-  async function loadSalesReport(selectedRegion, selectedAsin) {
+  async function loadReport(marketplaces) {
     setLoading(true);
     setError("");
-    setResult(null);
 
     try {
       const response = await fetch(`${API_BASE}/GetSalesDepartmentReport`, {
@@ -283,10 +226,7 @@ export default function SalesPage() {
           "Content-Type": "application/json",
           ...(adminKey ? { "x-admin-key": adminKey } : {}),
         },
-        body: JSON.stringify({
-          region: selectedRegion,
-          asin: selectedAsin || null,
-        }),
+        body: JSON.stringify({ marketplaces }),
       });
 
       const text = await response.text();
@@ -310,24 +250,34 @@ export default function SalesPage() {
   }
 
   useEffect(() => {
-    loadSalesReport(region, asin);
-  }, [region]);
+    loadReport(ALL_MARKETPLACE_VALUES);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  function goHome() {
-    navigate("/");
+  function toggleMarketplace(value) {
+    setSelectedMarketplaces((prev) =>
+      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
+    );
   }
 
-  function goToUpdate() {
-    navigate("/update", {
-      state: {
-        usaReportId,
-        deReportId,
-        startDate,
-        endDate,
-        adminKey,
-      },
+  function toggleGroup(name) {
+    setCollapsedGroups((prev) => ({ ...prev, [name]: !prev[name] }));
+  }
+
+  function expandAll() {
+    setCollapsedGroups({});
+  }
+
+  function collapseAll() {
+    if (!result?.groups) return;
+    const next = {};
+    result.groups.forEach((g) => {
+      next[g.group] = true;
     });
+    setCollapsedGroups(next);
   }
+
+  const years = useMemo(() => result?.years || [], [result]);
 
   return (
     <div
@@ -338,87 +288,68 @@ export default function SalesPage() {
         background: "#fafafa",
       }}
     >
-      <h2 style={{ textAlign: "center", marginBottom: "20px" }}>
-        Sales by Department
-      </h2>
+      <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Sales by Product Group</h2>
 
       <div
         style={{
           ...cardStyle(),
-          maxWidth: "1000px",
-          marginInline: "auto",
-          marginBottom: "20px",
-          background: "#f4f4f4",
-        }}
-      >
-        <div><strong>USA Report ID:</strong> {usaReportId || "-"}</div>
-        <div><strong>DE Report ID:</strong> {deReportId || "-"}</div>
-        <div><strong>Start Date:</strong> {startDate || "-"}</div>
-        <div><strong>End Date:</strong> {endDate || "-"}</div>
-      </div>
-
-      <div
-        style={{
-          ...cardStyle(),
-          maxWidth: "1000px",
+          maxWidth: "1400px",
           marginInline: "auto",
           marginBottom: "20px",
         }}
       >
-        <h3 style={{ marginTop: 0 }}>Filters</h3>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(220px, 320px) minmax(220px, 320px) auto",
-            gap: "12px",
-            alignItems: "end",
-          }}
-        >
-          <div>
-            <label style={{ display: "block", marginBottom: "6px" }}>
-              Select Region
-            </label>
-            <select
-              value={region}
-              onChange={(e) => setRegion(e.target.value)}
-              style={inputStyle()}
+        <h3 style={{ marginTop: 0 }}>Marketplaces</h3>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginBottom: "12px" }}>
+          {MARKETPLACE_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                border: "1px solid #ddd",
+                borderRadius: "6px",
+                padding: "6px 10px",
+                cursor: "pointer",
+                background: selectedMarketplaces.includes(option.value) ? "#eaf2ff" : "#fff",
+              }}
             >
-              {REGION_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={{ display: "block", marginBottom: "6px" }}>
-              ASIN (optional)
+              <input
+                type="checkbox"
+                checked={selectedMarketplaces.includes(option.value)}
+                onChange={() => toggleMarketplace(option.value)}
+              />
+              {option.label}
             </label>
-            <input
-              value={asin}
-              onChange={(e) => setAsin(e.target.value.toUpperCase())}
-              style={inputStyle()}
-              placeholder="B07Q4FM2CL"
-            />
-          </div>
+          ))}
+        </div>
 
-          <div>
-            <button
-              style={blueButtonStyle(loading)}
-              onClick={() => loadSalesReport(region, asin)}
-              disabled={loading}
-            >
-              {loading ? "Loading..." : "Reload"}
-            </button>
-          </div>
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+          <button style={ghostButtonStyle()} onClick={() => setSelectedMarketplaces(ALL_MARKETPLACE_VALUES)}>
+            Select All
+          </button>
+          <button style={ghostButtonStyle()} onClick={() => setSelectedMarketplaces([])}>
+            Clear
+          </button>
+          <button
+            style={blueButtonStyle(loading || selectedMarketplaces.length === 0)}
+            onClick={() => loadReport(selectedMarketplaces)}
+            disabled={loading || selectedMarketplaces.length === 0}
+          >
+            {loading ? "Loading..." : "Apply / Reload"}
+          </button>
+
+          <label style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto" }}>
+            <input type="checkbox" checked={showAsin} onChange={() => setShowAsin((v) => !v)} />
+            Show ASIN column
+          </label>
         </div>
       </div>
 
       {error && (
         <div
           style={{
-            maxWidth: "1000px",
+            maxWidth: "1400px",
             marginInline: "auto",
             marginBottom: "20px",
             color: "#b00020",
@@ -434,125 +365,67 @@ export default function SalesPage() {
       )}
 
       {loading && (
-        <div
-          style={{
-            maxWidth: "1000px",
-            marginInline: "auto",
-            marginBottom: "20px",
-            textAlign: "center",
-          }}
-        >
+        <div style={{ maxWidth: "1400px", marginInline: "auto", marginBottom: "20px", textAlign: "center" }}>
           Loading sales report...
         </div>
       )}
 
       {!loading && result && (
-        <div
-          style={{
-            display: "grid",
-            gap: "18px",
-            maxWidth: "1400px",
-            marginInline: "auto",
-          }}
-        >
-          <div style={cardStyle()}>
-            <h3 style={{ marginTop: 0 }}>Response Summary</h3>
-            <table style={{ borderCollapse: "collapse", width: "100%" }}>
-              <tbody>
-                <tr>
-                  <td style={tableCellStyle({ background: "#f4f4f4", width: "240px" })}>
-                    Status
-                  </td>
-                  <td style={tableCellStyle()}>{result.status ?? "-"}</td>
-                </tr>
-                <tr>
-                  <td style={tableCellStyle({ background: "#f4f4f4" })}>Region</td>
-                  <td style={tableCellStyle()}>{result.region ?? "-"}</td>
-                </tr>
-                <tr>
-                  <td style={tableCellStyle({ background: "#f4f4f4" })}>ASIN Filter</td>
-                  <td style={tableCellStyle()}>{result.asinFilter ?? "-"}</td>
-                </tr>
-                <tr>
-                  <td style={tableCellStyle({ background: "#f4f4f4" })}>Mapped SKU Count</td>
-                  <td style={tableCellStyle()}>{result.mappedSkuCount ?? "-"}</td>
-                </tr>
-                <tr>
-                  <td style={tableCellStyle({ background: "#f4f4f4" })}>Matched Sales Rows</td>
-                  <td style={tableCellStyle()}>{result.matchedSalesRows ?? "-"}</td>
-                </tr>
-                <tr>
-                  <td style={tableCellStyle({ background: "#f4f4f4" })}>Source Row Count</td>
-                  <td style={tableCellStyle()}>{result.sourceRowCount ?? 0}</td>
-                </tr>
-                <tr>
-                  <td style={tableCellStyle({ background: "#f4f4f4" })}>Mapping File</td>
-                  <td style={tableCellStyle()}>{result.mappingFile ?? "-"}</td>
-                </tr>
-              </tbody>
-            </table>
+        <div style={{ display: "grid", gap: "18px", maxWidth: "1400px", marginInline: "auto" }}>
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button style={ghostButtonStyle()} onClick={expandAll}>
+              Expand All Groups
+            </button>
+            <button style={ghostButtonStyle()} onClick={collapseAll}>
+              Collapse All Groups
+            </button>
           </div>
 
-          {Array.isArray(result.mappedSkus) && result.mappedSkus.length > 0 && (
-            <div style={cardStyle()}>
-              <h3 style={{ marginTop: 0 }}>Mapped SKUs</h3>
-              <div>{result.mappedSkus.join(", ")}</div>
-            </div>
-          )}
+          {(result.groups || []).map((group) => (
+            <GroupSection
+              key={group.group}
+              group={group}
+              years={years}
+              showAsin={showAsin}
+              expanded={!collapsedGroups[group.group]}
+              onToggle={() => toggleGroup(group.group)}
+            />
+          ))}
 
-          {Array.isArray(result.missingSkuExamples) && result.missingSkuExamples.length > 0 && (
+          {Array.isArray(result.unmapped) && result.unmapped.length > 0 && (
             <div style={cardStyle()}>
-              <h3 style={{ marginTop: 0 }}>Missing SKU Examples</h3>
-              <div>{result.missingSkuExamples.join(", ")}</div>
-            </div>
-          )}
-
-          {result.mappingStats && (
-            <div style={cardStyle()}>
-              <h3 style={{ marginTop: 0 }}>Mapping Stats</h3>
-              <table style={{ borderCollapse: "collapse", width: "100%" }}>
-                <tbody>
-                  {Object.entries(result.mappingStats).map(([key, value]) => (
-                    <tr key={key}>
-                      <td style={tableCellStyle({ background: "#f4f4f4", width: "240px" })}>
-                        {key}
-                      </td>
-                      <td style={tableCellStyle()}>{String(value ?? "")}</td>
+              <h3 style={{ marginTop: 0 }}>Unmapped SKUs</h3>
+              <div style={{ color: "#555", fontSize: "13px", marginBottom: "8px" }}>
+                Sales rows whose SKU isn't in asin_group_mapping.csv (not counted in any group above).
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                  <thead>
+                    <tr>
+                      <th style={tableCellStyle({ background: "#f4f4f4" })}>SKU</th>
+                      <th style={numberCellStyle({ background: "#f4f4f4" })}>Total Quantity</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <SummaryTable rows={departmentSummary} />
-
-          <DepartmentTable title="PAREO" rows={result.departments?.PAREO || []} />
-          <DepartmentTable title="P_RUG" rows={result.departments?.P_RUG || []} />
-          <DepartmentTable title="P_BOHO" rows={result.departments?.P_BOHO || []} />
-
-          {!result.departments && (
-            <div style={cardStyle()}>
-              <h3 style={{ marginTop: 0 }}>Full Response</h3>
-              <pre
-                style={{
-                  margin: 0,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                }}
-              >
-                {safeJsonPreview(result)}
-              </pre>
+                  </thead>
+                  <tbody>
+                    {result.unmapped.map((row) => (
+                      <tr key={row.sku}>
+                        <td style={tableCellStyle()}>{row.sku}</td>
+                        <td style={numberCellStyle()}>{row.totalQuantity}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
       )}
 
       <div style={bottomNavStyle()}>
-        <button style={blueButtonStyle()} onClick={goHome}>
+        <button style={blueButtonStyle()} onClick={() => navigate("/")}>
           Home
         </button>
-        <button style={blueButtonStyle()} onClick={goToUpdate}>
+        <button style={blueButtonStyle()} onClick={() => navigate("/update", { state: { adminKey } })}>
           Update
         </button>
       </div>
