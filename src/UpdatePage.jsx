@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { getAdminKeyFromUrl } from "./adminKey";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -150,7 +149,6 @@ export default function UpdatePage() {
   const deReportId = location.state?.deReportId || "";
   const startDate = location.state?.startDate || "";
   const endDate = location.state?.endDate || "";
-  const adminKey = getAdminKeyFromUrl() || location.state?.adminKey || "";
 
   const [confirmMonth, setConfirmMonth] = useState("");
   const [confirmYear, setConfirmYear] = useState("");
@@ -249,7 +247,6 @@ export default function UpdatePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(adminKey ? { "x-admin-key": adminKey } : {}),
         },
         body: JSON.stringify(payload),
       });

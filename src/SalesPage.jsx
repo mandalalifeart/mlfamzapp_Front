@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { getAdminKeyFromUrl } from "./adminKey";
+import { useNavigate } from "react-router-dom";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -205,9 +204,7 @@ function GroupSection({ group, years, showAsin, expanded, onToggle }) {
 }
 
 export default function SalesPage() {
-  const location = useLocation();
   const navigate = useNavigate();
-  const adminKey = getAdminKeyFromUrl() || location.state?.adminKey || "";
 
   const [selectedMarketplaces, setSelectedMarketplaces] = useState(ALL_MARKETPLACE_VALUES);
   const [showAsin, setShowAsin] = useState(true);
@@ -225,7 +222,6 @@ export default function SalesPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(adminKey ? { "x-admin-key": adminKey } : {}),
         },
         body: JSON.stringify({ marketplaces }),
       });
@@ -426,14 +422,7 @@ export default function SalesPage() {
         <button style={blueButtonStyle()} onClick={() => navigate("/")}>
           Home
         </button>
-        <button
-          style={blueButtonStyle()}
-          onClick={() =>
-            navigate(adminKey ? `/update?key=${encodeURIComponent(adminKey)}` : "/update", {
-              state: { adminKey },
-            })
-          }
-        >
+        <button style={blueButtonStyle()} onClick={() => navigate("/update")}>
           Update
         </button>
       </div>
