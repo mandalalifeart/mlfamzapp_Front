@@ -477,10 +477,20 @@ export default function UpdatePage() {
             <DataTable title="Preview Rows" rows={result.preview} />
           )}
 
+          {Array.isArray(result.updatedRows) && (
+            <DataTable title="Updated SKU Rows" rows={result.updatedRows} />
+          )}
+
+          {Array.isArray(result.updatedCountryRows) && (
+            <DataTable title="Updated Country Rows" rows={result.updatedCountryRows} />
+          )}
+
           {!Array.isArray(result.reports) &&
             !Array.isArray(result.aggregatedByMarketplace) &&
             !Array.isArray(result.preview) &&
-            !Array.isArray(result.missingAsinSkus) && (
+            !Array.isArray(result.missingAsinSkus) &&
+            !Array.isArray(result.updatedRows) &&
+            !Array.isArray(result.updatedCountryRows) && (
               <div style={cardStyle()}>
                 <h3 style={{ marginTop: 0 }}>Full Response</h3>
                 <pre
