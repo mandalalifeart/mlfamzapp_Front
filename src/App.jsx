@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getAdminKeyFromUrl } from "./adminKey";
 import "./App.css";
 
 const LA_TIME_ZONE = "America/Los_Angeles";
@@ -581,7 +582,14 @@ export default function App() {
           <button type="button" style={smallButtonStyle()} onClick={() => navigate("/")}>
             Home
           </button>
-          <button type="button" style={smallButtonStyle()} onClick={() => navigate("/sales")}>
+          <button
+            type="button"
+            style={smallButtonStyle()}
+            onClick={() => {
+              const adminKey = getAdminKeyFromUrl();
+              navigate(adminKey ? `/sales?key=${encodeURIComponent(adminKey)}` : "/sales");
+            }}
+          >
             Sales
           </button>
         </div>

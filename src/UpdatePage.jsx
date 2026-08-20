@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { getAdminKeyFromUrl } from "./adminKey";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -149,7 +150,7 @@ export default function UpdatePage() {
   const deReportId = location.state?.deReportId || "";
   const startDate = location.state?.startDate || "";
   const endDate = location.state?.endDate || "";
-  const adminKey = location.state?.adminKey || "";
+  const adminKey = getAdminKeyFromUrl() || location.state?.adminKey || "";
 
   const [confirmMonth, setConfirmMonth] = useState("");
   const [confirmYear, setConfirmYear] = useState("");
