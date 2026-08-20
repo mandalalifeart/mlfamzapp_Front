@@ -412,13 +412,29 @@ export default function UpdatePage() {
             marginInline: "auto",
           }}
         >
+          {result.asinWarning && (
+            <div
+              style={{
+                color: "#8a5a00",
+                background: "#fff8e1",
+                border: "1px solid #f0d78c",
+                padding: "12px 14px",
+                borderRadius: "8px",
+                fontWeight: 600,
+              }}
+            >
+              ⚠ {result.asinWarning}
+            </div>
+          )}
+
           <div style={cardStyle()}>
             <h3 style={{ marginTop: 0 }}>Response Summary</h3>
             <table style={{ borderCollapse: "collapse", width: "100%" }}>
               <tbody>
                 {Object.entries(result)
                   .filter(
-                    ([, value]) =>
+                    ([key, value]) =>
+                      key !== "asinWarning" &&
                       !Array.isArray(value) &&
                       (typeof value !== "object" || value === null)
                   )
@@ -450,13 +466,21 @@ export default function UpdatePage() {
             />
           )}
 
+          {Array.isArray(result.missingAsinSkus) && result.missingAsinSkus.length > 0 && (
+            <DataTable
+              title="SKUs Written With Empty ASIN"
+              rows={result.missingAsinSkus.map((sku) => ({ sku }))}
+            />
+          )}
+
           {Array.isArray(result.preview) && (
             <DataTable title="Preview Rows" rows={result.preview} />
           )}
 
           {!Array.isArray(result.reports) &&
             !Array.isArray(result.aggregatedByMarketplace) &&
-            !Array.isArray(result.preview) && (
+            !Array.isArray(result.preview) &&
+            !Array.isArray(result.missingAsinSkus) && (
               <div style={cardStyle()}>
                 <h3 style={{ marginTop: 0 }}>Full Response</h3>
                 <pre
