@@ -243,7 +243,12 @@ function zonedDateTimeToUtc(dateStr, timeStr, timeZone) {
   const [year, month, day] = dateStr.split("-").map(Number);
   const [hour, minute, secondAndMs] = timeStr.split(":");
   const [second, ms = "0"] = secondAndMs.split(".");
+  const msValue = Number(ms.padEnd(3, "0").slice(0, 3));
 
+  // Milliseconds are excluded from the guess used to look up the zone offset:
+  // getTimeZoneParts (via Intl.DateTimeFormat) has only whole-second granularity,
+  // so a non-zero ms here would get truncated when read back and reintroduced
+  // as error in the final result (e.g. 23:59:59.999 LA rolling into the next day).
   const utcGuess = Date.UTC(
     year,
     month - 1,
@@ -251,11 +256,11 @@ function zonedDateTimeToUtc(dateStr, timeStr, timeZone) {
     Number(hour),
     Number(minute),
     Number(second),
-    Number(ms.padEnd(3, "0").slice(0, 3))
+    0
   );
 
   const offset = getTimeZoneOffsetMillis(new Date(utcGuess), timeZone);
-  return new Date(utcGuess - offset);
+  return new Date(utcGuess - offset + msValue);
 }
 
 function buildApiDateRange(startDateStr, endDateStr) {
