@@ -26,7 +26,6 @@ const MARKETPLACE_OPTIONS = [
 
 const ALL_MARKETPLACE_VALUES = MARKETPLACE_OPTIONS.map((o) => o.value);
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const YEAR_ROW_LABELS = ["This Year", "Last Year", "2 Years Ago", "3 Years Ago"];
 
 function cardStyle() {
   return {
@@ -112,7 +111,7 @@ function ProductRows({ item, showAsin, years }) {
     const isFirst = yIndex === 0;
 
     return (
-      <tr key={`${item.asin}-${year}`}>
+      <tr key={`${item.asin}-${year}`} style={isFirst ? { fontWeight: 700 } : undefined}>
         {isFirst && (
           <td rowSpan={rowCount} style={tableCellStyle({ verticalAlign: "top", width: "70px" })}>
             <img
@@ -138,9 +137,7 @@ function ProductRows({ item, showAsin, years }) {
           </td>
         )}
 
-        <td style={tableCellStyle({ color: isFirst ? "#000" : "#555" })}>
-          {YEAR_ROW_LABELS[yIndex] || year} <span style={{ color: "#999" }}>({year})</span>
-        </td>
+        <td style={tableCellStyle({ color: isFirst ? "#000" : "#555" })}>{year}</td>
 
         {MONTH_LABELS.map((_, i) => (
           <td key={i} style={numberCellStyle({ minWidth: "48px" })}>
@@ -276,10 +273,16 @@ export default function SalesPage() {
 
   const years = useMemo(() => result?.years || [], [result]);
 
+  useEffect(() => {
+    const root = document.getElementById("root");
+    root?.classList.add("full-bleed");
+    return () => root?.classList.remove("full-bleed");
+  }, []);
+
   return (
     <div
       style={{
-        padding: "20px",
+        padding: "10px",
         fontFamily: "Arial, sans-serif",
         minHeight: "100vh",
         background: "#fafafa",
@@ -290,8 +293,6 @@ export default function SalesPage() {
       <div
         style={{
           ...cardStyle(),
-          maxWidth: "1400px",
-          marginInline: "auto",
           marginBottom: "20px",
         }}
       >
@@ -362,13 +363,13 @@ export default function SalesPage() {
       )}
 
       {loading && (
-        <div style={{ maxWidth: "1400px", marginInline: "auto", marginBottom: "20px", textAlign: "center" }}>
+        <div style={{ marginBottom: "20px", textAlign: "center" }}>
           Loading sales report...
         </div>
       )}
 
       {!loading && result && (
-        <div style={{ display: "grid", gap: "18px", maxWidth: "1400px", marginInline: "auto" }}>
+        <div style={{ display: "grid", gap: "18px" }}>
           <div style={{ display: "flex", gap: "10px" }}>
             <button style={ghostButtonStyle()} onClick={expandAll}>
               Expand All Groups
