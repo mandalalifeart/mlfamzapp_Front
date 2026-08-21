@@ -41,24 +41,10 @@ const CHART_GRIDLINE = "#e1e0d9";
 const CHART_BASELINE = "#c3c2b7";
 const CHART_INK = "#0b0b0b";
 
-// Sales are never currency-converted - each marketplace's total stays in its
-// own local currency, so a multi-currency selection is shown as one block
-// per currency rather than a single blended number.
-const CURRENCY_SYMBOLS = {
-  USD: "$",
-  EUR: "€",
-  GBP: "£",
-  JPY: "¥",
-  AUD: "A$",
-  SEK: "kr",
-  PLN: "zł",
-};
-const SUFFIX_CURRENCIES = new Set(["SEK", "PLN"]);
-
-function formatMoney(value, currency = "USD") {
-  const symbol = CURRENCY_SYMBOLS[currency] || `${currency} `;
-  const amount = Math.round(value).toLocaleString();
-  return SUFFIX_CURRENCIES.has(currency) ? `${amount} ${symbol}` : `${symbol}${amount}`;
+// Backend converts every marketplace's local currency into USD (live rate)
+// before totaling, so this always renders in USD.
+function formatMoney(value) {
+  return `$${Math.round(value).toLocaleString()}`;
 }
 
 function formatUnits(value) {
@@ -615,11 +601,8 @@ function SummaryBlock({ title, years, currentMonth, yearRows, growthPct, formatV
   );
 }
 
-function MarketplaceSummaryCard({ quantity, salesByCurrency, years, currentMonth, metric, onMetricChange, loading, error }) {
-  // Biggest currency (by current total) shown first.
-  const currencyEntries = Object.entries(salesByCurrency || {}).sort(
-    ([, a], [, b]) => (b.yearRows?.[0]?.total || 0) - (a.yearRows?.[0]?.total || 0)
-  );
+function MarketplaceSummaryCard({ quantity, sales, years, currentMonth, metric, onMetricChange, loading, error }) {
+  const summary = metric === "money" ? sales : quantity;
 
   return (
     <div style={{ ...cardStyle(), marginBottom: "20px" }}>
@@ -630,7 +613,7 @@ function MarketplaceSummaryCard({ quantity, salesByCurrency, years, currentMonth
             Units
           </button>
           <button style={metric === "money" ? blueButtonStyle() : ghostButtonStyle()} onClick={() => onMetricChange("money")}>
-            Money
+            Money ($)
           </button>
         </div>
       </div>
@@ -638,36 +621,16 @@ function MarketplaceSummaryCard({ quantity, salesByCurrency, years, currentMonth
       {loading && <div style={{ marginTop: "12px", textAlign: "center" }}>Loading...</div>}
       {error && <div style={{ marginTop: "12px", color: GROWTH_RED }}>{error}</div>}
 
-      {!loading && !error && metric === "units" && quantity && (
+      {!loading && !error && summary && (
         <div style={{ marginTop: "16px" }}>
           <SummaryBlock
             years={years}
             currentMonth={currentMonth}
-            yearRows={quantity.yearRows}
-            growthPct={quantity.growthPct}
-            formatValue={formatUnits}
-            ariaLabel="units"
+            yearRows={summary.yearRows}
+            growthPct={summary.growthPct}
+            formatValue={metric === "money" ? formatMoney : formatUnits}
+            ariaLabel={metric === "money" ? "sales (USD)" : "units"}
           />
-        </div>
-      )}
-
-      {!loading && !error && metric === "money" && (
-        <div style={{ marginTop: "16px", display: "grid", gap: "24px" }}>
-          {currencyEntries.length === 0 && (
-            <div style={{ color: "#555" }}>No sales data for this selection.</div>
-          )}
-          {currencyEntries.map(([currency, data]) => (
-            <SummaryBlock
-              key={currency}
-              title={currencyEntries.length > 1 ? `Sales (${currency})` : undefined}
-              years={years}
-              currentMonth={currentMonth}
-              yearRows={data.yearRows}
-              growthPct={data.growthPct}
-              formatValue={(v) => formatMoney(v, currency)}
-              ariaLabel={`sales (${currency})`}
-            />
-          ))}
         </div>
       )}
     </div>
@@ -838,7 +801,7 @@ export default function SalesPage() {
 
       <MarketplaceSummaryCard
         quantity={marketplaceSummary?.quantity}
-        salesByCurrency={marketplaceSummary?.salesByCurrency}
+        sales={marketplaceSummary?.sales}
         years={marketplaceSummary?.years || []}
         currentMonth={marketplaceSummary?.currentMonth}
         metric={metric}
