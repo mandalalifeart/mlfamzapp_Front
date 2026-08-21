@@ -32,19 +32,29 @@ const GROWTH_GREEN = "#1b7a1b";
 const GROWTH_RED = "#b00020";
 const GROWTH_THRESHOLD_PCT = 10;
 
-// Validated adjacent categorical pair (blue/orange) from the dataviz palette -
-// clears CVD and normal-vision contrast checks for a 2-series comparison.
-const SERIES_THIS_YEAR = "#2a78d6";
-const SERIES_LAST_YEAR = "#eb6834";
 const CHART_MUTED = "#898781";
 const CHART_GRIDLINE = "#e1e0d9";
 const CHART_BASELINE = "#c3c2b7";
 const CHART_INK = "#0b0b0b";
 
-// Backend converts every marketplace's local currency into USD (live rate)
-// before totaling, so this always renders in USD.
-function formatMoney(value) {
-  return `$${Math.round(value).toLocaleString()}`;
+// Backend shows a single marketplace (or several sharing a currency) in its
+// own native currency, and only converts to USD (live rate) when the
+// selection genuinely mixes currencies (e.g. "All marketplaces").
+const CURRENCY_SYMBOLS = {
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  JPY: "¥",
+  AUD: "A$",
+  SEK: "kr",
+  PLN: "zł",
+};
+const SUFFIX_CURRENCIES = new Set(["SEK", "PLN"]);
+
+function formatMoney(value, currency = "USD") {
+  const symbol = CURRENCY_SYMBOLS[currency] || `${currency} `;
+  const amount = Math.round(value).toLocaleString();
+  return SUFFIX_CURRENCIES.has(currency) ? `${amount} ${symbol}` : `${symbol}${amount}`;
 }
 
 function formatUnits(value) {
@@ -357,21 +367,26 @@ function niceNumber(value) {
   return niceFraction * 10 ** exponent;
 }
 
-// This-year-vs-last-year monthly trend for the currently selected marketplace(s).
-// Only two series so color alone (no legend box) would be enough per the
-// series-count ladder, but a legend is kept since the direct end-labels can
-// collide when both lines end on the same month.
-function TrendChart({ years, yearRows, currentMonth, formatValue, ariaLabel }) {
-  const thisYear = years[0];
-  const lastYear = years[1];
-  const thisYearRow = yearRows.find((y) => y.year === thisYear);
-  const lastYearRow = lastYear ? yearRows.find((y) => y.year === lastYear) : null;
+// Recency is ordinal (this year is more relevant than 3-years-ago, and
+// swapping the order would change the meaning) so years get one hue stepped
+// from dark (current year, most relevant) to light (oldest), rather than
+// unrelated categorical hues - validated as an ordinal ramp against the
+// white chart surface via the dataviz skill's validate_palette.js.
+const YEAR_RAMP = ["#184f95", "#2a78d6", "#5598e7", "#86b6ef"];
+const YEAR_AGE_LABEL = ["this year", "last year", "2 years ago", "3 years ago"];
+const LABEL_MIN_GAP = 14;
 
-  // The current year's line only plots through months that actually happened -
-  // future months are 0 in the data, and drawing them would fake a Dec crash.
+// Up to 4 years' monthly trend for the currently selected marketplace(s),
+// stepped darkest (this year) to lightest (oldest) on one hue.
+function TrendChart({ years, yearRows, currentMonth, formatValue, ariaLabel }) {
   const monthsElapsed = Math.min(Math.max(currentMonth || 0, 1), 12);
-  const thisYearPoints = (thisYearRow?.months || []).slice(0, monthsElapsed);
-  const lastYearPoints = lastYearRow?.months || [];
+
+  const series = years.map((year, i) => {
+    const row = yearRows.find((y) => y.year === year);
+    const allMonths = row?.months || [];
+    const points = i === 0 ? allMonths.slice(0, monthsElapsed) : allMonths;
+    return { year, color: YEAR_RAMP[i] || YEAR_RAMP[YEAR_RAMP.length - 1], points, endIndex: points.length - 1 };
+  });
 
   const [hoverIndex, setHoverIndex] = useState(null);
 
@@ -379,7 +394,8 @@ function TrendChart({ years, yearRows, currentMonth, formatValue, ariaLabel }) {
   const plotHeight = CHART_HEIGHT - CHART_PAD.top - CHART_PAD.bottom;
   const xFor = (i) => CHART_PAD.left + (i / 11) * plotWidth;
 
-  const maxValue = Math.max(1, ...thisYearPoints, ...lastYearPoints);
+  const allPoints = series.flatMap((s) => s.points);
+  const maxValue = Math.max(1, ...allPoints);
   const step = niceNumber(maxValue / 4);
   let yMax = step * 4;
   while (yMax < maxValue) yMax += step;
@@ -390,24 +406,18 @@ function TrendChart({ years, yearRows, currentMonth, formatValue, ariaLabel }) {
     return points.map((v, i) => `${i === 0 ? "M" : "L"} ${xFor(i)} ${yFor(v)}`).join(" ");
   }
 
-  const thisYearPath = linePath(thisYearPoints);
-  const lastYearPath = linePath(lastYearPoints);
-  const thisYearEndIndex = thisYearPoints.length - 1;
-  const lastYearEndIndex = lastYearPoints.length - 1;
-
-  // Nudge the two end-labels apart if both lines finish on the same month.
-  let thisYearLabelY = thisYearEndIndex >= 0 ? yFor(thisYearPoints[thisYearEndIndex]) : null;
-  let lastYearLabelY = lastYearEndIndex >= 0 ? yFor(lastYearPoints[lastYearEndIndex]) : null;
-  if (
-    thisYearEndIndex === lastYearEndIndex &&
-    thisYearLabelY !== null &&
-    lastYearLabelY !== null &&
-    Math.abs(thisYearLabelY - lastYearLabelY) < 16
-  ) {
-    const mid = (thisYearLabelY + lastYearLabelY) / 2;
-    thisYearLabelY = mid - 9;
-    lastYearLabelY = mid + 9;
+  // Direct end-labels can collide when lines finish near the same value -
+  // sort by vertical position and push any that are too close apart.
+  const labelPositions = series
+    .map((s, i) => (s.endIndex >= 0 ? { i, y: yFor(s.points[s.endIndex]) } : null))
+    .filter(Boolean)
+    .sort((a, b) => a.y - b.y);
+  for (let k = 1; k < labelPositions.length; k += 1) {
+    if (labelPositions[k].y - labelPositions[k - 1].y < LABEL_MIN_GAP) {
+      labelPositions[k].y = labelPositions[k - 1].y + LABEL_MIN_GAP;
+    }
   }
+  const labelYByIndex = new Map(labelPositions.map((p) => [p.i, p.y]));
 
   return (
     <div>
@@ -416,7 +426,7 @@ function TrendChart({ years, yearRows, currentMonth, formatValue, ariaLabel }) {
           viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
           style={{ width: "100%", maxWidth: `${CHART_WIDTH}px`, display: "block" }}
           role="img"
-          aria-label={`Monthly ${ariaLabel} trend, ${thisYear} vs ${lastYear ?? "prior year"}`}
+          aria-label={`Monthly ${ariaLabel} trend, ${years.join(" vs ")}`}
         >
           {ticks.map((t) => (
             <g key={t}>
@@ -452,49 +462,28 @@ function TrendChart({ years, yearRows, currentMonth, formatValue, ariaLabel }) {
             />
           )}
 
-          {lastYearPath && (
-            <path d={lastYearPath} fill="none" stroke={SERIES_LAST_YEAR} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-          )}
-          {thisYearPath && (
-            <path d={thisYearPath} fill="none" stroke={SERIES_THIS_YEAR} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-          )}
-
-          {hoverIndex !== null && hoverIndex < lastYearPoints.length && (
-            <circle cx={xFor(hoverIndex)} cy={yFor(lastYearPoints[hoverIndex])} r={5} fill={SERIES_LAST_YEAR} stroke="#fff" strokeWidth={2} />
-          )}
-          {hoverIndex !== null && hoverIndex < thisYearPoints.length && (
-            <circle cx={xFor(hoverIndex)} cy={yFor(thisYearPoints[hoverIndex])} r={5} fill={SERIES_THIS_YEAR} stroke="#fff" strokeWidth={2} />
+          {/* Oldest year drawn first so more-recent (more relevant) lines sit on top. */}
+          {[...series].reverse().map((s) =>
+            s.points.length > 0 ? (
+              <path key={s.year} d={linePath(s.points)} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+            ) : null
           )}
 
-          {lastYearEndIndex >= 0 && (
-            <>
-              <circle
-                cx={xFor(lastYearEndIndex)}
-                cy={yFor(lastYearPoints[lastYearEndIndex])}
-                r={5}
-                fill={SERIES_LAST_YEAR}
-                stroke="#fff"
-                strokeWidth={2}
-              />
-              <text x={xFor(lastYearEndIndex) + 8} y={lastYearLabelY} dominantBaseline="middle" fontSize="11" fontWeight="700" fill={CHART_INK}>
-                {lastYear}
-              </text>
-            </>
+          {series.map((s) =>
+            hoverIndex !== null && hoverIndex < s.points.length ? (
+              <circle key={`hover-${s.year}`} cx={xFor(hoverIndex)} cy={yFor(s.points[hoverIndex])} r={5} fill={s.color} stroke="#fff" strokeWidth={2} />
+            ) : null
           )}
-          {thisYearEndIndex >= 0 && (
-            <>
-              <circle
-                cx={xFor(thisYearEndIndex)}
-                cy={yFor(thisYearPoints[thisYearEndIndex])}
-                r={5}
-                fill={SERIES_THIS_YEAR}
-                stroke="#fff"
-                strokeWidth={2}
-              />
-              <text x={xFor(thisYearEndIndex) + 8} y={thisYearLabelY} dominantBaseline="middle" fontSize="11" fontWeight="700" fill={CHART_INK}>
-                {thisYear}
-              </text>
-            </>
+
+          {series.map((s) =>
+            s.endIndex >= 0 ? (
+              <g key={`end-${s.year}`}>
+                <circle cx={xFor(s.endIndex)} cy={yFor(s.points[s.endIndex])} r={5} fill={s.color} stroke="#fff" strokeWidth={2} />
+                <text x={xFor(s.endIndex) + 8} y={labelYByIndex.get(series.indexOf(s))} dominantBaseline="middle" fontSize="11" fontWeight="700" fill={CHART_INK}>
+                  {s.year}
+                </text>
+              </g>
+            ) : null
           )}
 
           {MONTH_LABELS.map((_, i) => {
@@ -518,46 +507,27 @@ function TrendChart({ years, yearRows, currentMonth, formatValue, ariaLabel }) {
 
       <div style={{ minHeight: "20px", textAlign: "center", fontSize: "13px", color: "#333", marginTop: "4px" }}>
         {hoverIndex !== null && (
-          <span style={{ display: "inline-flex", gap: "18px", alignItems: "center" }}>
+          <span style={{ display: "inline-flex", gap: "18px", alignItems: "center", flexWrap: "wrap" }}>
             <strong>{MONTH_LABELS[hoverIndex]}</strong>
-            {hoverIndex < thisYearPoints.length && (
-              <span>
-                <span style={{ display: "inline-block", width: "10px", height: "2px", background: SERIES_THIS_YEAR, marginRight: "4px" }} />
-                {thisYear}: <strong>{formatValue(thisYearPoints[hoverIndex])}</strong>
-              </span>
-            )}
-            {hoverIndex < lastYearPoints.length && (
-              <span>
-                <span style={{ display: "inline-block", width: "10px", height: "2px", background: SERIES_LAST_YEAR, marginRight: "4px" }} />
-                {lastYear}: <strong>{formatValue(lastYearPoints[hoverIndex])}</strong>
-              </span>
+            {series.map((s) =>
+              hoverIndex < s.points.length ? (
+                <span key={s.year}>
+                  <span style={{ display: "inline-block", width: "10px", height: "2px", background: s.color, marginRight: "4px" }} />
+                  {s.year}: <strong>{formatValue(s.points[hoverIndex])}</strong>
+                </span>
+              ) : null
             )}
           </span>
         )}
       </div>
 
-      <div style={{ display: "flex", gap: "16px", justifyContent: "center", fontSize: "12px", color: "#555" }}>
-        <span>
-          <span
-            style={{ display: "inline-block", width: "14px", height: "2px", background: SERIES_THIS_YEAR, marginRight: "5px", verticalAlign: "middle" }}
-          />
-          {thisYear} (this year)
-        </span>
-        {lastYear && (
-          <span>
-            <span
-              style={{
-                display: "inline-block",
-                width: "14px",
-                height: "2px",
-                background: SERIES_LAST_YEAR,
-                marginRight: "5px",
-                verticalAlign: "middle",
-              }}
-            />
-            {lastYear} (last year)
+      <div style={{ display: "flex", gap: "16px", justifyContent: "center", fontSize: "12px", color: "#555", flexWrap: "wrap" }}>
+        {series.map((s, i) => (
+          <span key={s.year}>
+            <span style={{ display: "inline-block", width: "14px", height: "2px", background: s.color, marginRight: "5px", verticalAlign: "middle" }} />
+            {s.year} ({YEAR_AGE_LABEL[i] || `${i} years ago`})
           </span>
-        )}
+        ))}
       </div>
     </div>
   );
@@ -601,8 +571,9 @@ function SummaryBlock({ title, years, currentMonth, yearRows, growthPct, formatV
   );
 }
 
-function MarketplaceSummaryCard({ quantity, sales, years, currentMonth, metric, onMetricChange, loading, error }) {
+function MarketplaceSummaryCard({ quantity, sales, salesCurrency, years, currentMonth, metric, onMetricChange, loading, error }) {
   const summary = metric === "money" ? sales : quantity;
+  const currency = salesCurrency || "USD";
 
   return (
     <div style={{ ...cardStyle(), marginBottom: "20px" }}>
@@ -613,7 +584,7 @@ function MarketplaceSummaryCard({ quantity, sales, years, currentMonth, metric, 
             Units
           </button>
           <button style={metric === "money" ? blueButtonStyle() : ghostButtonStyle()} onClick={() => onMetricChange("money")}>
-            Money ($)
+            Money ({CURRENCY_SYMBOLS[currency] || currency})
           </button>
         </div>
       </div>
@@ -628,8 +599,8 @@ function MarketplaceSummaryCard({ quantity, sales, years, currentMonth, metric, 
             currentMonth={currentMonth}
             yearRows={summary.yearRows}
             growthPct={summary.growthPct}
-            formatValue={metric === "money" ? formatMoney : formatUnits}
-            ariaLabel={metric === "money" ? "sales (USD)" : "units"}
+            formatValue={metric === "money" ? (v) => formatMoney(v, currency) : formatUnits}
+            ariaLabel={metric === "money" ? `sales (${currency})` : "units"}
           />
         </div>
       )}
@@ -802,6 +773,7 @@ export default function SalesPage() {
       <MarketplaceSummaryCard
         quantity={marketplaceSummary?.quantity}
         sales={marketplaceSummary?.sales}
+        salesCurrency={marketplaceSummary?.salesCurrency}
         years={marketplaceSummary?.years || []}
         currentMonth={marketplaceSummary?.currentMonth}
         metric={metric}
