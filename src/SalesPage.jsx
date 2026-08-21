@@ -41,8 +41,24 @@ const CHART_GRIDLINE = "#e1e0d9";
 const CHART_BASELINE = "#c3c2b7";
 const CHART_INK = "#0b0b0b";
 
-function formatMoney(value) {
-  return `$${Math.round(value).toLocaleString()}`;
+// Sales are never currency-converted - each marketplace's total stays in its
+// own local currency, so a multi-currency selection is shown as one block
+// per currency rather than a single blended number.
+const CURRENCY_SYMBOLS = {
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  JPY: "¥",
+  AUD: "A$",
+  SEK: "kr",
+  PLN: "zł",
+};
+const SUFFIX_CURRENCIES = new Set(["SEK", "PLN"]);
+
+function formatMoney(value, currency = "USD") {
+  const symbol = CURRENCY_SYMBOLS[currency] || `${currency} `;
+  const amount = Math.round(value).toLocaleString();
+  return SUFFIX_CURRENCIES.has(currency) ? `${amount} ${symbol}` : `${symbol}${amount}`;
 }
 
 function formatUnits(value) {
@@ -359,8 +375,7 @@ function niceNumber(value) {
 // Only two series so color alone (no legend box) would be enough per the
 // series-count ladder, but a legend is kept since the direct end-labels can
 // collide when both lines end on the same month.
-function TrendChart({ years, yearRows, currentMonth, metric }) {
-  const formatValue = metric === "money" ? formatMoney : formatUnits;
+function TrendChart({ years, yearRows, currentMonth, formatValue, ariaLabel }) {
   const thisYear = years[0];
   const lastYear = years[1];
   const thisYearRow = yearRows.find((y) => y.year === thisYear);
@@ -415,7 +430,7 @@ function TrendChart({ years, yearRows, currentMonth, metric }) {
           viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
           style={{ width: "100%", maxWidth: `${CHART_WIDTH}px`, display: "block" }}
           role="img"
-          aria-label={`Monthly ${metric === "money" ? "sales" : "units"} trend, ${thisYear} vs ${lastYear ?? "prior year"}`}
+          aria-label={`Monthly ${ariaLabel} trend, ${thisYear} vs ${lastYear ?? "prior year"}`}
         >
           {ticks.map((t) => (
             <g key={t}>
@@ -562,7 +577,50 @@ function TrendChart({ years, yearRows, currentMonth, metric }) {
   );
 }
 
-function MarketplaceSummaryCard({ summary, years, currentMonth, metric, onMetricChange, loading, error }) {
+// One trend chart + table for a single metric/currency (e.g. "units", or
+// "sales in EUR"). Split out so a multi-currency money view can render one
+// of these per currency instead of blending unrelated currencies together.
+function SummaryBlock({ title, years, currentMonth, yearRows, growthPct, formatValue, ariaLabel }) {
+  return (
+    <div>
+      {title && <h4 style={{ margin: "0 0 8px" }}>{title}</h4>}
+      <TrendChart years={years} yearRows={yearRows} currentMonth={currentMonth} formatValue={formatValue} ariaLabel={ariaLabel} />
+
+      <div style={{ overflowX: "auto", marginTop: "16px" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "760px" }}>
+          <thead>
+            <tr>
+              <th style={tableCellStyle({ background: "#f4f4f4" })}>Period</th>
+              <th style={numberCellStyle({ background: "#f4f4f4" })}>Total</th>
+              {MONTH_LABELS.map((m) => (
+                <th key={m} style={numberCellStyle({ background: "#f4f4f4" })}>
+                  {m}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <YearRows
+              rowKeyPrefix={`marketplace-summary-${ariaLabel}`}
+              years={years}
+              yearRows={yearRows}
+              currentMonth={currentMonth}
+              growthPct={growthPct}
+              formatValue={formatValue}
+            />
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function MarketplaceSummaryCard({ quantity, salesByCurrency, years, currentMonth, metric, onMetricChange, loading, error }) {
+  // Biggest currency (by current total) shown first.
+  const currencyEntries = Object.entries(salesByCurrency || {}).sort(
+    ([, a], [, b]) => (b.yearRows?.[0]?.total || 0) - (a.yearRows?.[0]?.total || 0)
+  );
+
   return (
     <div style={{ ...cardStyle(), marginBottom: "20px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
@@ -572,7 +630,7 @@ function MarketplaceSummaryCard({ summary, years, currentMonth, metric, onMetric
             Units
           </button>
           <button style={metric === "money" ? blueButtonStyle() : ghostButtonStyle()} onClick={() => onMetricChange("money")}>
-            Money ($)
+            Money
           </button>
         </div>
       </div>
@@ -580,38 +638,37 @@ function MarketplaceSummaryCard({ summary, years, currentMonth, metric, onMetric
       {loading && <div style={{ marginTop: "12px", textAlign: "center" }}>Loading...</div>}
       {error && <div style={{ marginTop: "12px", color: GROWTH_RED }}>{error}</div>}
 
-      {!loading && !error && summary && (
-        <>
-          <div style={{ marginTop: "16px" }}>
-            <TrendChart years={years} yearRows={summary.yearRows} currentMonth={currentMonth} metric={metric} />
-          </div>
+      {!loading && !error && metric === "units" && quantity && (
+        <div style={{ marginTop: "16px" }}>
+          <SummaryBlock
+            years={years}
+            currentMonth={currentMonth}
+            yearRows={quantity.yearRows}
+            growthPct={quantity.growthPct}
+            formatValue={formatUnits}
+            ariaLabel="units"
+          />
+        </div>
+      )}
 
-          <div style={{ overflowX: "auto", marginTop: "16px" }}>
-            <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "760px" }}>
-              <thead>
-                <tr>
-                  <th style={tableCellStyle({ background: "#f4f4f4" })}>Period</th>
-                  <th style={numberCellStyle({ background: "#f4f4f4" })}>Total</th>
-                  {MONTH_LABELS.map((m) => (
-                    <th key={m} style={numberCellStyle({ background: "#f4f4f4" })}>
-                      {m}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <YearRows
-                  rowKeyPrefix="marketplace-summary"
-                  years={years}
-                  yearRows={summary.yearRows}
-                  currentMonth={currentMonth}
-                  growthPct={summary.growthPct}
-                  formatValue={metric === "money" ? formatMoney : formatUnits}
-                />
-              </tbody>
-            </table>
-          </div>
-        </>
+      {!loading && !error && metric === "money" && (
+        <div style={{ marginTop: "16px", display: "grid", gap: "24px" }}>
+          {currencyEntries.length === 0 && (
+            <div style={{ color: "#555" }}>No sales data for this selection.</div>
+          )}
+          {currencyEntries.map(([currency, data]) => (
+            <SummaryBlock
+              key={currency}
+              title={currencyEntries.length > 1 ? `Sales (${currency})` : undefined}
+              years={years}
+              currentMonth={currentMonth}
+              yearRows={data.yearRows}
+              growthPct={data.growthPct}
+              formatValue={(v) => formatMoney(v, currency)}
+              ariaLabel={`sales (${currency})`}
+            />
+          ))}
+        </div>
       )}
     </div>
   );
@@ -780,7 +837,8 @@ export default function SalesPage() {
       </div>
 
       <MarketplaceSummaryCard
-        summary={metric === "money" ? marketplaceSummary?.sales : marketplaceSummary?.quantity}
+        quantity={marketplaceSummary?.quantity}
+        salesByCurrency={marketplaceSummary?.salesByCurrency}
         years={marketplaceSummary?.years || []}
         currentMonth={marketplaceSummary?.currentMonth}
         metric={metric}
