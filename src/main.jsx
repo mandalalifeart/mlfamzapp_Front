@@ -6,6 +6,7 @@ import ResponsePage from "./ResponsePage";
 import ReportViewPage from "./ReportViewPage";
 import SalesPage from "./SalesPage";
 import UpdatePage from "./UpdatePage";
+import BatchUpdatePage from "./BatchUpdatePage";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -17,6 +18,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Route path="/report-view" element={<ReportViewPage />} />
         <Route path="/sales" element={<SalesPage />} />
         <Route path="/update" element={<UpdatePage />} />
+        <Route path="/batch-update" element={<BatchUpdatePage />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>
