@@ -27,6 +27,11 @@ const MARKETPLACE_OPTIONS = [
 const ALL_MARKETPLACE_VALUES = MARKETPLACE_OPTIONS.map((o) => o.value);
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+const MAIN_SKU_WIDTH = "144px";
+const GROWTH_GREEN = "#1b7a1b";
+const GROWTH_RED = "#b00020";
+const GROWTH_THRESHOLD_PCT = 10;
+
 function cardStyle() {
   return {
     background: "#fff",
@@ -106,22 +111,127 @@ function GrowthBadge({ pct }) {
   }
   const positive = pct >= 0;
   return (
-    <span style={{ color: positive ? "#1b7a1b" : "#b00020", fontWeight: 700, whiteSpace: "nowrap" }}>
+    <span style={{ color: positive ? GROWTH_GREEN : GROWTH_RED, fontWeight: 700, whiteSpace: "nowrap" }}>
       {positive ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
     </span>
   );
 }
 
-function ProductRows({ item, showAsin, years }) {
+// Colors a number green/red only when it swings more than GROWTH_THRESHOLD_PCT
+// against the same period a year earlier - a flat/small move stays neutral.
+function yoyColor(current, previous) {
+  if (!previous) return undefined;
+  const diffPct = ((current - previous) / previous) * 100;
+  if (diffPct > GROWTH_THRESHOLD_PCT) return GROWTH_GREEN;
+  if (diffPct < -GROWTH_THRESHOLD_PCT) return GROWTH_RED;
+  return undefined;
+}
+
+function yoyColorFromPct(pct) {
+  if (pct === null || pct === undefined) return undefined;
+  if (pct > GROWTH_THRESHOLD_PCT) return GROWTH_GREEN;
+  if (pct < -GROWTH_THRESHOLD_PCT) return GROWTH_RED;
+  return undefined;
+}
+
+function monthColor({ isCurrentYear, curMonths, prevMonths, monthIndex, currentMonth }) {
+  if (!prevMonths) return undefined;
+  if (isCurrentYear) {
+    // The current month (and any month after it) has no complete data yet,
+    // so it can't be fairly compared to the same month last year.
+    const completedMonths = Math.max((currentMonth || 0) - 1, 0);
+    if (monthIndex >= completedMonths) return undefined;
+  }
+  return yoyColor(curMonths[monthIndex] || 0, prevMonths[monthIndex] || 0);
+}
+
+function totalColor({ isCurrentYear, growthPct, curTotal, prevRow }) {
+  if (isCurrentYear) return yoyColorFromPct(growthPct);
+  if (!prevRow) return undefined;
+  return yoyColor(curTotal, prevRow.total);
+}
+
+// Shared column layout so the group-summary row and the per-SKU rows line up
+// under the exact same header, in the exact same order.
+function TableHeader({ showAsin }) {
+  return (
+    <thead>
+      <tr>
+        <th style={tableCellStyle({ background: "#f4f4f4" })}>Image</th>
+        <th style={tableCellStyle({ background: "#f4f4f4", width: MAIN_SKU_WIDTH })}>Main SKU</th>
+        {showAsin && <th style={tableCellStyle({ background: "#f4f4f4" })}>ASIN</th>}
+        <th style={tableCellStyle({ background: "#f4f4f4" })}>Period</th>
+        <th style={numberCellStyle({ background: "#f4f4f4" })}>Total</th>
+        {MONTH_LABELS.map((m) => (
+          <th key={m} style={numberCellStyle({ background: "#f4f4f4" })}>
+            {m}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+// Renders one row per year (Period, Total, Jan..Dec), coloring/bolding as needed.
+// `renderLeading` supplies the row-spanning leading cells (image/SKU/ASIN).
+function YearRows({ rowKeyPrefix, years, yearRows, currentMonth, growthPct, renderLeading }) {
   const rowCount = years.length;
 
-  return years.map((year, yIndex) => {
-    const yearRow = item.years.find((y) => y.year === year) || { months: Array(12).fill(0), total: 0 };
-    const isFirst = yIndex === 0;
+  return years.map((year, i) => {
+    const row = yearRows.find((y) => y.year === year) || { year, months: Array(12).fill(0), total: 0 };
+    const prevRow = i + 1 < years.length ? yearRows.find((y) => y.year === years[i + 1]) : null;
+    const isCurrentYear = i === 0;
 
     return (
-      <tr key={`${item.asin}-${year}`} style={isFirst ? { fontWeight: 700 } : undefined}>
-        {isFirst && (
+      <tr key={`${rowKeyPrefix}-${year}`}>
+        {i === 0 && renderLeading && renderLeading(rowCount)}
+
+        <td style={tableCellStyle({ color: isCurrentYear ? "#000" : "#555", fontWeight: isCurrentYear ? 700 : undefined })}>
+          {year}
+        </td>
+
+        <td
+          style={numberCellStyle({
+            fontWeight: 700,
+            color: totalColor({ isCurrentYear, growthPct, curTotal: row.total, prevRow }),
+          })}
+        >
+          {row.total}
+        </td>
+
+        {MONTH_LABELS.map((_, m) => (
+          <td
+            key={m}
+            style={numberCellStyle({
+              minWidth: "48px",
+              fontWeight: isCurrentYear ? 700 : undefined,
+              color: monthColor({
+                isCurrentYear,
+                curMonths: row.months,
+                prevMonths: prevRow?.months,
+                monthIndex: m,
+                currentMonth,
+              }),
+            })}
+          >
+            {row.months[m] || 0}
+          </td>
+        ))}
+      </tr>
+    );
+  });
+}
+
+function ItemRows({ item, showAsin, years, currentMonth }) {
+  return (
+    <YearRows
+      rowKeyPrefix={item.asin}
+      years={years}
+      yearRows={item.years}
+      currentMonth={currentMonth}
+      growthPct={item.growthPct}
+      renderLeading={(rowCount) => (
+        <>
           <td rowSpan={rowCount} style={tableCellStyle({ verticalAlign: "top", width: "70px" })}>
             <img
               src={`${IMAGE_BASE}${encodeURIComponent(item.mainSku)}.jpg`}
@@ -129,38 +239,26 @@ function ProductRows({ item, showAsin, years }) {
               style={{ width: "60px", height: "60px", objectFit: "cover", borderRadius: "6px" }}
             />
           </td>
-        )}
 
-        {isFirst && (
-          <td rowSpan={rowCount} style={tableCellStyle({ verticalAlign: "top", fontWeight: 600 })}>
+          <td rowSpan={rowCount} style={tableCellStyle({ verticalAlign: "top", fontWeight: 600, width: MAIN_SKU_WIDTH })}>
             {item.mainSku}
             <div style={{ marginTop: "6px" }}>
               <GrowthBadge pct={item.growthPct} />
             </div>
           </td>
-        )}
 
-        {showAsin && isFirst && (
-          <td rowSpan={rowCount} style={tableCellStyle({ verticalAlign: "top", fontFamily: "monospace" })}>
-            {item.asin}
-          </td>
-        )}
-
-        <td style={tableCellStyle({ color: isFirst ? "#000" : "#555" })}>{year}</td>
-
-        {MONTH_LABELS.map((_, i) => (
-          <td key={i} style={numberCellStyle({ minWidth: "48px" })}>
-            {yearRow.months[i] || 0}
-          </td>
-        ))}
-
-        <td style={numberCellStyle({ fontWeight: 700 })}>{yearRow.total}</td>
-      </tr>
-    );
-  });
+          {showAsin && (
+            <td rowSpan={rowCount} style={tableCellStyle({ verticalAlign: "top", fontFamily: "monospace" })}>
+              {item.asin}
+            </td>
+          )}
+        </>
+      )}
+    />
+  );
 }
 
-function GroupSection({ group, years, showAsin, expanded, onToggle }) {
+function GroupSection({ group, years, currentMonth, showAsin, expanded, onToggle }) {
   return (
     <div style={cardStyle()}>
       <div
@@ -180,26 +278,40 @@ function GroupSection({ group, years, showAsin, expanded, onToggle }) {
         </div>
       </div>
 
+      <div style={{ overflowX: "auto", marginTop: "12px" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "1100px" }}>
+          <TableHeader showAsin={showAsin} />
+          <tbody>
+            <YearRows
+              rowKeyPrefix={`${group.group}-summary`}
+              years={years}
+              yearRows={group.yearRows}
+              currentMonth={currentMonth}
+              growthPct={group.growthPct}
+              renderLeading={(rowCount) => (
+                <>
+                  <td rowSpan={rowCount} style={tableCellStyle({ width: "70px" })} />
+                  <td rowSpan={rowCount} style={tableCellStyle({ verticalAlign: "top", fontWeight: 700, width: MAIN_SKU_WIDTH })}>
+                    Group Total
+                    <div style={{ marginTop: "6px" }}>
+                      <GrowthBadge pct={group.growthPct} />
+                    </div>
+                  </td>
+                  {showAsin && <td rowSpan={rowCount} style={tableCellStyle()} />}
+                </>
+              )}
+            />
+          </tbody>
+        </table>
+      </div>
+
       {expanded && (
         <div style={{ overflowX: "auto", marginTop: "12px" }}>
           <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "1100px" }}>
-            <thead>
-              <tr>
-                <th style={tableCellStyle({ background: "#f4f4f4" })}>Image</th>
-                <th style={tableCellStyle({ background: "#f4f4f4" })}>Main SKU</th>
-                {showAsin && <th style={tableCellStyle({ background: "#f4f4f4" })}>ASIN</th>}
-                <th style={tableCellStyle({ background: "#f4f4f4" })}>Period</th>
-                {MONTH_LABELS.map((m) => (
-                  <th key={m} style={numberCellStyle({ background: "#f4f4f4" })}>
-                    {m}
-                  </th>
-                ))}
-                <th style={numberCellStyle({ background: "#f4f4f4" })}>Total</th>
-              </tr>
-            </thead>
+            <TableHeader showAsin={showAsin} />
             <tbody>
               {group.items.map((item) => (
-                <ProductRows key={item.asin} item={item} showAsin={showAsin} years={years} />
+                <ItemRows key={item.asin} item={item} showAsin={showAsin} years={years} currentMonth={currentMonth} />
               ))}
             </tbody>
           </table>
@@ -245,6 +357,13 @@ export default function SalesPage() {
       }
 
       setResult(data);
+
+      // Groups start closed by default on every fresh load.
+      const allCollapsed = {};
+      (data.groups || []).forEach((g) => {
+        allCollapsed[g.group] = true;
+      });
+      setCollapsedGroups(allCollapsed);
     } catch (err) {
       setError(err.message || "Failed to load sales report");
     } finally {
@@ -280,6 +399,7 @@ export default function SalesPage() {
   }
 
   const years = useMemo(() => result?.years || [], [result]);
+  const currentMonth = result?.currentMonth;
 
   useEffect(() => {
     const root = document.getElementById("root");
@@ -369,6 +489,7 @@ export default function SalesPage() {
               key={group.group}
               group={group}
               years={years}
+              currentMonth={currentMonth}
               showAsin={showAsin}
               expanded={!collapsedGroups[group.group]}
               onToggle={() => toggleGroup(group.group)}
