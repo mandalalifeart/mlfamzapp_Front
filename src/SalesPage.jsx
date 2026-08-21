@@ -32,6 +32,23 @@ const GROWTH_GREEN = "#1b7a1b";
 const GROWTH_RED = "#b00020";
 const GROWTH_THRESHOLD_PCT = 10;
 
+// Validated adjacent categorical pair (blue/orange) from the dataviz palette -
+// clears CVD and normal-vision contrast checks for a 2-series comparison.
+const SERIES_THIS_YEAR = "#2a78d6";
+const SERIES_LAST_YEAR = "#eb6834";
+const CHART_MUTED = "#898781";
+const CHART_GRIDLINE = "#e1e0d9";
+const CHART_BASELINE = "#c3c2b7";
+const CHART_INK = "#0b0b0b";
+
+function formatMoney(value) {
+  return `$${Math.round(value).toLocaleString()}`;
+}
+
+function formatUnits(value) {
+  return Math.round(value).toLocaleString();
+}
+
 function cardStyle() {
   return {
     background: "#fff",
@@ -174,7 +191,7 @@ function TableHeader({ showAsin }) {
 
 // Renders one row per year (Period, Total, Jan..Dec), coloring/bolding as needed.
 // `renderLeading` supplies the row-spanning leading cells (image/SKU/ASIN).
-function YearRows({ rowKeyPrefix, years, yearRows, currentMonth, growthPct, renderLeading }) {
+function YearRows({ rowKeyPrefix, years, yearRows, currentMonth, growthPct, renderLeading, formatValue = (v) => v }) {
   const rowCount = years.length;
 
   return years.map((year, i) => {
@@ -196,7 +213,7 @@ function YearRows({ rowKeyPrefix, years, yearRows, currentMonth, growthPct, rend
             color: totalColor({ isCurrentYear, growthPct, curTotal: row.total, prevRow }),
           })}
         >
-          {row.total}
+          {formatValue(row.total)}
         </td>
 
         {MONTH_LABELS.map((_, m) => (
@@ -214,7 +231,7 @@ function YearRows({ rowKeyPrefix, years, yearRows, currentMonth, growthPct, rend
               }),
             })}
           >
-            {row.months[m] || 0}
+            {formatValue(row.months[m] || 0)}
           </td>
         ))}
       </tr>
@@ -321,6 +338,285 @@ function GroupSection({ group, years, currentMonth, showAsin, expanded, onToggle
   );
 }
 
+const CHART_WIDTH = 720;
+const CHART_HEIGHT = 240;
+const CHART_PAD = { left: 56, right: 20, top: 20, bottom: 30 };
+
+// Rounds up to a "clean" axis step (1/2/5 * 10^n), same idea as d3's tick step.
+function niceNumber(value) {
+  if (value <= 0) return 1;
+  const exponent = Math.floor(Math.log10(value));
+  const fraction = value / 10 ** exponent;
+  let niceFraction;
+  if (fraction <= 1) niceFraction = 1;
+  else if (fraction <= 2) niceFraction = 2;
+  else if (fraction <= 5) niceFraction = 5;
+  else niceFraction = 10;
+  return niceFraction * 10 ** exponent;
+}
+
+// This-year-vs-last-year monthly trend for the currently selected marketplace(s).
+// Only two series so color alone (no legend box) would be enough per the
+// series-count ladder, but a legend is kept since the direct end-labels can
+// collide when both lines end on the same month.
+function TrendChart({ years, yearRows, currentMonth, metric }) {
+  const formatValue = metric === "money" ? formatMoney : formatUnits;
+  const thisYear = years[0];
+  const lastYear = years[1];
+  const thisYearRow = yearRows.find((y) => y.year === thisYear);
+  const lastYearRow = lastYear ? yearRows.find((y) => y.year === lastYear) : null;
+
+  // The current year's line only plots through months that actually happened -
+  // future months are 0 in the data, and drawing them would fake a Dec crash.
+  const monthsElapsed = Math.min(Math.max(currentMonth || 0, 1), 12);
+  const thisYearPoints = (thisYearRow?.months || []).slice(0, monthsElapsed);
+  const lastYearPoints = lastYearRow?.months || [];
+
+  const [hoverIndex, setHoverIndex] = useState(null);
+
+  const plotWidth = CHART_WIDTH - CHART_PAD.left - CHART_PAD.right;
+  const plotHeight = CHART_HEIGHT - CHART_PAD.top - CHART_PAD.bottom;
+  const xFor = (i) => CHART_PAD.left + (i / 11) * plotWidth;
+
+  const maxValue = Math.max(1, ...thisYearPoints, ...lastYearPoints);
+  const step = niceNumber(maxValue / 4);
+  let yMax = step * 4;
+  while (yMax < maxValue) yMax += step;
+  const yFor = (v) => CHART_PAD.top + plotHeight - (v / yMax) * plotHeight;
+  const ticks = [0, step, step * 2, step * 3, yMax];
+
+  function linePath(points) {
+    return points.map((v, i) => `${i === 0 ? "M" : "L"} ${xFor(i)} ${yFor(v)}`).join(" ");
+  }
+
+  const thisYearPath = linePath(thisYearPoints);
+  const lastYearPath = linePath(lastYearPoints);
+  const thisYearEndIndex = thisYearPoints.length - 1;
+  const lastYearEndIndex = lastYearPoints.length - 1;
+
+  // Nudge the two end-labels apart if both lines finish on the same month.
+  let thisYearLabelY = thisYearEndIndex >= 0 ? yFor(thisYearPoints[thisYearEndIndex]) : null;
+  let lastYearLabelY = lastYearEndIndex >= 0 ? yFor(lastYearPoints[lastYearEndIndex]) : null;
+  if (
+    thisYearEndIndex === lastYearEndIndex &&
+    thisYearLabelY !== null &&
+    lastYearLabelY !== null &&
+    Math.abs(thisYearLabelY - lastYearLabelY) < 16
+  ) {
+    const mid = (thisYearLabelY + lastYearLabelY) / 2;
+    thisYearLabelY = mid - 9;
+    lastYearLabelY = mid + 9;
+  }
+
+  return (
+    <div>
+      <div style={{ overflowX: "auto" }}>
+        <svg
+          viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+          style={{ width: "100%", maxWidth: `${CHART_WIDTH}px`, display: "block" }}
+          role="img"
+          aria-label={`Monthly ${metric === "money" ? "sales" : "units"} trend, ${thisYear} vs ${lastYear ?? "prior year"}`}
+        >
+          {ticks.map((t) => (
+            <g key={t}>
+              <line
+                x1={CHART_PAD.left}
+                x2={CHART_WIDTH - CHART_PAD.right}
+                y1={yFor(t)}
+                y2={yFor(t)}
+                stroke={t === 0 ? CHART_BASELINE : CHART_GRIDLINE}
+                strokeWidth={1}
+              />
+              <text x={CHART_PAD.left - 8} y={yFor(t)} textAnchor="end" dominantBaseline="middle" fontSize="10" fill={CHART_MUTED}>
+                {formatValue(t)}
+              </text>
+            </g>
+          ))}
+
+          {MONTH_LABELS.map((m, i) => (
+            <text key={m} x={xFor(i)} y={CHART_HEIGHT - CHART_PAD.bottom + 16} textAnchor="middle" fontSize="10" fill={CHART_MUTED}>
+              {m}
+            </text>
+          ))}
+
+          {hoverIndex !== null && (
+            <line
+              x1={xFor(hoverIndex)}
+              x2={xFor(hoverIndex)}
+              y1={CHART_PAD.top}
+              y2={CHART_PAD.top + plotHeight}
+              stroke={CHART_MUTED}
+              strokeWidth={1}
+              opacity={0.5}
+            />
+          )}
+
+          {lastYearPath && (
+            <path d={lastYearPath} fill="none" stroke={SERIES_LAST_YEAR} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          )}
+          {thisYearPath && (
+            <path d={thisYearPath} fill="none" stroke={SERIES_THIS_YEAR} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          )}
+
+          {hoverIndex !== null && hoverIndex < lastYearPoints.length && (
+            <circle cx={xFor(hoverIndex)} cy={yFor(lastYearPoints[hoverIndex])} r={5} fill={SERIES_LAST_YEAR} stroke="#fff" strokeWidth={2} />
+          )}
+          {hoverIndex !== null && hoverIndex < thisYearPoints.length && (
+            <circle cx={xFor(hoverIndex)} cy={yFor(thisYearPoints[hoverIndex])} r={5} fill={SERIES_THIS_YEAR} stroke="#fff" strokeWidth={2} />
+          )}
+
+          {lastYearEndIndex >= 0 && (
+            <>
+              <circle
+                cx={xFor(lastYearEndIndex)}
+                cy={yFor(lastYearPoints[lastYearEndIndex])}
+                r={5}
+                fill={SERIES_LAST_YEAR}
+                stroke="#fff"
+                strokeWidth={2}
+              />
+              <text x={xFor(lastYearEndIndex) + 8} y={lastYearLabelY} dominantBaseline="middle" fontSize="11" fontWeight="700" fill={CHART_INK}>
+                {lastYear}
+              </text>
+            </>
+          )}
+          {thisYearEndIndex >= 0 && (
+            <>
+              <circle
+                cx={xFor(thisYearEndIndex)}
+                cy={yFor(thisYearPoints[thisYearEndIndex])}
+                r={5}
+                fill={SERIES_THIS_YEAR}
+                stroke="#fff"
+                strokeWidth={2}
+              />
+              <text x={xFor(thisYearEndIndex) + 8} y={thisYearLabelY} dominantBaseline="middle" fontSize="11" fontWeight="700" fill={CHART_INK}>
+                {thisYear}
+              </text>
+            </>
+          )}
+
+          {MONTH_LABELS.map((_, i) => {
+            const bandLeft = i === 0 ? CHART_PAD.left : (xFor(i - 1) + xFor(i)) / 2;
+            const bandRight = i === 11 ? CHART_WIDTH - CHART_PAD.right : (xFor(i) + xFor(i + 1)) / 2;
+            return (
+              <rect
+                key={i}
+                x={bandLeft}
+                y={CHART_PAD.top}
+                width={bandRight - bandLeft}
+                height={plotHeight}
+                fill="transparent"
+                onMouseEnter={() => setHoverIndex(i)}
+                onMouseLeave={() => setHoverIndex((cur) => (cur === i ? null : cur))}
+              />
+            );
+          })}
+        </svg>
+      </div>
+
+      <div style={{ minHeight: "20px", textAlign: "center", fontSize: "13px", color: "#333", marginTop: "4px" }}>
+        {hoverIndex !== null && (
+          <span style={{ display: "inline-flex", gap: "18px", alignItems: "center" }}>
+            <strong>{MONTH_LABELS[hoverIndex]}</strong>
+            {hoverIndex < thisYearPoints.length && (
+              <span>
+                <span style={{ display: "inline-block", width: "10px", height: "2px", background: SERIES_THIS_YEAR, marginRight: "4px" }} />
+                {thisYear}: <strong>{formatValue(thisYearPoints[hoverIndex])}</strong>
+              </span>
+            )}
+            {hoverIndex < lastYearPoints.length && (
+              <span>
+                <span style={{ display: "inline-block", width: "10px", height: "2px", background: SERIES_LAST_YEAR, marginRight: "4px" }} />
+                {lastYear}: <strong>{formatValue(lastYearPoints[hoverIndex])}</strong>
+              </span>
+            )}
+          </span>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: "16px", justifyContent: "center", fontSize: "12px", color: "#555" }}>
+        <span>
+          <span
+            style={{ display: "inline-block", width: "14px", height: "2px", background: SERIES_THIS_YEAR, marginRight: "5px", verticalAlign: "middle" }}
+          />
+          {thisYear} (this year)
+        </span>
+        {lastYear && (
+          <span>
+            <span
+              style={{
+                display: "inline-block",
+                width: "14px",
+                height: "2px",
+                background: SERIES_LAST_YEAR,
+                marginRight: "5px",
+                verticalAlign: "middle",
+              }}
+            />
+            {lastYear} (last year)
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MarketplaceSummaryCard({ summary, years, currentMonth, metric, onMetricChange, loading, error }) {
+  return (
+    <div style={{ ...cardStyle(), marginBottom: "20px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+        <h3 style={{ margin: 0 }}>Marketplace Totals</h3>
+        <div style={{ display: "flex", gap: "6px" }}>
+          <button style={metric === "units" ? blueButtonStyle() : ghostButtonStyle()} onClick={() => onMetricChange("units")}>
+            Units
+          </button>
+          <button style={metric === "money" ? blueButtonStyle() : ghostButtonStyle()} onClick={() => onMetricChange("money")}>
+            Money ($)
+          </button>
+        </div>
+      </div>
+
+      {loading && <div style={{ marginTop: "12px", textAlign: "center" }}>Loading...</div>}
+      {error && <div style={{ marginTop: "12px", color: GROWTH_RED }}>{error}</div>}
+
+      {!loading && !error && summary && (
+        <>
+          <div style={{ marginTop: "16px" }}>
+            <TrendChart years={years} yearRows={summary.yearRows} currentMonth={currentMonth} metric={metric} />
+          </div>
+
+          <div style={{ overflowX: "auto", marginTop: "16px" }}>
+            <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "760px" }}>
+              <thead>
+                <tr>
+                  <th style={tableCellStyle({ background: "#f4f4f4" })}>Period</th>
+                  <th style={numberCellStyle({ background: "#f4f4f4" })}>Total</th>
+                  {MONTH_LABELS.map((m) => (
+                    <th key={m} style={numberCellStyle({ background: "#f4f4f4" })}>
+                      {m}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <YearRows
+                  rowKeyPrefix="marketplace-summary"
+                  years={years}
+                  yearRows={summary.yearRows}
+                  currentMonth={currentMonth}
+                  growthPct={summary.growthPct}
+                  formatValue={metric === "money" ? formatMoney : formatUnits}
+                />
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function SalesPage() {
   const navigate = useNavigate();
 
@@ -330,6 +626,38 @@ export default function SalesPage() {
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
   const [collapsedGroups, setCollapsedGroups] = useState({});
+
+  const [metric, setMetric] = useState("units");
+  const [marketplaceSummary, setMarketplaceSummary] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState("");
+
+  async function loadMarketplaceSummary(marketplaces) {
+    setSummaryLoading(true);
+    setSummaryError("");
+
+    try {
+      const response = await fetch(`${API_BASE}/GetMarketplaceSalesSummary`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ marketplaces }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error || `HTTP ${response.status}`);
+      }
+
+      setMarketplaceSummary(data);
+    } catch (err) {
+      setSummaryError(err.message || "Failed to load marketplace totals");
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
 
   async function loadReport(marketplaces) {
     setLoading(true);
@@ -373,12 +701,14 @@ export default function SalesPage() {
 
   useEffect(() => {
     loadReport(ALL_MARKETPLACE_VALUES);
+    loadMarketplaceSummary(ALL_MARKETPLACE_VALUES);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function handleMarketplaceChange(value) {
     setSelectedMarketplace(value);
     loadReport(value ? [value] : ALL_MARKETPLACE_VALUES);
+    loadMarketplaceSummary(value ? [value] : ALL_MARKETPLACE_VALUES);
   }
 
   function toggleGroup(name) {
@@ -448,6 +778,16 @@ export default function SalesPage() {
           </label>
         </div>
       </div>
+
+      <MarketplaceSummaryCard
+        summary={metric === "money" ? marketplaceSummary?.sales : marketplaceSummary?.quantity}
+        years={marketplaceSummary?.years || []}
+        currentMonth={marketplaceSummary?.currentMonth}
+        metric={metric}
+        onMetricChange={setMetric}
+        loading={summaryLoading}
+        error={summaryError}
+      />
 
       {error && (
         <div
