@@ -11,9 +11,11 @@ const SAVE_ERROR_COLOR = "#b00020";
 const SAVE_OK_COLOR = "#2e7d32";
 
 // Percentages sum to 100 - table uses table-layout:fixed so these are exact
-// column widths, keeping all 17 columns inside one screen width with no
+// column widths, keeping all columns inside one screen width with no
 // horizontal scroll needed on a normal laptop/desktop viewport.
-const COLUMN_WIDTHS = [5, 10, 8, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 6, 7];
+const COLUMN_WIDTHS_WITH_ASIN = [4, 13, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 6, 7];
+// ASIN's 6% folded into SKU when the column is hidden.
+const COLUMN_WIDTHS_NO_ASIN = [4, 19, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 6, 7];
 
 function cardStyle() {
   return {
@@ -67,6 +69,16 @@ function numberCellStyle(extra = {}) {
   return tableCellStyle({
     textAlign: "right",
     whiteSpace: "nowrap",
+    ...extra,
+  });
+}
+
+// Larger, bolder font for the actual values (as opposed to headers), used on
+// every read-only number cell.
+function valueCellStyle(extra = {}) {
+  return numberCellStyle({
+    fontSize: "16px",
+    padding: "3px 2px",
     ...extra,
   });
 }
@@ -139,11 +151,12 @@ function EditableCell({ item, field, onSave }) {
         if (e.key === "Enter") e.target.blur();
       }}
       style={{
-        width: "42px",
-        padding: "2px 3px",
+        width: "38px",
+        padding: "2px 2px",
         textAlign: "right",
         borderRadius: "4px",
-        fontSize: "11px",
+        fontSize: "15px",
+        fontWeight: 600,
         colorScheme: "light",
         color: "#111",
         border: `1px solid ${STATUS_BORDER[status]}`,
@@ -153,7 +166,7 @@ function EditableCell({ item, field, onSave }) {
   );
 }
 
-const HEADER_LABELS = [
+const HEADER_LABELS_WITH_ASIN = [
   "Image", "SKU", "ASIN",
   "UK Bal", "UK OTW", "UK Next",
   "DE Bal", "DE OTW", "DE Next",
@@ -161,26 +174,32 @@ const HEADER_LABELS = [
   "Malani Bal", "Malani Ord",
   "Needed", "Missing", "Next Order",
 ];
+const HEADER_LABELS_NO_ASIN = HEADER_LABELS_WITH_ASIN.filter((l) => l !== "ASIN");
+const LEADING_COLS_WITH_ASIN = 3; // Image, SKU, ASIN
+const LEADING_COLS_NO_ASIN = 2; // Image, SKU
 
-function ColGroup() {
+function ColGroup({ showAsin }) {
+  const widths = showAsin ? COLUMN_WIDTHS_WITH_ASIN : COLUMN_WIDTHS_NO_ASIN;
   return (
     <colgroup>
-      {COLUMN_WIDTHS.map((w, i) => (
+      {widths.map((w, i) => (
         <col key={i} style={{ width: `${w}%` }} />
       ))}
     </colgroup>
   );
 }
 
-function TableHeader() {
+function TableHeader({ showAsin }) {
+  const labels = showAsin ? HEADER_LABELS_WITH_ASIN : HEADER_LABELS_NO_ASIN;
+  const leadingCols = showAsin ? LEADING_COLS_WITH_ASIN : LEADING_COLS_NO_ASIN;
   return (
     <thead>
       <tr>
-        {HEADER_LABELS.map((label, i) => (
+        {labels.map((label, i) => (
           <th
             key={label}
             style={
-              i < 3
+              i < leadingCols
                 ? tableCellStyle({ background: "#f4f4f4" })
                 : numberCellStyle({ background: "#f4f4f4" })
             }
@@ -193,7 +212,7 @@ function TableHeader() {
   );
 }
 
-function ItemRow({ item, onSave }) {
+function ItemRow({ item, showAsin, onSave }) {
   const needed = computeNeeded(item);
   const missing = computeMissing(item);
 
@@ -207,31 +226,33 @@ function ItemRow({ item, onSave }) {
         />
       </td>
       <td style={tableCellStyle({ fontWeight: 600, wordBreak: "break-word", whiteSpace: "normal" })}>{item.sku}</td>
-      <td style={tableCellStyle({ fontFamily: "monospace", fontSize: "10px" })}>{item.asin}</td>
+      {showAsin && (
+        <td style={tableCellStyle({ fontFamily: "monospace", fontSize: "10px" })}>{item.asin}</td>
+      )}
 
-      <td style={numberCellStyle()}>{formatUnits(item.uk_balance)}</td>
-      <td style={numberCellStyle()}>{formatUnits(item.uk_on_the_way)}</td>
+      <td style={valueCellStyle()}>{formatUnits(item.uk_balance)}</td>
+      <td style={valueCellStyle()}>{formatUnits(item.uk_on_the_way)}</td>
       <td style={numberCellStyle()}>
         <EditableCell item={item} field="uk_next_shipment" onSave={onSave} />
       </td>
 
-      <td style={numberCellStyle()}>{formatUnits(item.de_balance)}</td>
-      <td style={numberCellStyle()}>{formatUnits(item.de_on_the_way)}</td>
+      <td style={valueCellStyle()}>{formatUnits(item.de_balance)}</td>
+      <td style={valueCellStyle()}>{formatUnits(item.de_on_the_way)}</td>
       <td style={numberCellStyle()}>
         <EditableCell item={item} field="de_next_shipment" onSave={onSave} />
       </td>
 
-      <td style={numberCellStyle()}>{formatUnits(item.usa_balance)}</td>
-      <td style={numberCellStyle()}>{formatUnits(item.usa_on_the_way)}</td>
+      <td style={valueCellStyle()}>{formatUnits(item.usa_balance)}</td>
+      <td style={valueCellStyle()}>{formatUnits(item.usa_on_the_way)}</td>
       <td style={numberCellStyle()}>
         <EditableCell item={item} field="usa_next_shipment" onSave={onSave} />
       </td>
 
-      <td style={numberCellStyle()}>{formatUnits(item.malani_balance)}</td>
-      <td style={numberCellStyle()}>{formatUnits(item.malani_order)}</td>
+      <td style={valueCellStyle()}>{formatUnits(item.malani_balance)}</td>
+      <td style={valueCellStyle()}>{formatUnits(item.malani_order)}</td>
 
-      <td style={numberCellStyle({ fontWeight: 700 })}>{formatUnits(needed)}</td>
-      <td style={numberCellStyle({ fontWeight: 700, color: missing > 0 ? SAVE_ERROR_COLOR : undefined })}>
+      <td style={valueCellStyle({ fontWeight: 700 })}>{formatUnits(needed)}</td>
+      <td style={valueCellStyle({ fontWeight: 700, color: missing > 0 ? SAVE_ERROR_COLOR : undefined })}>
         {formatUnits(missing)}
       </td>
 
@@ -242,7 +263,7 @@ function ItemRow({ item, onSave }) {
   );
 }
 
-function GroupSection({ group, expanded, onToggle, onSave }) {
+function GroupSection({ group, showAsin, expanded, onToggle, onSave }) {
   return (
     <div style={cardStyle()}>
       <div
@@ -265,11 +286,11 @@ function GroupSection({ group, expanded, onToggle, onSave }) {
       {expanded && (
         <div style={{ overflowX: "auto", marginTop: "12px" }}>
           <table style={{ borderCollapse: "collapse", width: "100%", tableLayout: "fixed" }}>
-            <ColGroup />
-            <TableHeader />
+            <ColGroup showAsin={showAsin} />
+            <TableHeader showAsin={showAsin} />
             <tbody>
               {group.items.map((item) => (
-                <ItemRow key={item.sku} item={item} onSave={onSave} />
+                <ItemRow key={item.sku} item={item} showAsin={showAsin} onSave={onSave} />
               ))}
             </tbody>
           </table>
@@ -286,6 +307,7 @@ export default function NextOrderPage() {
   const [error, setError] = useState("");
   const [groups, setGroups] = useState([]);
   const [collapsedGroups, setCollapsedGroups] = useState({});
+  const [showAsin, setShowAsin] = useState(false);
 
   async function loadData() {
     setLoading(true);
@@ -396,19 +418,24 @@ export default function NextOrderPage() {
 
       {!loading && groups.length > 0 && (
         <div style={{ display: "grid", gap: "18px" }}>
-          <div style={{ display: "flex", gap: "10px" }}>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             <button style={ghostButtonStyle()} onClick={expandAll}>
               Expand All Groups
             </button>
             <button style={ghostButtonStyle()} onClick={collapseAll}>
               Collapse All Groups
             </button>
+            <label style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto", fontSize: "14px" }}>
+              <input type="checkbox" checked={showAsin} onChange={() => setShowAsin((v) => !v)} />
+              Show ASIN column
+            </label>
           </div>
 
           {groups.map((group) => (
             <GroupSection
               key={group.group}
               group={group}
+              showAsin={showAsin}
               expanded={!collapsedGroups[group.group]}
               onToggle={() => toggleGroup(group.group)}
               onSave={saveField}
