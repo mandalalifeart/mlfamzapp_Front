@@ -7,8 +7,13 @@ const API_BASE =
 
 const IMAGE_BASE = "https://storage.googleapis.com/mlf-amz-images/";
 
-const MAIN_SKU_WIDTH = "144px";
 const SAVE_ERROR_COLOR = "#b00020";
+const SAVE_OK_COLOR = "#2e7d32";
+
+// Percentages sum to 100 - table uses table-layout:fixed so these are exact
+// column widths, keeping all 17 columns inside one screen width with no
+// horizontal scroll needed on a normal laptop/desktop viewport.
+const COLUMN_WIDTHS = [5, 10, 8, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 6, 7];
 
 function cardStyle() {
   return {
@@ -49,8 +54,11 @@ function ghostButtonStyle() {
 function tableCellStyle(extra = {}) {
   return {
     border: "1px solid #ccc",
-    padding: "6px 8px",
+    padding: "3px 4px",
     textAlign: "left",
+    fontSize: "11px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
     ...extra,
   };
 }
@@ -93,9 +101,16 @@ function computeMissing(item) {
 // typing, and only pushes a value up (recomputing Needed/Missing) once they
 // commit it on blur/Enter - syncing from item[field] on every prop change
 // would fight the user's keystrokes and needs an effect-driven setState.
+const STATUS_BORDER = {
+  idle: "#bbb",
+  saving: "#bbb",
+  saved: SAVE_OK_COLOR,
+  error: SAVE_ERROR_COLOR,
+};
+
 function EditableCell({ item, field, onSave }) {
   const [value, setValue] = useState(item[field] ?? 0);
-  const [status, setStatus] = useState("idle"); // idle | saving | error
+  const [status, setStatus] = useState("idle"); // idle | saving | saved | error
 
   async function commit() {
     const numeric = Number(value);
@@ -106,7 +121,8 @@ function EditableCell({ item, field, onSave }) {
     setStatus("saving");
     try {
       await onSave(item.sku, field, nextValue);
-      setStatus("idle");
+      setStatus("saved");
+      setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), 1200);
     } catch {
       setStatus("error");
     }
@@ -123,14 +139,36 @@ function EditableCell({ item, field, onSave }) {
         if (e.key === "Enter") e.target.blur();
       }}
       style={{
-        width: "72px",
-        padding: "4px 6px",
+        width: "42px",
+        padding: "2px 3px",
         textAlign: "right",
         borderRadius: "4px",
-        border: `1px solid ${status === "error" ? SAVE_ERROR_COLOR : "#bbb"}`,
+        fontSize: "11px",
+        colorScheme: "light",
+        color: "#111",
+        border: `1px solid ${STATUS_BORDER[status]}`,
         background: status === "saving" ? "#fff8e1" : "#fff",
       }}
     />
+  );
+}
+
+const HEADER_LABELS = [
+  "Image", "SKU", "ASIN",
+  "UK Bal", "UK OTW", "UK Next",
+  "DE Bal", "DE OTW", "DE Next",
+  "USA Bal", "USA OTW", "USA Next",
+  "Malani Bal", "Malani Ord",
+  "Needed", "Missing", "Next Order",
+];
+
+function ColGroup() {
+  return (
+    <colgroup>
+      {COLUMN_WIDTHS.map((w, i) => (
+        <col key={i} style={{ width: `${w}%` }} />
+      ))}
+    </colgroup>
   );
 }
 
@@ -138,23 +176,18 @@ function TableHeader() {
   return (
     <thead>
       <tr>
-        <th style={tableCellStyle({ background: "#f4f4f4" })}>Image</th>
-        <th style={tableCellStyle({ background: "#f4f4f4", width: MAIN_SKU_WIDTH })}>SKU</th>
-        <th style={tableCellStyle({ background: "#f4f4f4" })}>ASIN</th>
-        <th style={numberCellStyle({ background: "#f4f4f4" })}>UK Balance</th>
-        <th style={numberCellStyle({ background: "#f4f4f4" })}>UK On The Way</th>
-        <th style={numberCellStyle({ background: "#f4f4f4" })}>UK Next Shipment</th>
-        <th style={numberCellStyle({ background: "#f4f4f4" })}>DE Balance</th>
-        <th style={numberCellStyle({ background: "#f4f4f4" })}>DE On The Way</th>
-        <th style={numberCellStyle({ background: "#f4f4f4" })}>DE Next Shipment</th>
-        <th style={numberCellStyle({ background: "#f4f4f4" })}>USA Balance</th>
-        <th style={numberCellStyle({ background: "#f4f4f4" })}>USA On The Way</th>
-        <th style={numberCellStyle({ background: "#f4f4f4" })}>USA Next Shipment</th>
-        <th style={numberCellStyle({ background: "#f4f4f4" })}>Malani Balance</th>
-        <th style={numberCellStyle({ background: "#f4f4f4" })}>Malani Order</th>
-        <th style={numberCellStyle({ background: "#f4f4f4" })}>Needed</th>
-        <th style={numberCellStyle({ background: "#f4f4f4" })}>Missing</th>
-        <th style={numberCellStyle({ background: "#f4f4f4" })}>Next Order</th>
+        {HEADER_LABELS.map((label, i) => (
+          <th
+            key={label}
+            style={
+              i < 3
+                ? tableCellStyle({ background: "#f4f4f4" })
+                : numberCellStyle({ background: "#f4f4f4" })
+            }
+          >
+            {label}
+          </th>
+        ))}
       </tr>
     </thead>
   );
@@ -166,15 +199,15 @@ function ItemRow({ item, onSave }) {
 
   return (
     <tr>
-      <td style={tableCellStyle({ width: "70px" })}>
+      <td style={tableCellStyle({ padding: "2px" })}>
         <img
           src={`${IMAGE_BASE}${encodeURIComponent(item.sku)}.jpg`}
           alt={item.sku}
-          style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "6px" }}
+          style={{ width: "26px", height: "26px", objectFit: "cover", borderRadius: "4px", display: "block" }}
         />
       </td>
-      <td style={tableCellStyle({ fontWeight: 600, width: MAIN_SKU_WIDTH })}>{item.sku}</td>
-      <td style={tableCellStyle({ fontFamily: "monospace" })}>{item.asin}</td>
+      <td style={tableCellStyle({ fontWeight: 600, wordBreak: "break-word", whiteSpace: "normal" })}>{item.sku}</td>
+      <td style={tableCellStyle({ fontFamily: "monospace", fontSize: "10px" })}>{item.asin}</td>
 
       <td style={numberCellStyle()}>{formatUnits(item.uk_balance)}</td>
       <td style={numberCellStyle()}>{formatUnits(item.uk_on_the_way)}</td>
@@ -231,7 +264,8 @@ function GroupSection({ group, expanded, onToggle, onSave }) {
 
       {expanded && (
         <div style={{ overflowX: "auto", marginTop: "12px" }}>
-          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "1500px" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", tableLayout: "fixed" }}>
+            <ColGroup />
             <TableHeader />
             <tbody>
               {group.items.map((item) => (
