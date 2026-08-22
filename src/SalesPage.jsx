@@ -367,12 +367,13 @@ function niceNumber(value) {
   return niceFraction * 10 ** exponent;
 }
 
-// Recency is ordinal (this year is more relevant than 3-years-ago, and
-// swapping the order would change the meaning) so years get one hue stepped
-// from dark (current year, most relevant) to light (oldest), rather than
-// unrelated categorical hues - validated as an ordinal ramp against the
-// white chart surface via the dataviz skill's validate_palette.js.
-const YEAR_RAMP = ["#184f95", "#2a78d6", "#5598e7", "#86b6ef"];
+// Requested explicitly as blue/green/red/yellow (this year -> 3 years ago).
+// Hex values are the dataviz palette's slots for those hues, not eyeballed;
+// validated with --pairs all (all 4 lines are visible together) - passes
+// with two WARNs (red/green CVD in the 6-8 floor band, yellow under 3:1
+// contrast) that are already mitigated by this chart's direct end-labels,
+// legend, and the data table rendered right below it.
+const YEAR_RAMP = ["#2a78d6", "#008300", "#e34948", "#eda100"];
 const YEAR_AGE_LABEL = ["this year", "last year", "2 years ago", "3 years ago"];
 const LABEL_MIN_GAP = 14;
 
@@ -817,7 +818,9 @@ export default function SalesPage() {
             </button>
           </div>
 
-          {(result.groups || []).map((group) => (
+          {(result.groups || [])
+            .filter((group) => group.group !== "IGNORE")
+            .map((group) => (
             <GroupSection
               key={group.group}
               group={group}
