@@ -868,6 +868,9 @@ export default function SalesPage() {
         <button style={blueButtonStyle()} onClick={() => navigate("/update")}>
           Update
         </button>
+        <button style={blueButtonStyle()} onClick={() => navigate("/next-order")}>
+          Next Order
+        </button>
       </div>
     </div>
   );

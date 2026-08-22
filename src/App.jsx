@@ -592,6 +592,9 @@ export default function App() {
           <button type="button" style={smallButtonStyle()} onClick={() => navigate("/batch-update")}>
             Batch Update
           </button>
+          <button type="button" style={smallButtonStyle()} onClick={() => navigate("/next-order")}>
+            Next Order
+          </button>
         </div>
       </div>
     </div>
