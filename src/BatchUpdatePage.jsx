@@ -223,12 +223,18 @@ const STATUS_COLORS = {
   skipped: "#8a5a00",
 };
 
+// 2022-2024 were backfilled from an authoritative export and are locked
+// against the live pipeline (see UpdateSkuSalesMonth.py's LOCKED_YEARS_MAX) -
+// this mirrors that same cutoff so the batch never even attempts those years.
+const EARLIEST_UNLOCKED_YEAR = 2025;
+
 export default function BatchUpdatePage() {
   const navigate = useNavigate();
 
-  const [year, setYear] = useState(getLosAngelesNow().year);
+  const [year, setYear] = useState(Math.max(getLosAngelesNow().year, EARLIEST_UNLOCKED_YEAR));
   const [running, setRunning] = useState(false);
   const [rows, setRows] = useState([]);
+  const [yearError, setYearError] = useState("");
   const stopRequestedRef = useRef(false);
 
   function initRows(targetYear) {
@@ -310,6 +316,13 @@ export default function BatchUpdatePage() {
   async function startBatch() {
     const targetYear = Number(year);
     if (!targetYear || targetYear < 2000) return;
+    if (targetYear < EARLIEST_UNLOCKED_YEAR) {
+      setYearError(
+        `${targetYear} is locked - it was backfilled from an authoritative export. Only ${EARLIEST_UNLOCKED_YEAR} and later can be batch-updated.`
+      );
+      return;
+    }
+    setYearError("");
 
     stopRequestedRef.current = false;
     setRunning(true);
@@ -347,6 +360,7 @@ export default function BatchUpdatePage() {
             Year:{" "}
             <input
               type="number"
+              min={EARLIEST_UNLOCKED_YEAR}
               value={year}
               onChange={(e) => setYear(e.target.value)}
               style={inputStyle()}
@@ -364,6 +378,10 @@ export default function BatchUpdatePage() {
             </button>
           )}
         </div>
+
+        {yearError && (
+          <div style={{ marginTop: "10px", color: "#b00020", fontSize: "14px" }}>{yearError}</div>
+        )}
       </div>
 
       {rows.length > 0 && (

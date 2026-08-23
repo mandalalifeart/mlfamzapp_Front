@@ -5,6 +5,11 @@ const API_BASE =
   import.meta.env.VITE_API_BASE ||
   "https://us-central1-mlfamzapp.cloudfunctions.net";
 
+// 2022-2024 were backfilled from an authoritative export and are locked
+// against the live pipeline (see UpdateSkuSalesMonth.py's LOCKED_YEARS_MAX) -
+// mirrors that same cutoff so a wet run is blocked client-side too.
+const EARLIEST_UNLOCKED_YEAR = 2025;
+
 function bottomNavStyle() {
   return {
     display: "flex",
@@ -228,6 +233,13 @@ export default function UpdatePage() {
 
     if (!usaReportId && !deReportId) {
       setError("Missing usaReportId and deReportId");
+      return;
+    }
+
+    if (!dryRun && Number(confirmYear) <= EARLIEST_UNLOCKED_YEAR - 1) {
+      setError(
+        `${confirmYear} is locked - it was backfilled from an authoritative export. Only ${EARLIEST_UNLOCKED_YEAR} and later can be wet-updated.`
+      );
       return;
     }
 
