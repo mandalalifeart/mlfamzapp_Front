@@ -291,6 +291,67 @@ function ItemRows({ item, showAsin, years, currentMonth }) {
   );
 }
 
+function MoveToGroupControl({ row, groupOptions, onAssigned }) {
+  const [selected, setSelected] = useState(groupOptions[0] || "");
+  const [status, setStatus] = useState("idle"); // idle | saving | error
+  const [errorMsg, setErrorMsg] = useState("");
+
+  async function handleMove() {
+    if (!selected) return;
+    setStatus("saving");
+    setErrorMsg("");
+
+    try {
+      const response = await fetch(`${API_BASE}/AssignSkuGroup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sku: row.sku, asin: row.asin, group: selected }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || `HTTP ${response.status}`);
+      }
+      await onAssigned();
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(err.message || "Failed to assign group");
+      return;
+    }
+    setStatus("idle");
+  }
+
+  return (
+    <div style={{ display: "flex", gap: "6px", alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap" }}>
+      <select
+        value={selected}
+        onChange={(e) => setSelected(e.target.value)}
+        disabled={status === "saving"}
+        style={{ padding: "4px 6px", borderRadius: "6px", fontSize: "13px" }}
+      >
+        {groupOptions.map((g) => (
+          <option key={g} value={g}>
+            {g}
+          </option>
+        ))}
+      </select>
+      <button
+        style={{
+          ...ghostButtonStyle(),
+          padding: "4px 10px",
+          fontSize: "13px",
+          cursor: status === "saving" ? "not-allowed" : "pointer",
+          opacity: status === "saving" ? 0.6 : 1,
+        }}
+        onClick={handleMove}
+        disabled={status === "saving"}
+      >
+        {status === "saving" ? "Moving..." : "Move to Group"}
+      </button>
+      {status === "error" && <span style={{ color: GROWTH_RED, fontSize: "12px" }}>{errorMsg}</span>}
+    </div>
+  );
+}
+
 function GroupSection({ group, years, currentMonth, showAsin, expanded, onToggle }) {
   return (
     <div style={cardStyle()}>
@@ -705,6 +766,10 @@ export default function SalesPage() {
     loadMarketplaceSummary(value ? [value] : ALL_MARKETPLACE_VALUES);
   }
 
+  async function refreshReport() {
+    await loadReport(selectedMarketplace ? [selectedMarketplace] : ALL_MARKETPLACE_VALUES);
+  }
+
   function toggleGroup(name) {
     setCollapsedGroups((prev) => ({ ...prev, [name]: !prev[name] }));
   }
@@ -724,6 +789,11 @@ export default function SalesPage() {
 
   const years = useMemo(() => result?.years || [], [result]);
   const currentMonth = result?.currentMonth;
+
+  const groupOptions = useMemo(
+    () => (result?.groups || []).map((g) => g.group).filter((g) => g !== "IGNORE").sort(),
+    [result]
+  );
 
   useEffect(() => {
     const root = document.getElementById("root");
@@ -838,7 +908,7 @@ export default function SalesPage() {
             <div style={cardStyle()}>
               <h3 style={{ marginTop: 0 }}>Unmapped SKUs</h3>
               <div style={{ color: "#555", fontSize: "13px", marginBottom: "8px" }}>
-                Sales rows whose SKU isn't in asin_group_mapping.csv (not counted in any group above).
+                Sales rows whose SKU isn't in the mapping (not counted in any group above).
               </div>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ borderCollapse: "collapse", width: "100%" }}>
@@ -846,6 +916,7 @@ export default function SalesPage() {
                     <tr>
                       <th style={tableCellStyle({ background: "#f4f4f4" })}>SKU</th>
                       <th style={numberCellStyle({ background: "#f4f4f4" })}>Total Quantity</th>
+                      <th style={tableCellStyle({ background: "#f4f4f4" })}></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -853,6 +924,11 @@ export default function SalesPage() {
                       <tr key={row.sku}>
                         <td style={tableCellStyle()}>{row.sku}</td>
                         <td style={numberCellStyle()}>{row.totalQuantity}</td>
+                        <td style={tableCellStyle()}>
+                          {groupOptions.length > 0 && (
+                            <MoveToGroupControl row={row} groupOptions={groupOptions} onAssigned={refreshReport} />
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
