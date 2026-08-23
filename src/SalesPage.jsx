@@ -266,15 +266,24 @@ function ItemRows({ item, showAsin, years, currentMonth }) {
       renderLeading={(rowCount) => (
         <>
           <td rowSpan={rowCount} style={tableCellStyle({ verticalAlign: "top", width: "70px" })}>
-            <img
-              src={`${IMAGE_BASE}${encodeURIComponent(item.mainSku)}.jpg`}
-              alt={item.mainSku}
-              style={{ width: "60px", height: "60px", objectFit: "cover", borderRadius: "6px" }}
-            />
+            <Link to={`/product?asin=${encodeURIComponent(item.asin)}&sku=${encodeURIComponent(item.mainSku)}`} target="_blank" rel="noopener noreferrer">
+              <img
+                src={`${IMAGE_BASE}${encodeURIComponent(item.mainSku)}.jpg`}
+                alt={item.mainSku}
+                style={{ width: "60px", height: "60px", objectFit: "cover", borderRadius: "6px" }}
+              />
+            </Link>
           </td>
 
           <td rowSpan={rowCount} style={tableCellStyle({ verticalAlign: "top", fontWeight: 600, width: MAIN_SKU_WIDTH })}>
-            {item.mainSku}
+            <Link
+              to={`/product?asin=${encodeURIComponent(item.asin)}&sku=${encodeURIComponent(item.mainSku)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "inherit", textDecoration: "none" }}
+            >
+              {item.mainSku}
+            </Link>
             <div style={{ marginTop: "6px" }}>
               <GrowthBadge pct={item.growthPct} />
             </div>
