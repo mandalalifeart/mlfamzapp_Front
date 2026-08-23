@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -37,6 +37,8 @@ function blueButtonStyle(disabled = false) {
     color: "#ffffff",
     fontWeight: "600",
     opacity: disabled ? 0.6 : 1,
+    textDecoration: "none",
+    display: "inline-block",
   };
 }
 
@@ -301,8 +303,6 @@ function GroupSection({ group, showAsin, expanded, onToggle, onSave }) {
 }
 
 export default function NextOrderPage() {
-  const navigate = useNavigate();
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [groups, setGroups] = useState([]);
@@ -445,12 +445,12 @@ export default function NextOrderPage() {
       )}
 
       <div style={bottomNavStyle()}>
-        <button style={blueButtonStyle()} onClick={() => navigate("/")}>
+        <Link style={blueButtonStyle()} to="/">
           Home
-        </button>
-        <button style={blueButtonStyle()} onClick={() => navigate("/sales")}>
+        </Link>
+        <Link style={blueButtonStyle()} to="/sales">
           Sales
-        </button>
+        </Link>
       </div>
     </div>
   );

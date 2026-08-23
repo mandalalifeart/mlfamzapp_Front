@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
@@ -293,12 +293,21 @@ function bottomNavStyle() {
   };
 }
 
+// Same look whether applied to a <button> (which also picks up App.css's
+// generic `button` rule) or a <Link>'s rendered <a> (which doesn't) - spelled
+// out explicitly here so the two render identically.
 function smallButtonStyle() {
   return {
     padding: "8px 16px",
     fontSize: "14px",
     cursor: "pointer",
     borderRadius: "8px",
+    border: "none",
+    background: "#7d94bc",
+    color: "#fff",
+    fontWeight: 700,
+    textDecoration: "none",
+    display: "inline-block",
   };
 }
 
@@ -583,18 +592,18 @@ export default function App() {
         )}
 
         <div style={bottomNavStyle()}>
-          <button type="button" style={smallButtonStyle()} onClick={() => navigate("/")}>
+          <Link style={smallButtonStyle()} to="/">
             Home
-          </button>
-          <button type="button" style={smallButtonStyle()} onClick={() => navigate("/sales")}>
+          </Link>
+          <Link style={smallButtonStyle()} to="/sales">
             Sales
-          </button>
-          <button type="button" style={smallButtonStyle()} onClick={() => navigate("/batch-update")}>
+          </Link>
+          <Link style={smallButtonStyle()} to="/batch-update">
             Batch Update
-          </button>
-          <button type="button" style={smallButtonStyle()} onClick={() => navigate("/next-order")}>
+          </Link>
+          <Link style={smallButtonStyle()} to="/next-order">
             Next Order
-          </button>
+          </Link>
         </div>
       </div>
     </div>

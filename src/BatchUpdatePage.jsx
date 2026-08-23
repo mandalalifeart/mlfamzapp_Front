@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -190,6 +190,8 @@ function buttonStyle(disabled = false) {
     color: "#fff",
     fontWeight: "600",
     opacity: disabled ? 0.6 : 1,
+    textDecoration: "none",
+    display: "inline-block",
   };
 }
 
@@ -229,8 +231,6 @@ const STATUS_COLORS = {
 const EARLIEST_UNLOCKED_YEAR = 2025;
 
 export default function BatchUpdatePage() {
-  const navigate = useNavigate();
-
   const [year, setYear] = useState(Math.max(getLosAngelesNow().year, EARLIEST_UNLOCKED_YEAR));
   const [running, setRunning] = useState(false);
   const [rows, setRows] = useState([]);
@@ -419,12 +419,12 @@ export default function BatchUpdatePage() {
       )}
 
       <div style={{ display: "flex", justifyContent: "center", gap: "10px", marginTop: "28px", paddingBottom: "16px" }}>
-        <button style={buttonStyle()} onClick={() => navigate("/")}>
+        <Link style={buttonStyle()} to="/">
           Home
-        </button>
-        <button style={buttonStyle()} onClick={() => navigate("/sales")}>
+        </Link>
+        <Link style={buttonStyle()} to="/sales">
           Sales
-        </button>
+        </Link>
       </div>
     </div>
   );

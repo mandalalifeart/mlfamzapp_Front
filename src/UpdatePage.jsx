@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -32,6 +32,8 @@ function smallButtonStyle(disabled = false) {
     color: "#ffffff",
     fontWeight: "600",
     opacity: disabled ? 0.6 : 1,
+    textDecoration: "none",
+    display: "inline-block",
   };
 }
 
@@ -148,7 +150,6 @@ function DataTable({ title, rows }) {
 
 export default function UpdatePage() {
   const location = useLocation();
-  const navigate = useNavigate();
 
   const usaReportId = location.state?.usaReportId || "";
   const deReportId = location.state?.deReportId || "";
@@ -281,10 +282,6 @@ export default function UpdatePage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  function goHome() {
-    navigate("/");
   }
 
   return (
@@ -520,9 +517,9 @@ export default function UpdatePage() {
       )}
 
       <div style={bottomNavStyle()}>
-        <button style={smallButtonStyle()} onClick={goHome}>
+        <Link style={smallButtonStyle()} to="/">
           Home
-        </button>
+        </Link>
       </div>
     </div>
   );

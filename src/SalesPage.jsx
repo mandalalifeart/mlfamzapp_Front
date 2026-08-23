@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -70,6 +70,8 @@ function cardStyle() {
   };
 }
 
+// Also used on <Link> (real <a> tags, so right-click "open in new tab" works
+// on nav buttons) - textDecoration/display keep it looking like a button there.
 function blueButtonStyle(disabled = false) {
   return {
     padding: "10px 18px",
@@ -81,6 +83,8 @@ function blueButtonStyle(disabled = false) {
     color: "#ffffff",
     fontWeight: "600",
     opacity: disabled ? 0.6 : 1,
+    textDecoration: "none",
+    display: "inline-block",
   };
 }
 
@@ -610,8 +614,6 @@ function MarketplaceSummaryCard({ quantity, sales, salesCurrency, years, current
 }
 
 export default function SalesPage() {
-  const navigate = useNavigate();
-
   const [selectedMarketplace, setSelectedMarketplace] = useState("");
   const [showAsin, setShowAsin] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -862,9 +864,9 @@ export default function SalesPage() {
       )}
 
       <div style={bottomNavStyle()}>
-        <button style={blueButtonStyle()} onClick={() => navigate("/")}>
+        <Link style={blueButtonStyle()} to="/">
           Home
-        </button>
+        </Link>
       </div>
     </div>
   );
