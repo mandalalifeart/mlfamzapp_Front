@@ -13,6 +13,7 @@ import AdsConnectionsPage from "./AdsConnectionsPage";
 import AdsCampaignsPage from "./AdsCampaignsPage";
 import AdsKeywordsPage from "./AdsKeywordsPage";
 import AdsSearchTermsPage from "./AdsSearchTermsPage";
+import EtsyPage from "./EtsyPage";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -31,6 +32,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Route path="/ads-campaigns" element={<AdsCampaignsPage />} />
         <Route path="/ads-keywords" element={<AdsKeywordsPage />} />
         <Route path="/ads-search-terms" element={<AdsSearchTermsPage />} />
+        <Route path="/etsy" element={<EtsyPage />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>

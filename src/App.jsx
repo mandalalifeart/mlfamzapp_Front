@@ -671,6 +671,9 @@ export default function App() {
           <Link style={smallButtonStyle()} to="/ads">
             Ads
           </Link>
+          <Link style={smallButtonStyle()} to="/etsy">
+            Etsy
+          </Link>
           <Link style={smallButtonStyle()} to="/next-order">
             Next Order
           </Link>
