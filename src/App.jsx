@@ -5,6 +5,72 @@ import "./App.css";
 const LA_TIME_ZONE = "America/Los_Angeles";
 const API_BASE = "https://us-central1-mlfamzapp.cloudfunctions.net";
 
+function formatMoney(value, currencyCode) {
+  const amount = Number(value || 0);
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: currencyCode || "USD" }).format(amount);
+  } catch {
+    return amount.toFixed(2);
+  }
+}
+
+function AdsAccountSummary() {
+  const [accounts, setAccounts] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const now = new Date();
+    fetch(`${API_BASE}/GetAdsAccountSummary?month=${now.getMonth() + 1}&year=${now.getFullYear()}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.error) throw new Error(data.error);
+        setAccounts(data.accounts || []);
+      })
+      .catch((err) => setError(err.message || "Failed to load ads summary"));
+  }, []);
+
+  if (error) return null;
+  if (!accounts || accounts.length === 0) return null;
+
+  return (
+    <div
+      style={{
+        width: "100%",
+        maxWidth: "900px",
+        marginInline: "auto",
+        marginBottom: "20px",
+        background: "#efefef",
+        borderRadius: "8px",
+        padding: "16px",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+        <h3 style={{ margin: 0 }}>Ads Accounts (This Month)</h3>
+        <Link to="/ads-campaigns" style={{ fontSize: "13px" }}>
+          View campaigns &rarr;
+        </Link>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "12px" }}>
+        {accounts.map((account) => (
+          <div
+            key={account.countryCode}
+            style={{ background: "#fff", border: "1px solid #ddd", borderRadius: "8px", padding: "12px" }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: "6px" }}>{account.countryCode}</div>
+            <div style={{ fontSize: "13px", color: "#555" }}>
+              Spend: {formatMoney(account.spend, account.currencyCode)}
+            </div>
+            <div style={{ fontSize: "13px", color: "#555" }}>
+              Sales: {formatMoney(account.sales, account.currencyCode)}
+            </div>
+            <div style={{ fontSize: "13px", color: "#555" }}>ACOS: {account.acos.toFixed(1)}%</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const presets = [
   { key: "today", label: "TODAY" },
   { key: "yesterday", label: "YESTERDAY" },
@@ -521,7 +587,8 @@ export default function App() {
   }, []);
 
   return (
-    <div className="app">
+    <div className="app" style={{ flexDirection: "column", alignItems: "center" }}>
+      <AdsAccountSummary />
       <div className="card">
         <form onSubmit={handleSubmit}>
           <div className="radio-list">
