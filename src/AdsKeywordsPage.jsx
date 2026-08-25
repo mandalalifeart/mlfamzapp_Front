@@ -117,9 +117,10 @@ export default function AdsKeywordsPage() {
   const [selectedMonth, setSelectedMonth] = useState(Number(getLosAngelesToday().slice(5, 7)));
   const [countryFilter, setCountryFilter] = useState("");
   const [adProductFilter, setAdProductFilter] = useState("");
-  const [campaignFilter, setCampaignFilter] = useState("");
-  const campaignIdFilter = searchParams.get("campaign_id") || "";
-  const campaignNameFilter = searchParams.get("campaign_name") || "";
+  // Pre-selects from a "Keywords" link on a specific /ads-campaigns row, but
+  // from here on it's just the one Campaign dropdown below - no separate
+  // server-side pre-filter, so there's only ever one control for this.
+  const [campaignFilter, setCampaignFilter] = useState(searchParams.get("campaign_id") || "");
   const [keywords, setKeywords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -134,7 +135,6 @@ export default function AdsKeywordsPage() {
     try {
       const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
       if (countryFilter) params.set("country_code", countryFilter);
-      if (campaignIdFilter) params.set("campaign_id", campaignIdFilter);
       const response = await fetch(`${API_BASE}/GetAdsKeywordStats?${params.toString()}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
@@ -149,7 +149,7 @@ export default function AdsKeywordsPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate, countryFilter, campaignIdFilter]);
+  }, [startDate, endDate, countryFilter]);
 
   const countryCodes = [...new Set(keywords.map((k) => k.countryCode).filter(Boolean))].sort();
   const campaignOptions = [...new Map(keywords.map((k) => [k.campaignId, k.campaignName])).entries()].sort(
@@ -279,12 +279,6 @@ export default function AdsKeywordsPage() {
               ))}
             </select>
           </label>
-          {campaignIdFilter && (
-            <span style={{ fontSize: "13px", color: "#555" }}>
-              Filtered to campaign: <strong>{campaignNameFilter || campaignIdFilter}</strong>{" "}
-              <Link to="/ads-keywords">(clear)</Link>
-            </span>
-          )}
         </div>
 
         <p style={{ fontSize: "13px", color: "#777", marginTop: 0 }}>
