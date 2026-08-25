@@ -168,10 +168,10 @@ export default function AdsKeywordsPage() {
   );
 
   return (
-    <div style={{ padding: "20px", fontFamily: "Arial, sans-serif", minHeight: "100vh", background: "#fafafa" }}>
+    <div style={{ padding: "20px 0", fontFamily: "Arial, sans-serif", minHeight: "100vh", background: "#fafafa" }}>
       <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Ads Keyword / Target Statistics</h2>
 
-      <div style={{ ...cardStyle(), marginBottom: "20px" }}>
+      <div style={{ ...cardStyle(), borderRadius: 0, borderLeft: "none", borderRight: "none", marginBottom: "20px" }}>
         <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginBottom: "12px" }}>
           {PRESETS.map((p) => (
             <button

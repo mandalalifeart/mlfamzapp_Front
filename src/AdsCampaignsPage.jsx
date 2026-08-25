@@ -167,10 +167,10 @@ export default function AdsCampaignsPage() {
   );
 
   return (
-    <div style={{ padding: "20px", fontFamily: "Arial, sans-serif", minHeight: "100vh", background: "#fafafa" }}>
+    <div style={{ padding: "20px 0", fontFamily: "Arial, sans-serif", minHeight: "100vh", background: "#fafafa" }}>
       <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Ads Campaign Statistics</h2>
 
-      <div style={{ ...cardStyle(), maxWidth: "1200px", marginInline: "auto", marginBottom: "20px" }}>
+      <div style={{ ...cardStyle(), borderRadius: 0, borderLeft: "none", borderRight: "none", marginBottom: "20px" }}>
         <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginBottom: "12px" }}>
           {PRESETS.map((p) => (
             <button
