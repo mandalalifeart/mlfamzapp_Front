@@ -47,14 +47,12 @@ function formatMoney(value, currencyCode) {
   }
 }
 
-const AD_PRODUCT_LABELS = { SPONSORED_PRODUCTS: "SP", SPONSORED_BRANDS: "SB", SPONSORED_DISPLAY: "SD" };
+const AD_PRODUCT_LABELS = { SPONSORED_PRODUCTS: "SP", SPONSORED_BRANDS: "SB" };
 const LA_TIME_ZONE = "America/Los_Angeles";
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const PRESETS = [
-  { key: "today", label: "Today" },
-  { key: "yesterday", label: "Yesterday" },
-  { key: "last7days", label: "Last 7 Days" },
+  { key: "lastmonth", label: "Last Month" },
   { key: "ytd", label: "Year to Date" },
   { key: "month", label: "Month" },
   { key: "custom", label: "Custom" },
@@ -72,13 +70,6 @@ function getLosAngelesToday() {
   return `${map.year}-${map.month}-${map.day}`;
 }
 
-function addDays(dateStr, days) {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d));
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
 function getMonthRange(year, month) {
   const today = getLosAngelesToday();
   const pad = (n) => String(n).padStart(2, "0");
@@ -92,14 +83,12 @@ function getMonthRange(year, month) {
 function getPresetRange(preset, selectedMonth) {
   const today = getLosAngelesToday();
   switch (preset) {
-    case "today":
-      return { startDate: today, endDate: today };
-    case "yesterday": {
-      const yesterday = addDays(today, -1);
-      return { startDate: yesterday, endDate: yesterday };
+    case "lastmonth": {
+      const [y, m] = today.split("-").map(Number);
+      const prevMonth = m === 1 ? 12 : m - 1;
+      const prevYear = m === 1 ? y - 1 : y;
+      return getMonthRange(prevYear, prevMonth);
     }
-    case "last7days":
-      return { startDate: addDays(today, -6), endDate: today };
     case "ytd":
       return { startDate: `${today.slice(0, 4)}-01-01`, endDate: today };
     case "month":
@@ -109,9 +98,9 @@ function getPresetRange(preset, selectedMonth) {
   }
 }
 
-export default function AdsKeywordsPage() {
+export default function AdsSearchTermsPage() {
   const [searchParams] = useSearchParams();
-  const [preset, setPreset] = useState("last7days");
+  const [preset, setPreset] = useState("lastmonth");
   const [customStart, setCustomStart] = useState(getLosAngelesToday());
   const [customEnd, setCustomEnd] = useState(getLosAngelesToday());
   const [selectedMonth, setSelectedMonth] = useState(Number(getLosAngelesToday().slice(5, 7)));
@@ -119,7 +108,7 @@ export default function AdsKeywordsPage() {
   const [adProductFilter, setAdProductFilter] = useState("");
   const campaignIdFilter = searchParams.get("campaign_id") || "";
   const campaignNameFilter = searchParams.get("campaign_name") || "";
-  const [keywords, setKeywords] = useState([]);
+  const [searchTerms, setSearchTerms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -134,12 +123,12 @@ export default function AdsKeywordsPage() {
       const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
       if (countryFilter) params.set("country_code", countryFilter);
       if (campaignIdFilter) params.set("campaign_id", campaignIdFilter);
-      const response = await fetch(`${API_BASE}/GetAdsKeywordStats?${params.toString()}`);
+      const response = await fetch(`${API_BASE}/GetAdsSearchTermStats?${params.toString()}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
-      setKeywords(data.keywords || []);
+      setSearchTerms(data.searchTerms || []);
     } catch (err) {
-      setError(err.message || "Failed to load keyword stats");
+      setError(err.message || "Failed to load search term stats");
     } finally {
       setLoading(false);
     }
@@ -150,26 +139,26 @@ export default function AdsKeywordsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate, countryFilter, campaignIdFilter]);
 
-  const countryCodes = [...new Set(keywords.map((k) => k.countryCode).filter(Boolean))].sort();
+  const countryCodes = [...new Set(searchTerms.map((t) => t.countryCode).filter(Boolean))].sort();
 
-  const visibleKeywords = adProductFilter
-    ? keywords.filter((k) => k.adProduct === adProductFilter)
-    : keywords;
+  const visibleTerms = adProductFilter
+    ? searchTerms.filter((t) => t.adProduct === adProductFilter)
+    : searchTerms;
 
-  const totals = visibleKeywords.reduce(
-    (acc, k) => ({
-      spend: acc.spend + (k.spend || 0),
-      sales: acc.sales + (k.sales || 0),
-      impressions: acc.impressions + (k.impressions || 0),
-      clicks: acc.clicks + (k.clicks || 0),
-      orders: acc.orders + (k.orders || 0),
+  const totals = visibleTerms.reduce(
+    (acc, t) => ({
+      spend: acc.spend + (t.spend || 0),
+      sales: acc.sales + (t.sales || 0),
+      impressions: acc.impressions + (t.impressions || 0),
+      clicks: acc.clicks + (t.clicks || 0),
+      orders: acc.orders + (t.orders || 0),
     }),
     { spend: 0, sales: 0, impressions: 0, clicks: 0, orders: 0 }
   );
 
   return (
     <div style={{ padding: "20px 0", fontFamily: "Arial, sans-serif", minHeight: "100vh", background: "#fafafa" }}>
-      <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Ads Keyword / Target Statistics</h2>
+      <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Ads Search Term Statistics</h2>
 
       <div style={{ ...cardStyle(), borderRadius: 0, borderLeft: "none", borderRight: "none", marginBottom: "20px" }}>
         <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginBottom: "12px" }}>
@@ -265,28 +254,28 @@ export default function AdsKeywordsPage() {
           {campaignIdFilter && (
             <span style={{ fontSize: "13px", color: "#555" }}>
               Filtered to campaign: <strong>{campaignNameFilter || campaignIdFilter}</strong>{" "}
-              <Link to="/ads-keywords">(clear)</Link>
+              <Link to="/ads-search-terms">(clear)</Link>
             </span>
           )}
         </div>
 
         <p style={{ fontSize: "13px", color: "#777", marginTop: 0 }}>
-          Weekly data — refreshed every Monday for the trailing 7 days (Amazon's Reporting API only retains
-          ~60 days of history, so keyword-level detail isn't pulled daily like campaign stats).
+          Monthly data — refreshed on the 1st of each month for the previous calendar month. Sponsored Products
+          and Sponsored Brands only (Sponsored Display targets products/audiences, not search queries).
         </p>
 
-        {loading && <p>Loading keyword stats...</p>}
+        {loading && <p>Loading search term stats...</p>}
         {error && <div className="error">{error}</div>}
 
-        {!loading && !error && visibleKeywords.length === 0 && (
-          <p>No keyword data for this period yet. The weekly pull runs Monday mornings.</p>
+        {!loading && !error && visibleTerms.length === 0 && (
+          <p>No search term data for this period yet. The monthly pull runs on the 1st.</p>
         )}
 
-        {!loading && visibleKeywords.length > 0 && (
+        {!loading && visibleTerms.length > 0 && (
           <>
             <div style={{ display: "flex", gap: "24px", marginBottom: "16px", fontWeight: 600 }}>
-              <span>Total Spend: {formatMoney(totals.spend, visibleKeywords[0]?.currencyCode)}</span>
-              <span>Total Sales: {formatMoney(totals.sales, visibleKeywords[0]?.currencyCode)}</span>
+              <span>Total Spend: {formatMoney(totals.spend, visibleTerms[0]?.currencyCode)}</span>
+              <span>Total Sales: {formatMoney(totals.sales, visibleTerms[0]?.currencyCode)}</span>
               <span>ACOS: {totals.sales ? ((totals.spend / totals.sales) * 100).toFixed(1) : "0.0"}%</span>
             </div>
 
@@ -294,7 +283,8 @@ export default function AdsKeywordsPage() {
               <table style={{ borderCollapse: "collapse", width: "100%" }}>
                 <thead>
                   <tr>
-                    <th style={tableCellStyle({ background: "#f4f4f4" })}>Keyword / Target</th>
+                    <th style={tableCellStyle({ background: "#f4f4f4" })}>Search Term</th>
+                    <th style={tableCellStyle({ background: "#f4f4f4" })}>Matched Keyword</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Match Type</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Campaign</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Ad Group</th>
@@ -309,20 +299,21 @@ export default function AdsKeywordsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleKeywords.map((k) => (
-                    <tr key={`${k.countryCode}-${k.adProduct}-${k.campaignId}-${k.adGroupId}-${k.targetId}`}>
-                      <td style={tableCellStyle()}>{k.targetText || k.targetId}</td>
-                      <td style={tableCellStyle()}>{k.matchType}</td>
-                      <td style={tableCellStyle()}>{k.campaignName}</td>
-                      <td style={tableCellStyle()}>{k.adGroupName}</td>
-                      <td style={tableCellStyle()}>{AD_PRODUCT_LABELS[k.adProduct] || k.adProduct}</td>
-                      <td style={tableCellStyle()}>{k.countryCode}</td>
-                      <td style={tableCellStyle()}>{k.impressions}</td>
-                      <td style={tableCellStyle()}>{k.clicks}</td>
-                      <td style={tableCellStyle()}>{formatMoney(k.spend, k.currencyCode)}</td>
-                      <td style={tableCellStyle()}>{formatMoney(k.sales, k.currencyCode)}</td>
-                      <td style={tableCellStyle()}>{k.orders}</td>
-                      <td style={tableCellStyle()}>{k.acos.toFixed(1)}%</td>
+                  {visibleTerms.map((t) => (
+                    <tr key={`${t.countryCode}-${t.adProduct}-${t.campaignId}-${t.adGroupId}-${t.searchTerm}`}>
+                      <td style={tableCellStyle()}>{t.searchTerm}</td>
+                      <td style={tableCellStyle()}>{t.targetText}</td>
+                      <td style={tableCellStyle()}>{t.matchType}</td>
+                      <td style={tableCellStyle()}>{t.campaignName}</td>
+                      <td style={tableCellStyle()}>{t.adGroupName}</td>
+                      <td style={tableCellStyle()}>{AD_PRODUCT_LABELS[t.adProduct] || t.adProduct}</td>
+                      <td style={tableCellStyle()}>{t.countryCode}</td>
+                      <td style={tableCellStyle()}>{t.impressions}</td>
+                      <td style={tableCellStyle()}>{t.clicks}</td>
+                      <td style={tableCellStyle()}>{formatMoney(t.spend, t.currencyCode)}</td>
+                      <td style={tableCellStyle()}>{formatMoney(t.sales, t.currencyCode)}</td>
+                      <td style={tableCellStyle()}>{t.orders}</td>
+                      <td style={tableCellStyle()}>{t.acos.toFixed(1)}%</td>
                     </tr>
                   ))}
                 </tbody>
@@ -336,11 +327,8 @@ export default function AdsKeywordsPage() {
         <Link style={buttonStyle()} to="/">
           Home
         </Link>
-        <Link style={buttonStyle()} to="/ads-campaigns">
-          Campaigns
-        </Link>
-        <Link style={buttonStyle()} to="/ads-search-terms">
-          Search Terms
+        <Link style={buttonStyle()} to="/ads-keywords">
+          Keywords
         </Link>
       </div>
     </div>
