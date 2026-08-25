@@ -117,6 +117,7 @@ export default function AdsKeywordsPage() {
   const [selectedMonth, setSelectedMonth] = useState(Number(getLosAngelesToday().slice(5, 7)));
   const [countryFilter, setCountryFilter] = useState("");
   const [adProductFilter, setAdProductFilter] = useState("");
+  const [campaignFilter, setCampaignFilter] = useState("");
   const campaignIdFilter = searchParams.get("campaign_id") || "";
   const campaignNameFilter = searchParams.get("campaign_name") || "";
   const [keywords, setKeywords] = useState([]);
@@ -151,10 +152,15 @@ export default function AdsKeywordsPage() {
   }, [startDate, endDate, countryFilter, campaignIdFilter]);
 
   const countryCodes = [...new Set(keywords.map((k) => k.countryCode).filter(Boolean))].sort();
+  const campaignOptions = [...new Map(keywords.map((k) => [k.campaignId, k.campaignName])).entries()].sort(
+    (a, b) => (a[1] || "").localeCompare(b[1] || "")
+  );
 
-  const visibleKeywords = adProductFilter
-    ? keywords.filter((k) => k.adProduct === adProductFilter)
-    : keywords;
+  const visibleKeywords = keywords.filter(
+    (k) =>
+      (!adProductFilter || k.adProduct === adProductFilter) &&
+      (!campaignFilter || k.campaignId === campaignFilter)
+  );
 
   const totals = visibleKeywords.reduce(
     (acc, k) => ({
@@ -258,6 +264,17 @@ export default function AdsKeywordsPage() {
               {Object.entries(AD_PRODUCT_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Campaign:{" "}
+            <select style={inputStyle()} value={campaignFilter} onChange={(e) => setCampaignFilter(e.target.value)}>
+              <option value="">All</option>
+              {campaignOptions.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name || id}
                 </option>
               ))}
             </select>
