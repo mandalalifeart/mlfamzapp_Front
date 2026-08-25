@@ -25,7 +25,13 @@ function buttonStyle() {
 }
 
 function inputStyle() {
-  return { padding: "10px", borderRadius: "8px", border: "1px solid #ccc" };
+  return {
+    padding: "10px",
+    borderRadius: "8px",
+    border: "1px solid #ccc",
+    background: "#fff",
+    color: "#222",
+  };
 }
 
 function tableCellStyle(extra = {}) {
@@ -41,14 +47,74 @@ function formatMoney(value, currencyCode) {
   }
 }
 
-const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const AD_PRODUCT_LABELS = { SPONSORED_PRODUCTS: "SP", SPONSORED_BRANDS: "SB", SPONSORED_DISPLAY: "SD" };
+const LA_TIME_ZONE = "America/Los_Angeles";
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+const PRESETS = [
+  { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
+  { key: "last7days", label: "Last 7 Days" },
+  { key: "ytd", label: "Year to Date" },
+  { key: "month", label: "Month" },
+  { key: "custom", label: "Custom" },
+];
+
+function getLosAngelesToday() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: LA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const map = {};
+  for (const p of parts) if (p.type !== "literal") map[p.type] = p.value;
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+function addDays(dateStr, days) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function getMonthRange(year, month) {
+  const today = getLosAngelesToday();
+  const pad = (n) => String(n).padStart(2, "0");
+  const startDate = `${year}-${pad(month)}-01`;
+  const lastDayOfMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const monthEnd = `${year}-${pad(month)}-${pad(lastDayOfMonth)}`;
+  const endDate = monthEnd > today ? today : monthEnd;
+  return { startDate, endDate };
+}
+
+function getPresetRange(preset, selectedMonth) {
+  const today = getLosAngelesToday();
+  switch (preset) {
+    case "today":
+      return { startDate: today, endDate: today };
+    case "yesterday": {
+      const yesterday = addDays(today, -1);
+      return { startDate: yesterday, endDate: yesterday };
+    }
+    case "last7days":
+      return { startDate: addDays(today, -6), endDate: today };
+    case "ytd":
+      return { startDate: `${today.slice(0, 4)}-01-01`, endDate: today };
+    case "month":
+      return getMonthRange(Number(today.slice(0, 4)), selectedMonth);
+    default:
+      return { startDate: today, endDate: today };
+  }
+}
 
 export default function AdsKeywordsPage() {
   const [searchParams] = useSearchParams();
-  const now = new Date();
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  const [year, setYear] = useState(now.getFullYear());
+  const [preset, setPreset] = useState("last7days");
+  const [customStart, setCustomStart] = useState(getLosAngelesToday());
+  const [customEnd, setCustomEnd] = useState(getLosAngelesToday());
+  const [selectedMonth, setSelectedMonth] = useState(Number(getLosAngelesToday().slice(5, 7)));
   const [countryFilter, setCountryFilter] = useState("");
   const [adProductFilter, setAdProductFilter] = useState("");
   const campaignIdFilter = searchParams.get("campaign_id") || "";
@@ -57,11 +123,15 @@ export default function AdsKeywordsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const currentMonth = Number(getLosAngelesToday().slice(5, 7));
+  const { startDate, endDate } =
+    preset === "custom" ? { startDate: customStart, endDate: customEnd } : getPresetRange(preset, selectedMonth);
+
   async function load() {
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({ month, year });
+      const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
       if (countryFilter) params.set("country_code", countryFilter);
       if (campaignIdFilter) params.set("campaign_id", campaignIdFilter);
       const response = await fetch(`${API_BASE}/GetAdsKeywordStats?${params.toString()}`);
@@ -78,7 +148,7 @@ export default function AdsKeywordsPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, year, countryFilter, campaignIdFilter]);
+  }, [startDate, endDate, countryFilter, campaignIdFilter]);
 
   const countryCodes = [...new Set(keywords.map((k) => k.countryCode).filter(Boolean))].sort();
 
@@ -101,22 +171,75 @@ export default function AdsKeywordsPage() {
     <div style={{ padding: "20px", fontFamily: "Arial, sans-serif", minHeight: "100vh", background: "#fafafa" }}>
       <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Ads Keyword / Target Statistics</h2>
 
-      <div style={{ ...cardStyle(), maxWidth: "1300px", marginInline: "auto", marginBottom: "20px" }}>
+      <div style={{ ...cardStyle(), marginBottom: "20px" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginBottom: "12px" }}>
+          {PRESETS.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => setPreset(p.key)}
+              style={{
+                padding: "8px 14px",
+                fontSize: "13px",
+                borderRadius: "6px",
+                border: preset === p.key ? "2px solid #1976d2" : "1px solid #ccc",
+                background: preset === p.key ? "#e3f2fd" : "#fff",
+                color: "#222",
+                fontWeight: preset === p.key ? 700 : 400,
+                cursor: "pointer",
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {preset === "month" && (
+          <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap", marginBottom: "12px" }}>
+            <label>
+              Month ({new Date().getFullYear()}):{" "}
+              <select
+                style={inputStyle()}
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(Number(e.target.value))}
+              >
+                {MONTH_LABELS.map((label, i) => (
+                  <option key={label} value={i + 1} disabled={i + 1 > currentMonth}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+
+        {preset === "custom" && (
+          <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap", marginBottom: "12px" }}>
+            <label>
+              Start:{" "}
+              <input
+                type="date"
+                style={inputStyle()}
+                value={customStart}
+                max={customEnd}
+                onChange={(e) => setCustomStart(e.target.value)}
+              />
+            </label>
+            <label>
+              End:{" "}
+              <input
+                type="date"
+                style={inputStyle()}
+                value={customEnd}
+                min={customStart}
+                max={getLosAngelesToday()}
+                onChange={(e) => setCustomEnd(e.target.value)}
+              />
+            </label>
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap", marginBottom: "14px" }}>
-          <label>
-            Month:{" "}
-            <select style={inputStyle()} value={month} onChange={(e) => setMonth(Number(e.target.value))}>
-              {MONTH_LABELS.map((label, i) => (
-                <option key={label} value={i + 1}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Year:{" "}
-            <input type="number" style={inputStyle()} value={year} onChange={(e) => setYear(Number(e.target.value))} />
-          </label>
           <label>
             Country:{" "}
             <select style={inputStyle()} value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)}>
