@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
+const IMAGE_BASE = "https://storage.googleapis.com/mlf-amz-images/";
+
+function productLink(sku, asin) {
+  return `/product?asin=${encodeURIComponent(asin || "")}&sku=${encodeURIComponent(sku || "")}`;
+}
+
 const API_BASE = "https://us-central1-mlfamzapp.cloudfunctions.net";
 
 /*
@@ -271,6 +277,8 @@ function extractSkuSalesFromXmlPayload(payload, region, selectedMarketplace = ""
           sku = extractAmznGrValue(sku);
         }
 
+        const asin = orderItem.getElementsByTagName("ASIN")[0]?.textContent?.trim() || "";
+
         const quantity = Number(
           orderItem.getElementsByTagName("Quantity")[0]?.textContent?.trim() || "0"
         );
@@ -287,6 +295,7 @@ function extractSkuSalesFromXmlPayload(payload, region, selectedMarketplace = ""
 
         return {
           sku,
+          asin,
           qty: safeQty,
           itemAmountValue: convertedItemAmount,
           itemAmountCurrency: baseCurrency,
@@ -311,7 +320,10 @@ function extractSkuSalesFromXmlPayload(payload, region, selectedMarketplace = ""
     }
 
     for (const item of normalizedItems) {
-      const existing = totals.get(item.sku) || { sku: item.sku, itemsSold: 0, value: 0 };
+      const existing = totals.get(item.sku) || { sku: item.sku, asin: "", itemsSold: 0, value: 0 };
+      if (!existing.asin && item.asin) {
+        existing.asin = item.asin;
+      }
       existing.itemsSold += item.qty;
 
       if (hasItemLevelAmounts) {
@@ -761,16 +773,18 @@ function RegionTable({ title, summary, isMobile }) {
           {summary.rows.map((row) => (
             <tr key={row.sku}>
               <td style={{ border: "1px solid #ccc", padding: "6px" }}>
-                <img
-                  src={`https://storage.googleapis.com/mlf-amz-images/${encodeURIComponent(row.sku)}.jpg`}
-                  alt={row.sku}
-                  style={{
-                    width: isMobile ? "60px" : "80px",
-                    height: isMobile ? "60px" : "80px",
-                    objectFit: "cover",
-                    borderRadius: "6px",
-                  }}
-                />
+                <Link to={productLink(row.sku, row.asin)} target="_blank" rel="noopener noreferrer">
+                  <img
+                    src={`${IMAGE_BASE}${encodeURIComponent(row.sku)}.jpg`}
+                    alt={row.sku}
+                    style={{
+                      width: isMobile ? "60px" : "80px",
+                      height: isMobile ? "60px" : "80px",
+                      objectFit: "cover",
+                      borderRadius: "6px",
+                    }}
+                  />
+                </Link>
               </td>
 
               <td
@@ -783,7 +797,14 @@ function RegionTable({ title, summary, isMobile }) {
                   whiteSpace: "normal",
                 }}
               >
-                {shortenSkuForMobile(row.sku, isMobile)}
+                <Link
+                  to={productLink(row.sku, row.asin)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "inherit", textDecoration: "none" }}
+                >
+                  {shortenSkuForMobile(row.sku, isMobile)}
+                </Link>
               </td>
 
               <td

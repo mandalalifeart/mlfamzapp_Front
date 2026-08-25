@@ -300,7 +300,7 @@ function ItemRows({ item, showAsin, years, currentMonth }) {
   );
 }
 
-function MoveToGroupControl({ row, groupOptions, onAssigned }) {
+export function MoveToGroupControl({ row, groupOptions, onAssigned }) {
   const [selected, setSelected] = useState(groupOptions[0] || "");
   const [status, setStatus] = useState("idle"); // idle | saving | error
   const [errorMsg, setErrorMsg] = useState("");
@@ -799,10 +799,14 @@ export default function SalesPage() {
   const years = useMemo(() => result?.years || [], [result]);
   const currentMonth = result?.currentMonth;
 
-  const groupOptions = useMemo(
-    () => (result?.groups || []).map((g) => g.group).filter((g) => g !== "IGNORE").sort(),
-    [result]
-  );
+  // IGNORE is a valid destination group (used to exclude a SKU from every
+  // report) but never appears in result.groups itself - add it explicitly
+  // so it's always selectable in the "Move to Group" dropdown.
+  const groupOptions = useMemo(() => {
+    const names = new Set((result?.groups || []).map((g) => g.group));
+    names.add("IGNORE");
+    return [...names].sort();
+  }, [result]);
 
   useEffect(() => {
     const root = document.getElementById("root");

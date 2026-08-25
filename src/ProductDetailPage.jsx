@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { MoveToGroupControl } from "./SalesPage";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -135,25 +136,135 @@ function MarketplaceTable({ label, years, yearRows, growthPct, currentMonth }) {
   );
 }
 
-function StockCard({ stock }) {
-  const rows = [
-    { label: "USA", value: stock?.usa_balance },
-    { label: "DE", value: stock?.de_balance },
-    { label: "UK", value: stock?.uk_balance },
-  ];
+// needed/missing/EditableCell mirror NextOrderPage's ItemRow exactly, so this
+// single row behaves identically (same edits hit the same UpdateNextOrderField
+// endpoint) whether the user is on /update-next-order or here.
+function computeNeeded(item) {
+  return (item.uk_next_shipment || 0) + (item.de_next_shipment || 0) + (item.usa_next_shipment || 0);
+}
+
+function computeMissing(item) {
+  return computeNeeded(item) - (item.malani_balance || 0) + (item.malani_order || 0);
+}
+
+const STOCK_ROW_STATUS_BORDER = {
+  idle: "#bbb",
+  saving: "#bbb",
+  saved: "#2e7d32",
+  error: "#b00020",
+};
+
+function StockRowEditableCell({ item, field, onSave }) {
+  const [value, setValue] = useState(item[field] ?? 0);
+  const [status, setStatus] = useState("idle");
+
+  async function commit() {
+    const numeric = Number(value);
+    const nextValue = Number.isFinite(numeric) && numeric >= 0 ? numeric : 0;
+    setValue(nextValue);
+    if (nextValue === (item[field] ?? 0)) return;
+
+    setStatus("saving");
+    try {
+      await onSave(item.sku, field, nextValue);
+      setStatus("saved");
+      setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), 1200);
+    } catch {
+      setStatus("error");
+    }
+  }
+
+  return (
+    <input
+      type="number"
+      min="0"
+      className="no-spinner"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.target.blur();
+      }}
+      style={{
+        width: "48px",
+        padding: "3px 3px",
+        textAlign: "right",
+        borderRadius: "4px",
+        fontSize: "15px",
+        fontWeight: 600,
+        colorScheme: "light",
+        color: "#111",
+        border: `1px solid ${STOCK_ROW_STATUS_BORDER[status]}`,
+        background: status === "saving" ? "#fff8e1" : "#fff",
+      }}
+    />
+  );
+}
+
+const STOCK_ROW_HEADERS = [
+  "UK Bal", "UK OTW", "UK Next",
+  "DE Bal", "DE OTW", "DE Next",
+  "USA Bal", "USA OTW", "USA Next",
+  "Malani Bal", "Malani Ord",
+  "Needed", "Missing", "Next Order",
+];
+
+function StockCard({ stock, sku, onSave }) {
+  const item = { sku, ...stock };
+  const needed = computeNeeded(item);
+  const missing = computeMissing(item);
+
   return (
     <div style={cardStyle()}>
       <h3 style={{ marginTop: 0 }}>Stock Levels</h3>
       <div style={{ color: "#555", fontSize: "13px", marginBottom: "8px" }}>
-        From sku_statistics. Tracked per-country (USA/DE/UK), not the combined EU sales bucket above.
+        From sku_statistics — same row and editing as the Next Order page.
       </div>
-      <div style={{ display: "flex", gap: "24px", flexWrap: "wrap" }}>
-        {rows.map((r) => (
-          <div key={r.label} style={{ textAlign: "center" }}>
-            <div style={{ fontSize: "13px", color: "#555" }}>{r.label}</div>
-            <div style={{ fontSize: "24px", fontWeight: 700 }}>{formatUnits(r.value)}</div>
-          </div>
-        ))}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "820px" }}>
+          <thead>
+            <tr>
+              {STOCK_ROW_HEADERS.map((label) => (
+                <th key={label} style={numberCellStyle({ background: "#f4f4f4" })}>
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.uk_balance)}</td>
+              <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.uk_on_the_way)}</td>
+              <td style={numberCellStyle()}>
+                <StockRowEditableCell item={item} field="uk_next_shipment" onSave={onSave} />
+              </td>
+
+              <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.de_balance)}</td>
+              <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.de_on_the_way)}</td>
+              <td style={numberCellStyle()}>
+                <StockRowEditableCell item={item} field="de_next_shipment" onSave={onSave} />
+              </td>
+
+              <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.usa_balance)}</td>
+              <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.usa_on_the_way)}</td>
+              <td style={numberCellStyle()}>
+                <StockRowEditableCell item={item} field="usa_next_shipment" onSave={onSave} />
+              </td>
+
+              <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.malani_balance)}</td>
+              <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.malani_order)}</td>
+
+              <td style={numberCellStyle({ fontSize: "16px", fontWeight: 700 })}>{formatUnits(needed)}</td>
+              <td style={numberCellStyle({ fontSize: "16px", fontWeight: 700, color: missing > 0 ? "#b00020" : undefined })}>
+                {formatUnits(missing)}
+              </td>
+
+              <td style={numberCellStyle()}>
+                <StockRowEditableCell item={item} field="next_order" onSave={onSave} />
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -202,6 +313,21 @@ export default function ProductDetailPage() {
   const displaySku = result?.mainSku || skuFromUrl;
   const years = useMemo(() => result?.years || [], [result]);
 
+  async function saveStockField(sku, field, value) {
+    const response = await fetch(`${API_BASE}/UpdateNextOrderField`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sku, field, value }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data?.error || `HTTP ${response.status}`);
+    }
+
+    setResult((prev) => (prev ? { ...prev, stock: { ...prev.stock, [field]: value } } : prev));
+  }
+
   return (
     <div style={{ padding: "10px", fontFamily: "Arial, sans-serif", minHeight: "100vh", background: "#fafafa" }}>
       <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Product Detail</h2>
@@ -214,11 +340,18 @@ export default function ProductDetailPage() {
               alt={displaySku}
               style={{ width: "70px", height: "70px", objectFit: "cover", borderRadius: "6px" }}
             />
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: "18px" }}>{displaySku}</div>
               <div style={{ fontFamily: "monospace", color: "#555" }}>{asin}</div>
               {result?.group && <div style={{ color: "#555", fontSize: "13px" }}>Group: {result.group}</div>}
             </div>
+            {result?.allGroups?.length > 0 && (
+              <MoveToGroupControl
+                row={{ sku: displaySku, asin }}
+                groupOptions={result.allGroups}
+                onAssigned={loadDetail}
+              />
+            )}
           </div>
         )}
 
@@ -232,7 +365,7 @@ export default function ProductDetailPage() {
 
         {!loading && result && (
           <>
-            <StockCard stock={result.stock} />
+            <StockCard stock={result.stock} sku={displaySku} onSave={saveStockField} />
             {Object.entries(MARKETPLACE_LABELS).map(([code, label]) => (
               <MarketplaceTable
                 key={code}

@@ -9,6 +9,7 @@ import UpdatePage from "./UpdatePage";
 import BatchUpdatePage from "./BatchUpdatePage";
 import NextOrderPage from "./NextOrderPage";
 import ProductDetailPage from "./ProductDetailPage";
+import AdsConnectionsPage from "./AdsConnectionsPage";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -23,6 +24,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Route path="/batch-update" element={<BatchUpdatePage />} />
         <Route path="/next-order" element={<NextOrderPage />} />
         <Route path="/product" element={<ProductDetailPage />} />
+        <Route path="/ads" element={<AdsConnectionsPage />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>

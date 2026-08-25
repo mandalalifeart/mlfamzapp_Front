@@ -1,5 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+
+function productLink(item) {
+  return `/product?asin=${encodeURIComponent(item.asin)}&sku=${encodeURIComponent(item.sku)}`;
+}
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -146,6 +150,7 @@ function EditableCell({ item, field, onSave }) {
     <input
       type="number"
       min="0"
+      className="no-spinner"
       value={value}
       onChange={(e) => setValue(e.target.value)}
       onBlur={commit}
@@ -221,13 +226,19 @@ function ItemRow({ item, showAsin, onSave }) {
   return (
     <tr>
       <td style={tableCellStyle({ padding: "2px" })}>
-        <img
-          src={`${IMAGE_BASE}${encodeURIComponent(item.sku)}.jpg`}
-          alt={item.sku}
-          style={{ width: "26px", height: "26px", objectFit: "cover", borderRadius: "4px", display: "block" }}
-        />
+        <Link to={productLink(item)} target="_blank" rel="noopener noreferrer">
+          <img
+            src={`${IMAGE_BASE}${encodeURIComponent(item.sku)}.jpg`}
+            alt={item.sku}
+            style={{ width: "26px", height: "26px", objectFit: "cover", borderRadius: "4px", display: "block" }}
+          />
+        </Link>
       </td>
-      <td style={tableCellStyle({ fontWeight: 600, wordBreak: "break-word", whiteSpace: "normal" })}>{item.sku}</td>
+      <td style={tableCellStyle({ fontWeight: 600, wordBreak: "break-word", whiteSpace: "normal" })}>
+        <Link to={productLink(item)} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "none" }}>
+          {item.sku}
+        </Link>
+      </td>
       {showAsin && (
         <td style={tableCellStyle({ fontFamily: "monospace", fontSize: "10px" })}>{item.asin}</td>
       )}
@@ -308,6 +319,7 @@ export default function NextOrderPage() {
   const [groups, setGroups] = useState([]);
   const [collapsedGroups, setCollapsedGroups] = useState({});
   const [showAsin, setShowAsin] = useState(false);
+  const [onlyMissing, setOnlyMissing] = useState(false);
 
   async function loadData() {
     setLoading(true);
@@ -385,6 +397,21 @@ export default function NextOrderPage() {
     setCollapsedGroups(next);
   }
 
+  function toggleOnlyMissing() {
+    setOnlyMissing((v) => {
+      const next = !v;
+      if (next) expandAll(); // surface the filtered rows immediately instead of leaving groups collapsed
+      return next;
+    });
+  }
+
+  const visibleGroups = useMemo(() => {
+    if (!onlyMissing) return groups;
+    return groups
+      .map((g) => ({ ...g, items: g.items.filter((item) => computeMissing(item) > 0) }))
+      .filter((g) => g.items.length > 0);
+  }, [groups, onlyMissing]);
+
   return (
     <div
       style={{
@@ -426,12 +453,20 @@ export default function NextOrderPage() {
               Collapse All Groups
             </button>
             <label style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto", fontSize: "14px" }}>
+              <input type="checkbox" checked={onlyMissing} onChange={toggleOnlyMissing} />
+              Only show Missing &gt; 0
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
               <input type="checkbox" checked={showAsin} onChange={() => setShowAsin((v) => !v)} />
               Show ASIN column
             </label>
           </div>
 
-          {groups.map((group) => (
+          {onlyMissing && visibleGroups.length === 0 && (
+            <div style={{ textAlign: "center", color: "#555" }}>No rows with Missing &gt; 0.</div>
+          )}
+
+          {visibleGroups.map((group) => (
             <GroupSection
               key={group.group}
               group={group}

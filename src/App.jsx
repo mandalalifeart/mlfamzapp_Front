@@ -601,6 +601,9 @@ export default function App() {
           <Link style={smallButtonStyle()} to="/batch-update">
             Batch Update
           </Link>
+          <Link style={smallButtonStyle()} to="/ads">
+            Ads
+          </Link>
           <Link style={smallButtonStyle()} to="/next-order">
             Next Order
           </Link>
