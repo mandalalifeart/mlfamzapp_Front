@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -44,13 +44,16 @@ function formatMoney(value, currencyCode) {
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const AD_PRODUCT_LABELS = { SPONSORED_PRODUCTS: "SP", SPONSORED_BRANDS: "SB", SPONSORED_DISPLAY: "SD" };
 
-export default function AdsCampaignsPage() {
+export default function AdsKeywordsPage() {
+  const [searchParams] = useSearchParams();
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
   const [countryFilter, setCountryFilter] = useState("");
   const [adProductFilter, setAdProductFilter] = useState("");
-  const [campaigns, setCampaigns] = useState([]);
+  const campaignIdFilter = searchParams.get("campaign_id") || "";
+  const campaignNameFilter = searchParams.get("campaign_name") || "";
+  const [keywords, setKeywords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -60,12 +63,13 @@ export default function AdsCampaignsPage() {
     try {
       const params = new URLSearchParams({ month, year });
       if (countryFilter) params.set("country_code", countryFilter);
-      const response = await fetch(`${API_BASE}/GetAdsCampaignStats?${params.toString()}`);
+      if (campaignIdFilter) params.set("campaign_id", campaignIdFilter);
+      const response = await fetch(`${API_BASE}/GetAdsKeywordStats?${params.toString()}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
-      setCampaigns(data.campaigns || []);
+      setKeywords(data.keywords || []);
     } catch (err) {
-      setError(err.message || "Failed to load campaign stats");
+      setError(err.message || "Failed to load keyword stats");
     } finally {
       setLoading(false);
     }
@@ -74,30 +78,30 @@ export default function AdsCampaignsPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, year, countryFilter]);
+  }, [month, year, countryFilter, campaignIdFilter]);
 
-  const countryCodes = [...new Set(campaigns.map((c) => c.countryCode).filter(Boolean))].sort();
+  const countryCodes = [...new Set(keywords.map((k) => k.countryCode).filter(Boolean))].sort();
 
-  const visibleCampaigns = adProductFilter
-    ? campaigns.filter((c) => c.adProduct === adProductFilter)
-    : campaigns;
+  const visibleKeywords = adProductFilter
+    ? keywords.filter((k) => k.adProduct === adProductFilter)
+    : keywords;
 
-  const totals = visibleCampaigns.reduce(
-    (acc, c) => ({
-      spend: acc.spend + (c.spend || 0),
-      sales: acc.sales + (c.sales || 0),
-      impressions: acc.impressions + (c.impressions || 0),
-      clicks: acc.clicks + (c.clicks || 0),
-      orders: acc.orders + (c.orders || 0),
+  const totals = visibleKeywords.reduce(
+    (acc, k) => ({
+      spend: acc.spend + (k.spend || 0),
+      sales: acc.sales + (k.sales || 0),
+      impressions: acc.impressions + (k.impressions || 0),
+      clicks: acc.clicks + (k.clicks || 0),
+      orders: acc.orders + (k.orders || 0),
     }),
     { spend: 0, sales: 0, impressions: 0, clicks: 0, orders: 0 }
   );
 
   return (
     <div style={{ padding: "20px", fontFamily: "Arial, sans-serif", minHeight: "100vh", background: "#fafafa" }}>
-      <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Ads Campaign Statistics</h2>
+      <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Ads Keyword / Target Statistics</h2>
 
-      <div style={{ ...cardStyle(), maxWidth: "1200px", marginInline: "auto", marginBottom: "20px" }}>
+      <div style={{ ...cardStyle(), maxWidth: "1300px", marginInline: "auto", marginBottom: "20px" }}>
         <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap", marginBottom: "14px" }}>
           <label>
             Month:{" "}
@@ -111,12 +115,7 @@ export default function AdsCampaignsPage() {
           </label>
           <label>
             Year:{" "}
-            <input
-              type="number"
-              style={inputStyle()}
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-            />
+            <input type="number" style={inputStyle()} value={year} onChange={(e) => setYear(Number(e.target.value))} />
           </label>
           <label>
             Country:{" "}
@@ -140,20 +139,31 @@ export default function AdsCampaignsPage() {
               ))}
             </select>
           </label>
+          {campaignIdFilter && (
+            <span style={{ fontSize: "13px", color: "#555" }}>
+              Filtered to campaign: <strong>{campaignNameFilter || campaignIdFilter}</strong>{" "}
+              <Link to="/ads-keywords">(clear)</Link>
+            </span>
+          )}
         </div>
 
-        {loading && <p>Loading campaign stats...</p>}
+        <p style={{ fontSize: "13px", color: "#777", marginTop: 0 }}>
+          Weekly data — refreshed every Monday for the trailing 7 days (Amazon's Reporting API only retains
+          ~60 days of history, so keyword-level detail isn't pulled daily like campaign stats).
+        </p>
+
+        {loading && <p>Loading keyword stats...</p>}
         {error && <div className="error">{error}</div>}
 
-        {!loading && !error && visibleCampaigns.length === 0 && (
-          <p>No campaign data for this period yet. The daily pull may not have run for this month, or no connected account has active campaigns.</p>
+        {!loading && !error && visibleKeywords.length === 0 && (
+          <p>No keyword data for this period yet. The weekly pull runs Monday mornings.</p>
         )}
 
-        {!loading && visibleCampaigns.length > 0 && (
+        {!loading && visibleKeywords.length > 0 && (
           <>
             <div style={{ display: "flex", gap: "24px", marginBottom: "16px", fontWeight: 600 }}>
-              <span>Total Spend: {formatMoney(totals.spend, visibleCampaigns[0]?.currencyCode)}</span>
-              <span>Total Sales: {formatMoney(totals.sales, visibleCampaigns[0]?.currencyCode)}</span>
+              <span>Total Spend: {formatMoney(totals.spend, visibleKeywords[0]?.currencyCode)}</span>
+              <span>Total Sales: {formatMoney(totals.sales, visibleKeywords[0]?.currencyCode)}</span>
               <span>ACOS: {totals.sales ? ((totals.spend / totals.sales) * 100).toFixed(1) : "0.0"}%</span>
             </div>
 
@@ -161,39 +171,35 @@ export default function AdsCampaignsPage() {
               <table style={{ borderCollapse: "collapse", width: "100%" }}>
                 <thead>
                   <tr>
+                    <th style={tableCellStyle({ background: "#f4f4f4" })}>Keyword / Target</th>
+                    <th style={tableCellStyle({ background: "#f4f4f4" })}>Match Type</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Campaign</th>
+                    <th style={tableCellStyle({ background: "#f4f4f4" })}>Ad Group</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Ad Type</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Country</th>
-                    <th style={tableCellStyle({ background: "#f4f4f4" })}>Status</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Impressions</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Clicks</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Spend</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Sales</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Orders</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>ACOS</th>
-                    <th style={tableCellStyle({ background: "#f4f4f4" })}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleCampaigns.map((c) => (
-                    <tr key={`${c.countryCode}-${c.adProduct}-${c.campaignId}`}>
-                      <td style={tableCellStyle()}>{c.campaignName}</td>
-                      <td style={tableCellStyle()}>{AD_PRODUCT_LABELS[c.adProduct] || c.adProduct}</td>
-                      <td style={tableCellStyle()}>{c.countryCode}</td>
-                      <td style={tableCellStyle()}>{c.campaignStatus}</td>
-                      <td style={tableCellStyle()}>{c.impressions}</td>
-                      <td style={tableCellStyle()}>{c.clicks}</td>
-                      <td style={tableCellStyle()}>{formatMoney(c.spend, c.currencyCode)}</td>
-                      <td style={tableCellStyle()}>{formatMoney(c.sales, c.currencyCode)}</td>
-                      <td style={tableCellStyle()}>{c.orders}</td>
-                      <td style={tableCellStyle()}>{c.acos.toFixed(1)}%</td>
-                      <td style={tableCellStyle()}>
-                        <Link
-                          to={`/ads-keywords?campaign_id=${encodeURIComponent(c.campaignId)}&campaign_name=${encodeURIComponent(c.campaignName)}`}
-                        >
-                          Keywords
-                        </Link>
-                      </td>
+                  {visibleKeywords.map((k) => (
+                    <tr key={`${k.countryCode}-${k.adProduct}-${k.campaignId}-${k.adGroupId}-${k.targetId}`}>
+                      <td style={tableCellStyle()}>{k.targetText || k.targetId}</td>
+                      <td style={tableCellStyle()}>{k.matchType}</td>
+                      <td style={tableCellStyle()}>{k.campaignName}</td>
+                      <td style={tableCellStyle()}>{k.adGroupName}</td>
+                      <td style={tableCellStyle()}>{AD_PRODUCT_LABELS[k.adProduct] || k.adProduct}</td>
+                      <td style={tableCellStyle()}>{k.countryCode}</td>
+                      <td style={tableCellStyle()}>{k.impressions}</td>
+                      <td style={tableCellStyle()}>{k.clicks}</td>
+                      <td style={tableCellStyle()}>{formatMoney(k.spend, k.currencyCode)}</td>
+                      <td style={tableCellStyle()}>{formatMoney(k.sales, k.currencyCode)}</td>
+                      <td style={tableCellStyle()}>{k.orders}</td>
+                      <td style={tableCellStyle()}>{k.acos.toFixed(1)}%</td>
                     </tr>
                   ))}
                 </tbody>
@@ -207,11 +213,8 @@ export default function AdsCampaignsPage() {
         <Link style={buttonStyle()} to="/">
           Home
         </Link>
-        <Link style={buttonStyle()} to="/ads">
-          Ads Connections
-        </Link>
-        <Link style={buttonStyle()} to="/ads-keywords">
-          Keyword Stats
+        <Link style={buttonStyle()} to="/ads-campaigns">
+          Campaigns
         </Link>
       </div>
     </div>
