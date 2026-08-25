@@ -42,12 +42,14 @@ function formatMoney(value, currencyCode) {
 }
 
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const AD_PRODUCT_LABELS = { SPONSORED_PRODUCTS: "SP", SPONSORED_BRANDS: "SB", SPONSORED_DISPLAY: "SD" };
 
 export default function AdsCampaignsPage() {
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
   const [countryFilter, setCountryFilter] = useState("");
+  const [adProductFilter, setAdProductFilter] = useState("");
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -76,7 +78,11 @@ export default function AdsCampaignsPage() {
 
   const countryCodes = [...new Set(campaigns.map((c) => c.countryCode).filter(Boolean))].sort();
 
-  const totals = campaigns.reduce(
+  const visibleCampaigns = adProductFilter
+    ? campaigns.filter((c) => c.adProduct === adProductFilter)
+    : campaigns;
+
+  const totals = visibleCampaigns.reduce(
     (acc, c) => ({
       spend: acc.spend + (c.spend || 0),
       sales: acc.sales + (c.sales || 0),
@@ -123,20 +129,31 @@ export default function AdsCampaignsPage() {
               ))}
             </select>
           </label>
+          <label>
+            Ad Type:{" "}
+            <select style={inputStyle()} value={adProductFilter} onChange={(e) => setAdProductFilter(e.target.value)}>
+              <option value="">All</option>
+              {Object.entries(AD_PRODUCT_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         {loading && <p>Loading campaign stats...</p>}
         {error && <div className="error">{error}</div>}
 
-        {!loading && !error && campaigns.length === 0 && (
+        {!loading && !error && visibleCampaigns.length === 0 && (
           <p>No campaign data for this period yet. The daily pull may not have run for this month, or no connected account has active campaigns.</p>
         )}
 
-        {!loading && campaigns.length > 0 && (
+        {!loading && visibleCampaigns.length > 0 && (
           <>
             <div style={{ display: "flex", gap: "24px", marginBottom: "16px", fontWeight: 600 }}>
-              <span>Total Spend: {formatMoney(totals.spend, campaigns[0]?.currencyCode)}</span>
-              <span>Total Sales: {formatMoney(totals.sales, campaigns[0]?.currencyCode)}</span>
+              <span>Total Spend: {formatMoney(totals.spend, visibleCampaigns[0]?.currencyCode)}</span>
+              <span>Total Sales: {formatMoney(totals.sales, visibleCampaigns[0]?.currencyCode)}</span>
               <span>ACOS: {totals.sales ? ((totals.spend / totals.sales) * 100).toFixed(1) : "0.0"}%</span>
             </div>
 
@@ -145,6 +162,7 @@ export default function AdsCampaignsPage() {
                 <thead>
                   <tr>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Campaign</th>
+                    <th style={tableCellStyle({ background: "#f4f4f4" })}>Ad Type</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Country</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Status</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Impressions</th>
@@ -156,9 +174,10 @@ export default function AdsCampaignsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {campaigns.map((c) => (
-                    <tr key={`${c.countryCode}-${c.campaignId}`}>
+                  {visibleCampaigns.map((c) => (
+                    <tr key={`${c.countryCode}-${c.adProduct}-${c.campaignId}`}>
                       <td style={tableCellStyle()}>{c.campaignName}</td>
+                      <td style={tableCellStyle()}>{AD_PRODUCT_LABELS[c.adProduct] || c.adProduct}</td>
                       <td style={tableCellStyle()}>{c.countryCode}</td>
                       <td style={tableCellStyle()}>{c.campaignStatus}</td>
                       <td style={tableCellStyle()}>{c.impressions}</td>
