@@ -25,7 +25,13 @@ function buttonStyle() {
 }
 
 function inputStyle() {
-  return { padding: "10px", borderRadius: "8px", border: "1px solid #ccc" };
+  return {
+    padding: "10px",
+    borderRadius: "8px",
+    border: "1px solid #ccc",
+    background: "#fff",
+    color: "#222",
+  };
 }
 
 function tableCellStyle(extra = {}) {
@@ -44,11 +50,14 @@ function formatMoney(value, currencyCode) {
 const AD_PRODUCT_LABELS = { SPONSORED_PRODUCTS: "SP", SPONSORED_BRANDS: "SB", SPONSORED_DISPLAY: "SD" };
 const LA_TIME_ZONE = "America/Los_Angeles";
 
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 const PRESETS = [
   { key: "today", label: "Today" },
   { key: "yesterday", label: "Yesterday" },
   { key: "last7days", label: "Last 7 Days" },
   { key: "ytd", label: "Year to Date" },
+  { key: "month", label: "Month" },
   { key: "custom", label: "Custom" },
 ];
 
@@ -71,7 +80,19 @@ function addDays(dateStr, days) {
   return date.toISOString().slice(0, 10);
 }
 
-function getPresetRange(preset) {
+function getMonthRange(year, month) {
+  const today = getLosAngelesToday();
+  const pad = (n) => String(n).padStart(2, "0");
+  const startDate = `${year}-${pad(month)}-01`;
+  const lastDayOfMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const monthEnd = `${year}-${pad(month)}-${pad(lastDayOfMonth)}`;
+  // Don't request a range that extends past today (the current month, or a
+  // clock/timezone edge case).
+  const endDate = monthEnd > today ? today : monthEnd;
+  return { startDate, endDate };
+}
+
+function getPresetRange(preset, selectedMonth) {
   const today = getLosAngelesToday();
   switch (preset) {
     case "today":
@@ -84,6 +105,8 @@ function getPresetRange(preset) {
       return { startDate: addDays(today, -6), endDate: today };
     case "ytd":
       return { startDate: `${today.slice(0, 4)}-01-01`, endDate: today };
+    case "month":
+      return getMonthRange(Number(today.slice(0, 4)), selectedMonth);
     default:
       return { startDate: today, endDate: today };
   }
@@ -93,14 +116,16 @@ export default function AdsCampaignsPage() {
   const [preset, setPreset] = useState("last7days");
   const [customStart, setCustomStart] = useState(getLosAngelesToday());
   const [customEnd, setCustomEnd] = useState(getLosAngelesToday());
+  const [selectedMonth, setSelectedMonth] = useState(Number(getLosAngelesToday().slice(5, 7)));
   const [countryFilter, setCountryFilter] = useState("");
   const [adProductFilter, setAdProductFilter] = useState("");
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const currentMonth = Number(getLosAngelesToday().slice(5, 7));
   const { startDate, endDate } =
-    preset === "custom" ? { startDate: customStart, endDate: customEnd } : getPresetRange(preset);
+    preset === "custom" ? { startDate: customStart, endDate: customEnd } : getPresetRange(preset, selectedMonth);
 
   async function load() {
     setLoading(true);
@@ -126,9 +151,9 @@ export default function AdsCampaignsPage() {
 
   const countryCodes = [...new Set(campaigns.map((c) => c.countryCode).filter(Boolean))].sort();
 
-  const visibleCampaigns = adProductFilter
-    ? campaigns.filter((c) => c.adProduct === adProductFilter)
-    : campaigns;
+  const visibleCampaigns = campaigns.filter(
+    (c) => (c.spend || 0) > 0 && (!adProductFilter || c.adProduct === adProductFilter)
+  );
 
   const totals = visibleCampaigns.reduce(
     (acc, c) => ({
@@ -158,6 +183,7 @@ export default function AdsCampaignsPage() {
                 borderRadius: "6px",
                 border: preset === p.key ? "2px solid #1976d2" : "1px solid #ccc",
                 background: preset === p.key ? "#e3f2fd" : "#fff",
+                color: "#222",
                 fontWeight: preset === p.key ? 700 : 400,
                 cursor: "pointer",
               }}
@@ -166,6 +192,25 @@ export default function AdsCampaignsPage() {
             </button>
           ))}
         </div>
+
+        {preset === "month" && (
+          <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap", marginBottom: "12px" }}>
+            <label>
+              Month ({new Date().getFullYear()}):{" "}
+              <select
+                style={inputStyle()}
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(Number(e.target.value))}
+              >
+                {MONTH_LABELS.map((label, i) => (
+                  <option key={label} value={i + 1} disabled={i + 1 > currentMonth}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
 
         {preset === "custom" && (
           <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap", marginBottom: "12px" }}>
