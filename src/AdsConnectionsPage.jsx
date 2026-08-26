@@ -35,7 +35,7 @@ function ConnectionCard({ profileKey, conn }) {
   if (!conn) return null;
 
   return (
-    <div style={{ ...cardStyle(), maxWidth: "900px", marginInline: "auto", marginBottom: "20px" }}>
+    <div style={{ ...cardStyle(), borderRadius: 0, borderLeft: "none", borderRight: "none", marginBottom: "20px" }}>
       <h3 style={{ marginTop: 0 }}>{PROFILE_LABELS[profileKey] || profileKey}</h3>
 
       <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px" }}>
@@ -140,10 +140,10 @@ export default function AdsConnectionsPage() {
   const redirectConnected = searchParams.get("connected");
 
   return (
-    <div style={{ padding: "20px", fontFamily: "Arial, sans-serif", minHeight: "100vh", background: "#fafafa" }}>
+    <div style={{ padding: "20px 0", fontFamily: "Arial, sans-serif", minHeight: "100vh", background: "#fafafa" }}>
       <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Ads Connections</h2>
 
-      <div style={{ maxWidth: "900px", marginInline: "auto", marginBottom: "10px" }}>
+      <div style={{ padding: "0 16px", marginBottom: "10px" }}>
         <p>
           Connect the app to your Amazon Advertising accounts via Login with Amazon. Once connected, the app can pull
           PPC spend/sales into the sales reports.

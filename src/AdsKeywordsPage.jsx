@@ -158,6 +158,7 @@ export default function AdsKeywordsPage() {
 
   const visibleKeywords = keywords.filter(
     (k) =>
+      (k.spend || 0) > 0 &&
       (!adProductFilter || k.adProduct === adProductFilter) &&
       (!campaignFilter || k.campaignId === campaignFilter)
   );
