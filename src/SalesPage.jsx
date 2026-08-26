@@ -24,7 +24,17 @@ const MARKETPLACE_OPTIONS = [
   { value: "au", label: "AU" },
 ];
 
+// "All marketplaces" stays Amazon-only - Etsy is a distinctly different
+// sales channel, not folded into that combined total (deliberate choice:
+// blending them would silently change what "All marketplaces" has always
+// meant). Etsy is only ever visible by selecting one of its options below.
 const ALL_MARKETPLACE_VALUES = MARKETPLACE_OPTIONS.map((o) => o.value);
+
+const ETSY_MARKETPLACE_OPTIONS = [
+  { value: "etsy_usa", label: "Etsy USA" },
+  { value: "etsy_eu", label: "Etsy EU" },
+  { value: "etsy_uk", label: "Etsy UK" },
+];
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const MAIN_SKU_WIDTH = "144px";
@@ -840,11 +850,20 @@ export default function SalesPage() {
             disabled={loading}
           >
             <option value="">All marketplaces</option>
-            {MARKETPLACE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
+            <optgroup label="Amazon">
+              {MARKETPLACE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Etsy">
+              {ETSY_MARKETPLACE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </optgroup>
           </select>
 
           {loading && <span>Loading...</span>}
