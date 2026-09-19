@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { buttonStyle, ghostButtonStyle } from "./buttonStyle";
 
 function productLink(item) {
   return `/product?asin=${encodeURIComponent(item.asin)}&sku=${encodeURIComponent(item.sku)}`;
 }
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE ||
-  "https://us-central1-mlfamzapp.cloudfunctions.net";
+// PocketBase-only functions run on the mini PC that already hosts
+// PocketBase, instead of GCP - see CLAUDE.md "AmzBot: local job runner".
+const API_BASE = "https://amzapi.mandalalifeart.com";
 
 const IMAGE_BASE = "https://storage.googleapis.com/mlf-amz-images/";
 
@@ -17,9 +18,9 @@ const SAVE_OK_COLOR = "#2e7d32";
 // Percentages sum to 100 - table uses table-layout:fixed so these are exact
 // column widths, keeping all columns inside one screen width with no
 // horizontal scroll needed on a normal laptop/desktop viewport.
-const COLUMN_WIDTHS_WITH_ASIN = [4, 13, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 6, 7];
-// ASIN's 6% folded into SKU when the column is hidden.
-const COLUMN_WIDTHS_NO_ASIN = [4, 19, 5, 5, 6, 5, 5, 6, 5, 5, 6, 5, 5, 6, 6, 7];
+const COLUMN_WIDTHS_WITH_ASIN = [4, 11, 5, 5, 5, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6];
+// ASIN's width folded into SKU when the column is hidden.
+const COLUMN_WIDTHS_NO_ASIN = [4, 16, 5, 5, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6];
 
 function cardStyle() {
   return {
@@ -30,34 +31,7 @@ function cardStyle() {
   };
 }
 
-function blueButtonStyle(disabled = false) {
-  return {
-    padding: "10px 18px",
-    fontSize: "14px",
-    cursor: disabled ? "not-allowed" : "pointer",
-    borderRadius: "8px",
-    border: "none",
-    background: disabled ? "#9bbcf7" : "#1976d2",
-    color: "#ffffff",
-    fontWeight: "600",
-    opacity: disabled ? 0.6 : 1,
-    textDecoration: "none",
-    display: "inline-block",
-  };
-}
-
-function ghostButtonStyle() {
-  return {
-    padding: "8px 14px",
-    fontSize: "13px",
-    cursor: "pointer",
-    borderRadius: "8px",
-    border: "1px solid #1976d2",
-    background: "#fff",
-    color: "#1976d2",
-    fontWeight: "600",
-  };
-}
+const blueButtonStyle = buttonStyle;
 
 function tableCellStyle(extra = {}) {
   return {
@@ -109,10 +83,11 @@ function computeNeeded(item) {
   return (item.uk_next_shipment || 0) + (item.de_next_shipment || 0) + (item.usa_next_shipment || 0);
 }
 
-// missing = needed - malani_balance + malani_order, exactly as specified:
-// what's still short after the factory's on-hand stock, offset by what's already on order there.
+// missing = needed - malani_balance - malani_order: what's still short after
+// both the factory's on-hand stock AND whatever's already on order there
+// (both reduce how much more needs to be placed).
 function computeMissing(item) {
-  return computeNeeded(item) - (item.malani_balance || 0) + (item.malani_order || 0);
+  return computeNeeded(item) - (item.malani_balance || 0) - (item.malani_order || 0);
 }
 
 // Uncontrolled-by-prop on purpose: the input owns its text while the user is
@@ -175,9 +150,9 @@ function EditableCell({ item, field, onSave }) {
 
 const HEADER_LABELS_WITH_ASIN = [
   "Image", "SKU", "ASIN",
-  "UK Bal", "UK OTW", "UK Next",
+  "USA Bal", "USA OTW", "USA Next", "USA Reco",
   "DE Bal", "DE OTW", "DE Next",
-  "USA Bal", "USA OTW", "USA Next",
+  "UK Bal", "UK OTW", "UK Next",
   "Malani Bal", "Malani Ord",
   "Needed", "Missing", "Next Order",
 ];
@@ -243,10 +218,16 @@ function ItemRow({ item, showAsin, onSave }) {
         <td style={tableCellStyle({ fontFamily: "monospace", fontSize: "10px" })}>{item.asin}</td>
       )}
 
-      <td style={valueCellStyle()}>{formatUnits(item.uk_balance)}</td>
-      <td style={valueCellStyle()}>{formatUnits(item.uk_on_the_way)}</td>
+      <td style={valueCellStyle()}>{formatUnits(item.usa_balance)}</td>
+      <td style={valueCellStyle()}>{formatUnits(item.usa_on_the_way)}</td>
       <td style={numberCellStyle()}>
-        <EditableCell item={item} field="uk_next_shipment" onSave={onSave} />
+        <EditableCell item={item} field="usa_next_shipment" onSave={onSave} />
+      </td>
+      <td
+        style={valueCellStyle({ fontWeight: 700, color: item.usa_recommended_order > 0 ? SAVE_ERROR_COLOR : undefined })}
+        title={`Avg USA sales: ${item.usa_avg_monthly_sales ?? 0}/month (trailing 3 months)`}
+      >
+        {formatUnits(item.usa_recommended_order)}
       </td>
 
       <td style={valueCellStyle()}>{formatUnits(item.de_balance)}</td>
@@ -255,10 +236,10 @@ function ItemRow({ item, showAsin, onSave }) {
         <EditableCell item={item} field="de_next_shipment" onSave={onSave} />
       </td>
 
-      <td style={valueCellStyle()}>{formatUnits(item.usa_balance)}</td>
-      <td style={valueCellStyle()}>{formatUnits(item.usa_on_the_way)}</td>
+      <td style={valueCellStyle()}>{formatUnits(item.uk_balance)}</td>
+      <td style={valueCellStyle()}>{formatUnits(item.uk_on_the_way)}</td>
       <td style={numberCellStyle()}>
-        <EditableCell item={item} field="usa_next_shipment" onSave={onSave} />
+        <EditableCell item={item} field="uk_next_shipment" onSave={onSave} />
       </td>
 
       <td style={valueCellStyle()}>{formatUnits(item.malani_balance)}</td>
@@ -320,6 +301,8 @@ export default function NextOrderPage() {
   const [collapsedGroups, setCollapsedGroups] = useState({});
   const [showAsin, setShowAsin] = useState(false);
   const [onlyMissing, setOnlyMissing] = useState(false);
+  const [nextShipmentDate, setNextShipmentDate] = useState("");
+  const [dateSaveStatus, setDateSaveStatus] = useState("idle"); // idle | saving | saved | error
 
   async function loadData() {
     setLoading(true);
@@ -338,6 +321,7 @@ export default function NextOrderPage() {
       }
 
       setGroups(data.groups || []);
+      setNextShipmentDate(data.nextShipmentDate || "");
 
       const allCollapsed = {};
       (data.groups || []).forEach((g) => {
@@ -381,6 +365,31 @@ export default function NextOrderPage() {
     );
   }
 
+  async function saveNextShipmentDate(newDate) {
+    setNextShipmentDate(newDate);
+    setDateSaveStatus("saving");
+    try {
+      const response = await fetch(`${API_BASE}/UpdateNextShipmentDate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: newDate }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || `HTTP ${response.status}`);
+      }
+      setDateSaveStatus("saved");
+      setTimeout(() => setDateSaveStatus((s) => (s === "saved" ? "idle" : s)), 1200);
+      // The USA Reco column depends on this date (coverage window), so
+      // reload everything to get recomputed recommendations rather than
+      // leaving the table showing values based on the old date.
+      loadData();
+    } catch (err) {
+      setDateSaveStatus("error");
+      setError(err.message || "Failed to save next shipment date");
+    }
+  }
+
   function toggleGroup(name) {
     setCollapsedGroups((prev) => ({ ...prev, [name]: !prev[name] }));
   }
@@ -397,6 +406,36 @@ export default function NextOrderPage() {
     setCollapsedGroups(next);
   }
 
+  function exportCsv() {
+    const rows = [["SKU", "UPC", "Supplier SKU", "USA Reco", "Missing", "Next Order"]];
+    visibleGroups.forEach((group) => {
+      group.items.forEach((item) => {
+        rows.push([
+          item.sku,
+          item.upc || "",
+          item.supplier_sku || "",
+          item.usa_recommended_order || 0,
+          computeMissing(item),
+          item.next_order || 0,
+        ]);
+      });
+    });
+
+    const csv = rows
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\r\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `next-order-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   function toggleOnlyMissing() {
     setOnlyMissing((v) => {
       const next = !v;
@@ -408,7 +447,10 @@ export default function NextOrderPage() {
   const visibleGroups = useMemo(() => {
     if (!onlyMissing) return groups;
     return groups
-      .map((g) => ({ ...g, items: g.items.filter((item) => computeMissing(item) > 0) }))
+      .map((g) => ({
+        ...g,
+        items: g.items.filter((item) => computeMissing(item) > 0 || Number(item.next_order || 0) > 0),
+      }))
       .filter((g) => g.items.length > 0);
   }, [groups, onlyMissing]);
 
@@ -421,7 +463,40 @@ export default function NextOrderPage() {
         background: "#fafafa",
       }}
     >
-      <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Next Order</h2>
+      <h2 style={{ textAlign: "center", marginBottom: "12px" }}>Next Order</h2>
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          gap: "10px",
+          marginBottom: "20px",
+          fontSize: "14px",
+        }}
+      >
+        <label htmlFor="next-shipment-date" style={{ fontWeight: 600 }}>
+          Next Shipment Date:
+        </label>
+        <input
+          id="next-shipment-date"
+          type="date"
+          value={nextShipmentDate}
+          onChange={(e) => e.target.value && saveNextShipmentDate(e.target.value)}
+          style={{
+            padding: "4px 8px",
+            borderRadius: "4px",
+            border: `1px solid ${STATUS_BORDER[dateSaveStatus]}`,
+            colorScheme: "light",
+            fontSize: "14px",
+          }}
+        />
+        {dateSaveStatus === "saving" && <span style={{ color: "#888" }}>Saving...</span>}
+        {dateSaveStatus === "saved" && <span style={{ color: SAVE_OK_COLOR }}>Saved</span>}
+        <span style={{ color: "#777" }}>
+          (used to compute the USA Reco column - a shipment placed now should cover sales until ~90 days after this date)
+        </span>
+      </div>
 
       {error && (
         <div
@@ -452,9 +527,12 @@ export default function NextOrderPage() {
             <button style={ghostButtonStyle()} onClick={collapseAll}>
               Collapse All Groups
             </button>
+            <button style={ghostButtonStyle()} onClick={exportCsv}>
+              Export CSV
+            </button>
             <label style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto", fontSize: "14px" }}>
               <input type="checkbox" checked={onlyMissing} onChange={toggleOnlyMissing} />
-              Only show Missing &gt; 0
+              Only show Missing &gt; 0 or Next Order &gt; 0
             </label>
             <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
               <input type="checkbox" checked={showAsin} onChange={() => setShowAsin((v) => !v)} />
