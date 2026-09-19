@@ -449,7 +449,12 @@ export default function NextOrderPage() {
     return groups
       .map((g) => ({
         ...g,
-        items: g.items.filter((item) => computeMissing(item) > 0 || Number(item.next_order || 0) > 0),
+        items: g.items.filter(
+          (item) =>
+            computeMissing(item) > 0 ||
+            Number(item.next_order || 0) > 0 ||
+            Number(item.usa_recommended_order || 0) > 0
+        ),
       }))
       .filter((g) => g.items.length > 0);
   }, [groups, onlyMissing]);
@@ -532,7 +537,7 @@ export default function NextOrderPage() {
             </button>
             <label style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto", fontSize: "14px" }}>
               <input type="checkbox" checked={onlyMissing} onChange={toggleOnlyMissing} />
-              Only show Missing &gt; 0 or Next Order &gt; 0
+              Only show Missing &gt; 0 or Next Order &gt; 0 or USA Reco &gt; 0
             </label>
             <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
               <input type="checkbox" checked={showAsin} onChange={() => setShowAsin((v) => !v)} />
