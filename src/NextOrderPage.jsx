@@ -78,6 +78,28 @@ function formatUnits(value) {
   return Math.round(value || 0).toLocaleString();
 }
 
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatMonths(monthPairs) {
+  if (!monthPairs || monthPairs.length === 0) return "";
+  return monthPairs.map(([y, m]) => `${MONTH_NAMES[m - 1]} ${y}`).join(" + ");
+}
+
+function seasonalSourceLabel(source) {
+  switch (source) {
+    case "2yr_avg":
+      return "average of the last 2 years' same season";
+    case "1yr_only":
+      return "last year's same season only (2 years ago has no history for this SKU)";
+    case "2yr_only":
+      return "2 years ago's same season only (last year has no history for this SKU)";
+    case "fallback_recent":
+      return "no seasonal history yet for this SKU - showing the recent-based value instead";
+    default:
+      return "";
+  }
+}
+
 // needed = sum of the three "next shipment" quantities being planned across markets.
 function computeNeeded(item) {
   return (item.uk_next_shipment || 0) + (item.de_next_shipment || 0) + (item.usa_next_shipment || 0);
@@ -150,7 +172,7 @@ function EditableCell({ item, field, onSave }) {
 
 const HEADER_LABELS_WITH_ASIN = [
   "Image", "SKU", "ASIN",
-  "USA Bal", "USA OTW", "USA Next", "USA Reco",
+  "USA Bal", "USA OTW", "USA Next", "USA Reco (A/B)",
   "DE Bal", "DE OTW", "DE Next",
   "UK Bal", "UK OTW", "UK Next",
   "Malani Bal", "Malani Ord",
@@ -224,10 +246,17 @@ function ItemRow({ item, showAsin, onSave }) {
         <EditableCell item={item} field="usa_next_shipment" onSave={onSave} />
       </td>
       <td
-        style={valueCellStyle({ fontWeight: 700, color: item.usa_recommended_order > 0 ? SAVE_ERROR_COLOR : undefined })}
-        title={`Avg USA sales: ${item.usa_avg_monthly_sales ?? 0}/month (trailing 3 months)`}
+        style={valueCellStyle({
+          fontWeight: 700,
+          fontSize: "13px",
+          color: item.usa_recommended_order > 0 || item.usa_recommended_order_seasonal > 0 ? SAVE_ERROR_COLOR : undefined,
+        })}
+        title={
+          `Recent (A): ${formatUnits(item.usa_recommended_order)} - based on last 3 months, avg ${item.usa_avg_monthly_sales ?? 0}/month\n` +
+          `Seasonal (B): ${formatUnits(item.usa_recommended_order_seasonal)} - ${seasonalSourceLabel(item.usa_seasonal_source)}`
+        }
       >
-        {formatUnits(item.usa_recommended_order)}
+        {formatUnits(item.usa_recommended_order)}/{formatUnits(item.usa_recommended_order_seasonal)}
       </td>
 
       <td style={valueCellStyle()}>{formatUnits(item.de_balance)}</td>
@@ -294,6 +323,91 @@ function GroupSection({ group, showAsin, expanded, onToggle, onSave }) {
   );
 }
 
+const EXPLANATION_EXAMPLE_SKU = "PareoBlueP19";
+
+function RecoExplanation({ nextShipmentDate, recoMeta, exampleItem }) {
+  const debug = exampleItem?.usa_reco_debug;
+
+  return (
+    <div style={cardStyle()}>
+      <h3 style={{ marginTop: 0 }}>How the USA Reco column is calculated</h3>
+      <p style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
+        Both recommendations answer the same question - "how many MORE units should I still add to USA Next" - so{" "}
+        <strong>0 means already covered</strong>, not "don't ship anything." They share one near-term term
+        (need_for_x_days: the gap between today and when the shipment arrives) and differ only in how they forecast
+        the 3 months of demand AFTER the shipment lands.
+      </p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginTop: "12px" }}>
+        <div>
+          <strong>A - Recent</strong>
+          <p style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
+            Assumes the next 3 months look like the last 3.
+            <br />
+            x = days from today to Next Shipment Arriving Date
+            <br />
+            need_for_x_days = x × (last 3 months' total ÷ real days in those months)
+            <br />
+            need_for_3_months = last 3 months' total, used as-is
+            <br />
+            <strong>A = need_for_3_months + need_for_x_days − USA Bal − USA OTW − USA Next</strong>
+          </p>
+        </div>
+        <div>
+          <strong>B - Seasonal</strong>
+          <p style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
+            A seasonal product's next 3 months can look nothing like its last 3 (e.g. shipping into summer from a
+            winter baseline) - so instead it looks at the ACTUAL same 3 calendar months the shipment lands into, from
+            1 and 2 years ago (averaged; falls back to whichever single year has history, or to A's number if neither
+            year does).
+            <br />
+            <strong>B = seasonal_3_months + need_for_x_days − USA Bal − USA OTW − USA Next</strong>
+          </p>
+        </div>
+      </div>
+
+      {exampleItem && debug && (
+        <div style={{ marginTop: "16px", padding: "12px", background: "#f7f7f7", borderRadius: "6px", fontSize: "13px", lineHeight: 1.7 }}>
+          <strong>
+            Worked example - {exampleItem.sku} ({exampleItem.asin})
+          </strong>
+          <div style={{ marginTop: "6px" }}>
+            Today → Next Shipment Arriving Date ({nextShipmentDate}): x = {debug.xDays} days
+            <br />
+            Last 3 months ({formatMonths(recoMeta?.trailingMonths)}): {debug.trailingTotal} units over{" "}
+            {recoMeta?.trailingLookbackDays} days → avg {exampleItem.usa_avg_monthly_sales}/month
+            <br />
+            need_for_x_days = {debug.xDays} × ({debug.trailingTotal}/{recoMeta?.trailingLookbackDays}) = {debug.needForXDays}
+            <br />
+            USA Bal + USA OTW + USA Next = {debug.alreadyCovered}
+            <br />
+            <br />
+            <strong>A (Recent)</strong>: {debug.trailingTotal} + {debug.needForXDays} − {debug.alreadyCovered} ={" "}
+            <strong>{formatUnits(exampleItem.usa_recommended_order)}</strong>
+            <br />
+            <br />
+            Same season 1 year ago ({formatMonths(recoMeta?.seasonalYear1Months)}): {debug.year1Total} units
+            <br />
+            Same season 2 years ago ({formatMonths(recoMeta?.seasonalYear2Months)}): {debug.year2Total} units
+            <br />
+            seasonal_3_months ({seasonalSourceLabel(exampleItem.usa_seasonal_source)}) ={" "}
+            {exampleItem.usa_seasonal_source === "2yr_avg"
+              ? `(${debug.year1Total} + ${debug.year2Total}) / 2 = ${(debug.year1Total + debug.year2Total) / 2}`
+              : exampleItem.usa_seasonal_source === "1yr_only"
+              ? debug.year1Total
+              : exampleItem.usa_seasonal_source === "2yr_only"
+              ? debug.year2Total
+              : debug.trailingTotal}
+            <br />
+            <strong>B (Seasonal)</strong>: seasonal_3_months + {debug.needForXDays} − {debug.alreadyCovered} ={" "}
+            <strong>{formatUnits(exampleItem.usa_recommended_order_seasonal)}</strong>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function NextOrderPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -303,6 +417,7 @@ export default function NextOrderPage() {
   const [onlyMissing, setOnlyMissing] = useState(false);
   const [nextShipmentDate, setNextShipmentDate] = useState("");
   const [dateSaveStatus, setDateSaveStatus] = useState("idle"); // idle | saving | saved | error
+  const [recoMeta, setRecoMeta] = useState(null); // { trailingMonths, seasonalYear1Months, seasonalYear2Months }
 
   async function loadData() {
     setLoading(true);
@@ -322,6 +437,11 @@ export default function NextOrderPage() {
 
       setGroups(data.groups || []);
       setNextShipmentDate(data.nextShipmentDate || "");
+      setRecoMeta({
+        trailingMonths: data.trailingMonths || [],
+        seasonalYear1Months: data.seasonalYear1Months || [],
+        seasonalYear2Months: data.seasonalYear2Months || [],
+      });
 
       const allCollapsed = {};
       (data.groups || []).forEach((g) => {
@@ -407,7 +527,7 @@ export default function NextOrderPage() {
   }
 
   function exportCsv() {
-    const rows = [["SKU", "UPC", "Supplier SKU", "USA Reco", "Missing", "Next Order"]];
+    const rows = [["SKU", "UPC", "Supplier SKU", "USA Reco (Recent)", "USA Reco (Seasonal)", "Missing", "Next Order"]];
     visibleGroups.forEach((group) => {
       group.items.forEach((item) => {
         rows.push([
@@ -415,6 +535,7 @@ export default function NextOrderPage() {
           item.upc || "",
           item.supplier_sku || "",
           item.usa_recommended_order || 0,
+          item.usa_recommended_order_seasonal || 0,
           computeMissing(item),
           item.next_order || 0,
         ]);
@@ -453,11 +574,20 @@ export default function NextOrderPage() {
           (item) =>
             computeMissing(item) > 0 ||
             Number(item.next_order || 0) > 0 ||
-            Number(item.usa_recommended_order || 0) > 0
+            Number(item.usa_recommended_order || 0) > 0 ||
+            Number(item.usa_recommended_order_seasonal || 0) > 0
         ),
       }))
       .filter((g) => g.items.length > 0);
   }, [groups, onlyMissing]);
+
+  const exampleItem = useMemo(() => {
+    for (const g of groups) {
+      const found = g.items.find((item) => item.sku === EXPLANATION_EXAMPLE_SKU);
+      if (found) return found;
+    }
+    return null;
+  }, [groups]);
 
   return (
     <div
@@ -481,7 +611,7 @@ export default function NextOrderPage() {
         }}
       >
         <label htmlFor="next-shipment-date" style={{ fontWeight: 600 }}>
-          Next Shipment Date:
+          Next Shipment Arriving Date:
         </label>
         <input
           id="next-shipment-date"
@@ -499,7 +629,7 @@ export default function NextOrderPage() {
         {dateSaveStatus === "saving" && <span style={{ color: "#888" }}>Saving...</span>}
         {dateSaveStatus === "saved" && <span style={{ color: SAVE_OK_COLOR }}>Saved</span>}
         <span style={{ color: "#777" }}>
-          (used to compute the USA Reco column - a shipment placed now should cover sales until ~90 days after this date)
+          (used to compute the USA Reco column - see the explanation and worked example at the bottom of the page)
         </span>
       </div>
 
@@ -559,6 +689,12 @@ export default function NextOrderPage() {
               onSave={saveField}
             />
           ))}
+        </div>
+      )}
+
+      {!loading && (
+        <div style={{ maxWidth: "1400px", marginInline: "auto", marginTop: "24px" }}>
+          <RecoExplanation nextShipmentDate={nextShipmentDate} recoMeta={recoMeta} exampleItem={exampleItem} />
         </div>
       )}
 
