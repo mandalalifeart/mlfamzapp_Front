@@ -18,9 +18,9 @@ const SAVE_OK_COLOR = "#2e7d32";
 // Percentages sum to 100 - table uses table-layout:fixed so these are exact
 // column widths, keeping all columns inside one screen width with no
 // horizontal scroll needed on a normal laptop/desktop viewport.
-const COLUMN_WIDTHS_WITH_ASIN = [4, 11, 5, 5, 5, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6];
+const COLUMN_WIDTHS_WITH_ASIN = [4, 10, 4, 4, 4, 5, 6, 4, 4, 5, 6, 4, 4, 5, 6, 4, 4, 5, 6, 6];
 // ASIN's width folded into SKU when the column is hidden.
-const COLUMN_WIDTHS_NO_ASIN = [4, 16, 5, 5, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6];
+const COLUMN_WIDTHS_NO_ASIN = [4, 14, 4, 4, 5, 6, 4, 4, 5, 6, 4, 4, 5, 6, 4, 4, 5, 6, 6];
 
 function cardStyle() {
   return {
@@ -100,8 +100,8 @@ function seasonalSourceLabel(source) {
   }
 }
 
-function seasonal3moFromDebug(item, debug) {
-  switch (item.usa_seasonal_source) {
+function seasonal3moFromDebug(seasonalSource, debug) {
+  switch (seasonalSource) {
     case "2yr_avg":
       return (debug.year1Total + debug.year2Total) / 2;
     case "1yr_only":
@@ -116,30 +116,35 @@ function seasonal3moFromDebug(item, debug) {
 // Full breakdown shown on hover, per the user (2026-09-20, extended same
 // day): days of supply (Bal+OTW ÷ recent daily avg), days to next order,
 // each formula's own daily average, and the exact A/B formula with real
-// numbers plugged in - reusing usa_reco_debug (the same raw intermediates
-// the bottom-of-page worked example already renders, including the daily
-// averages themselves) so this never drifts from the backend's actual
-// calculation. Note on rounding: below half a category's minimum order
-// size the reco is zeroed out entirely; at or above half, it's shown
-// as-is (NOT rounded up to the full minimum) - see GetNextOrderData.py's
-// apply_category_min_order for the exact rule, so a "raw" value computed
-// here can legitimately differ from the displayed one only by becoming 0.
-function buildRecoTooltip(item) {
-  const debug = item.usa_reco_debug;
+// numbers plugged in - reusing <region>_reco_debug (the same raw
+// intermediates the bottom-of-page worked example already renders,
+// including the daily averages themselves) so this never drifts from the
+// backend's actual calculation. Note on rounding: below half a category's
+// minimum order size the reco is zeroed out entirely; at or above half,
+// it's shown as-is (NOT rounded up to the full minimum) - see
+// GetNextOrderData.py's apply_category_min_order for the exact rule, so a
+// "raw" value computed here can legitimately differ from the displayed one
+// only by becoming 0. Generalized 2026-09-20 to work for any region
+// (usa/uk/de), originally USA-only.
+function buildRecoTooltip(item, region) {
+  const debug = item[`${region}_reco_debug`];
   if (!debug) return "";
 
-  const bal = item.usa_balance || 0;
-  const otw = item.usa_on_the_way || 0;
+  const bal = item[`${region}_balance`] || 0;
+  const otw = item[`${region}_on_the_way`] || 0;
+  const seasonalSource = item[`${region}_seasonal_source`];
+  const recommendedOrder = item[`${region}_recommended_order`];
+  const recommendedOrderSeasonal = item[`${region}_recommended_order_seasonal`];
   const daysOfSupply = debug.avgDailyRecent > 0 ? ((bal + otw) / debug.avgDailyRecent).toFixed(1) : "∞ (no recent sales)";
 
-  const seasonal3mo = seasonal3moFromDebug(item, debug);
+  const seasonal3mo = seasonal3moFromDebug(seasonalSource, debug);
   const rawA = Math.max(0, Math.round(debug.trailingTotal + debug.needForXDays - debug.alreadyCovered));
   const rawB = Math.max(0, Math.round(seasonal3mo + debug.needForXDays - debug.alreadyCovered));
-  const aZeroedNote = rawA > 0 && item.usa_recommended_order === 0 ? " → zeroed out (below half the minimum order size)" : "";
-  const bZeroedNote = rawB > 0 && item.usa_recommended_order_seasonal === 0 ? " → zeroed out (below half the minimum order size)" : "";
+  const aZeroedNote = rawA > 0 && recommendedOrder === 0 ? " → zeroed out (below half the minimum order size)" : "";
+  const bZeroedNote = rawB > 0 && recommendedOrderSeasonal === 0 ? " → zeroed out (below half the minimum order size)" : "";
 
   const stockoutNote = debug.zeroInventoryWeeks > 0
-    ? `\n(excludes ${debug.zeroInventoryWeeks} week${debug.zeroInventoryWeeks === 1 ? "" : "s"} of zero USA stock from the recent-avg calc)`
+    ? `\n(excludes ${debug.zeroInventoryWeeks} week${debug.zeroInventoryWeeks === 1 ? "" : "s"} of zero ${region.toUpperCase()} stock from the recent-avg calc)`
     : "";
 
   return (
@@ -148,7 +153,7 @@ function buildRecoTooltip(item) {
     `Avg daily sales used for A (recent): ${debug.avgDailyRecent}/day${stockoutNote}\n` +
     `Avg daily sales used for B (seasonal): ${debug.avgDailySeasonal}/day\n\n` +
     `A (Recent) = ${debug.trailingTotal} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawA}${aZeroedNote}\n` +
-    `B (Seasonal, ${seasonalSourceLabel(item.usa_seasonal_source)}) = ${seasonal3mo} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawB}${bZeroedNote}`
+    `B (Seasonal, ${seasonalSourceLabel(seasonalSource)}) = ${seasonal3mo} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawB}${bZeroedNote}`
   );
 }
 
@@ -225,8 +230,8 @@ function EditableCell({ item, field, onSave }) {
 const HEADER_LABELS_WITH_ASIN = [
   "Image", "SKU", "ASIN",
   "USA Bal", "USA OTW", "USA Next", "USA Reco (A/B)",
-  "DE Bal", "DE OTW", "DE Next",
-  "UK Bal", "UK OTW", "UK Next",
+  "DE Bal", "DE OTW", "DE Next", "DE Reco (A/B)",
+  "UK Bal", "UK OTW", "UK Next", "UK Reco (A/B)",
   "Malani Bal", "Malani Ord",
   "Needed", "Missing", "Next Order",
 ];
@@ -268,6 +273,23 @@ function TableHeader({ showAsin }) {
   );
 }
 
+function RecoCell({ item, region }) {
+  const recent = item[`${region}_recommended_order`];
+  const seasonal = item[`${region}_recommended_order_seasonal`];
+  return (
+    <td
+      style={valueCellStyle({
+        fontWeight: 700,
+        fontSize: "13px",
+        color: recent > 0 || seasonal > 0 ? SAVE_ERROR_COLOR : undefined,
+      })}
+      title={buildRecoTooltip(item, region)}
+    >
+      {formatUnits(recent)}/{formatUnits(seasonal)}
+    </td>
+  );
+}
+
 function ItemRow({ item, showAsin, onSave }) {
   const needed = computeNeeded(item);
   const missing = computeMissing(item);
@@ -297,28 +319,21 @@ function ItemRow({ item, showAsin, onSave }) {
       <td style={numberCellStyle()}>
         <EditableCell item={item} field="usa_next_shipment" onSave={onSave} />
       </td>
-      <td
-        style={valueCellStyle({
-          fontWeight: 700,
-          fontSize: "13px",
-          color: item.usa_recommended_order > 0 || item.usa_recommended_order_seasonal > 0 ? SAVE_ERROR_COLOR : undefined,
-        })}
-        title={buildRecoTooltip(item)}
-      >
-        {formatUnits(item.usa_recommended_order)}/{formatUnits(item.usa_recommended_order_seasonal)}
-      </td>
+      <RecoCell item={item} region="usa" />
 
       <td style={valueCellStyle()}>{formatUnits(item.de_balance)}</td>
       <td style={valueCellStyle()}>{formatUnits(item.de_on_the_way)}</td>
       <td style={numberCellStyle()}>
         <EditableCell item={item} field="de_next_shipment" onSave={onSave} />
       </td>
+      <RecoCell item={item} region="de" />
 
       <td style={valueCellStyle()}>{formatUnits(item.uk_balance)}</td>
       <td style={valueCellStyle()}>{formatUnits(item.uk_on_the_way)}</td>
       <td style={numberCellStyle()}>
         <EditableCell item={item} field="uk_next_shipment" onSave={onSave} />
       </td>
+      <RecoCell item={item} region="uk" />
 
       <td style={valueCellStyle()}>{formatUnits(item.malani_balance)}</td>
       <td style={valueCellStyle()}>{formatUnits(item.malani_order)}</td>
@@ -577,7 +592,13 @@ export default function NextOrderPage() {
   }
 
   function exportCsv() {
-    const rows = [["SKU", "UPC", "Supplier SKU", "USA Reco (Recent)", "USA Reco (Seasonal)", "Missing", "Next Order"]];
+    const rows = [[
+      "SKU", "UPC", "Supplier SKU",
+      "USA Reco (Recent)", "USA Reco (Seasonal)",
+      "DE Reco (Recent)", "DE Reco (Seasonal)",
+      "UK Reco (Recent)", "UK Reco (Seasonal)",
+      "Missing", "Next Order",
+    ]];
     visibleGroups.forEach((group) => {
       group.items.forEach((item) => {
         rows.push([
@@ -586,6 +607,10 @@ export default function NextOrderPage() {
           item.supplier_sku || "",
           item.usa_recommended_order || 0,
           item.usa_recommended_order_seasonal || 0,
+          item.de_recommended_order || 0,
+          item.de_recommended_order_seasonal || 0,
+          item.uk_recommended_order || 0,
+          item.uk_recommended_order_seasonal || 0,
           computeMissing(item),
           item.next_order || 0,
         ]);
@@ -625,7 +650,11 @@ export default function NextOrderPage() {
             computeMissing(item) > 0 ||
             Number(item.next_order || 0) > 0 ||
             Number(item.usa_recommended_order || 0) > 0 ||
-            Number(item.usa_recommended_order_seasonal || 0) > 0
+            Number(item.usa_recommended_order_seasonal || 0) > 0 ||
+            Number(item.de_recommended_order || 0) > 0 ||
+            Number(item.de_recommended_order_seasonal || 0) > 0 ||
+            Number(item.uk_recommended_order || 0) > 0 ||
+            Number(item.uk_recommended_order_seasonal || 0) > 0
         ),
       }))
       .filter((g) => g.items.length > 0);
@@ -733,7 +762,7 @@ export default function NextOrderPage() {
             </button>
             <label style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto", fontSize: "14px" }}>
               <input type="checkbox" checked={onlyMissing} onChange={toggleOnlyMissing} />
-              Only show Missing &gt; 0 or Next Order &gt; 0 or USA Reco &gt; 0
+              Only show Missing &gt; 0 or Next Order &gt; 0 or any Reco &gt; 0
             </label>
             <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
               <input type="checkbox" checked={showAsin} onChange={() => setShowAsin((v) => !v)} />
