@@ -113,30 +113,38 @@ function seasonal3moFromDebug(item, debug) {
   }
 }
 
-// Full breakdown shown on hover, per the user (2026-09-20): days of supply
-// (Bal+OTW ÷ daily avg) plus the exact formula for both A and B with real
+// Full breakdown shown on hover, per the user (2026-09-20, extended same
+// day): days of supply (Bal+OTW ÷ recent daily avg), days to next order,
+// each formula's own daily average, and the exact A/B formula with real
 // numbers plugged in - reusing usa_reco_debug (the same raw intermediates
-// the bottom-of-page worked example already renders) so this never drifts
-// from the backend's actual calculation.
-function buildRecoTooltip(item, lookbackDays) {
+// the bottom-of-page worked example already renders, including the daily
+// averages themselves) so this never drifts from the backend's actual
+// calculation. Note on rounding: below half a category's minimum order
+// size the reco is zeroed out entirely; at or above half, it's shown
+// as-is (NOT rounded up to the full minimum) - see GetNextOrderData.py's
+// apply_category_min_order for the exact rule, so a "raw" value computed
+// here can legitimately differ from the displayed one only by becoming 0.
+function buildRecoTooltip(item) {
   const debug = item.usa_reco_debug;
   if (!debug) return "";
 
   const bal = item.usa_balance || 0;
   const otw = item.usa_on_the_way || 0;
-  const dailyAvg = lookbackDays ? debug.trailingTotal / lookbackDays : 0;
-  const daysOfSupply = dailyAvg > 0 ? ((bal + otw) / dailyAvg).toFixed(1) : "∞ (no recent sales)";
+  const daysOfSupply = debug.avgDailyRecent > 0 ? ((bal + otw) / debug.avgDailyRecent).toFixed(1) : "∞ (no recent sales)";
 
   const seasonal3mo = seasonal3moFromDebug(item, debug);
   const rawA = Math.max(0, Math.round(debug.trailingTotal + debug.needForXDays - debug.alreadyCovered));
   const rawB = Math.max(0, Math.round(seasonal3mo + debug.needForXDays - debug.alreadyCovered));
-  const aFloorNote = rawA !== item.usa_recommended_order ? ` → floored up to ${item.usa_recommended_order} (min order size)` : "";
-  const bFloorNote = rawB !== item.usa_recommended_order_seasonal ? ` → floored up to ${item.usa_recommended_order_seasonal} (min order size)` : "";
+  const aZeroedNote = rawA > 0 && item.usa_recommended_order === 0 ? " → zeroed out (below half the minimum order size)" : "";
+  const bZeroedNote = rawB > 0 && item.usa_recommended_order_seasonal === 0 ? " → zeroed out (below half the minimum order size)" : "";
 
   return (
-    `Days of supply: (${bal} + ${otw}) / ${dailyAvg.toFixed(2)}/day = ${daysOfSupply} days\n\n` +
-    `A (Recent) = ${debug.trailingTotal} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawA}${aFloorNote}\n` +
-    `B (Seasonal, ${seasonalSourceLabel(item.usa_seasonal_source)}) = ${seasonal3mo} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawB}${bFloorNote}`
+    `Days of supply: (${bal} + ${otw}) / ${debug.avgDailyRecent}/day = ${daysOfSupply} days\n` +
+    `Days to next order: ${debug.xDays} days\n\n` +
+    `Avg daily sales used for A (recent): ${debug.avgDailyRecent}/day\n` +
+    `Avg daily sales used for B (seasonal): ${debug.avgDailySeasonal}/day\n\n` +
+    `A (Recent) = ${debug.trailingTotal} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawA}${aZeroedNote}\n` +
+    `B (Seasonal, ${seasonalSourceLabel(item.usa_seasonal_source)}) = ${seasonal3mo} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawB}${bZeroedNote}`
   );
 }
 
@@ -256,7 +264,7 @@ function TableHeader({ showAsin }) {
   );
 }
 
-function ItemRow({ item, showAsin, onSave, lookbackDays }) {
+function ItemRow({ item, showAsin, onSave }) {
   const needed = computeNeeded(item);
   const missing = computeMissing(item);
 
@@ -291,7 +299,7 @@ function ItemRow({ item, showAsin, onSave, lookbackDays }) {
           fontSize: "13px",
           color: item.usa_recommended_order > 0 || item.usa_recommended_order_seasonal > 0 ? SAVE_ERROR_COLOR : undefined,
         })}
-        title={buildRecoTooltip(item, lookbackDays)}
+        title={buildRecoTooltip(item)}
       >
         {formatUnits(item.usa_recommended_order)}/{formatUnits(item.usa_recommended_order_seasonal)}
       </td>
@@ -323,7 +331,7 @@ function ItemRow({ item, showAsin, onSave, lookbackDays }) {
   );
 }
 
-function GroupSection({ group, showAsin, expanded, onToggle, onSave, lookbackDays }) {
+function GroupSection({ group, showAsin, expanded, onToggle, onSave }) {
   return (
     <div style={cardStyle()}>
       <div
@@ -350,7 +358,7 @@ function GroupSection({ group, showAsin, expanded, onToggle, onSave, lookbackDay
             <TableHeader showAsin={showAsin} />
             <tbody>
               {group.items.map((item) => (
-                <ItemRow key={item.sku} item={item} showAsin={showAsin} onSave={onSave} lookbackDays={lookbackDays} />
+                <ItemRow key={item.sku} item={item} showAsin={showAsin} onSave={onSave} />
               ))}
             </tbody>
           </table>
@@ -741,7 +749,6 @@ export default function NextOrderPage() {
               expanded={!collapsedGroups[group.group]}
               onToggle={() => toggleGroup(group.group)}
               onSave={saveField}
-              lookbackDays={recoMeta?.trailingLookbackDays}
             />
           ))}
         </div>
