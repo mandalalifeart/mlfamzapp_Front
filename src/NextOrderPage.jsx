@@ -138,10 +138,14 @@ function buildRecoTooltip(item) {
   const aZeroedNote = rawA > 0 && item.usa_recommended_order === 0 ? " → zeroed out (below half the minimum order size)" : "";
   const bZeroedNote = rawB > 0 && item.usa_recommended_order_seasonal === 0 ? " → zeroed out (below half the minimum order size)" : "";
 
+  const stockoutNote = debug.zeroInventoryWeeks > 0
+    ? `\n(excludes ${debug.zeroInventoryWeeks} week${debug.zeroInventoryWeeks === 1 ? "" : "s"} of zero USA stock from the recent-avg calc)`
+    : "";
+
   return (
     `Days of supply: (${bal} + ${otw}) / ${debug.avgDailyRecent}/day = ${daysOfSupply} days\n` +
     `Days to next order: ${debug.xDays} days\n\n` +
-    `Avg daily sales used for A (recent): ${debug.avgDailyRecent}/day\n` +
+    `Avg daily sales used for A (recent): ${debug.avgDailyRecent}/day${stockoutNote}\n` +
     `Avg daily sales used for B (seasonal): ${debug.avgDailySeasonal}/day\n\n` +
     `A (Recent) = ${debug.trailingTotal} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawA}${aZeroedNote}\n` +
     `B (Seasonal, ${seasonalSourceLabel(item.usa_seasonal_source)}) = ${seasonal3mo} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawB}${bZeroedNote}`
