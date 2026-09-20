@@ -100,6 +100,46 @@ function seasonalSourceLabel(source) {
   }
 }
 
+function seasonal3moFromDebug(item, debug) {
+  switch (item.usa_seasonal_source) {
+    case "2yr_avg":
+      return (debug.year1Total + debug.year2Total) / 2;
+    case "1yr_only":
+      return debug.year1Total;
+    case "2yr_only":
+      return debug.year2Total;
+    default:
+      return debug.trailingTotal;
+  }
+}
+
+// Full breakdown shown on hover, per the user (2026-09-20): days of supply
+// (Bal+OTW ÷ daily avg) plus the exact formula for both A and B with real
+// numbers plugged in - reusing usa_reco_debug (the same raw intermediates
+// the bottom-of-page worked example already renders) so this never drifts
+// from the backend's actual calculation.
+function buildRecoTooltip(item, lookbackDays) {
+  const debug = item.usa_reco_debug;
+  if (!debug) return "";
+
+  const bal = item.usa_balance || 0;
+  const otw = item.usa_on_the_way || 0;
+  const dailyAvg = lookbackDays ? debug.trailingTotal / lookbackDays : 0;
+  const daysOfSupply = dailyAvg > 0 ? ((bal + otw) / dailyAvg).toFixed(1) : "∞ (no recent sales)";
+
+  const seasonal3mo = seasonal3moFromDebug(item, debug);
+  const rawA = Math.max(0, Math.round(debug.trailingTotal + debug.needForXDays - debug.alreadyCovered));
+  const rawB = Math.max(0, Math.round(seasonal3mo + debug.needForXDays - debug.alreadyCovered));
+  const aFloorNote = rawA !== item.usa_recommended_order ? ` → floored up to ${item.usa_recommended_order} (min order size)` : "";
+  const bFloorNote = rawB !== item.usa_recommended_order_seasonal ? ` → floored up to ${item.usa_recommended_order_seasonal} (min order size)` : "";
+
+  return (
+    `Days of supply: (${bal} + ${otw}) / ${dailyAvg.toFixed(2)}/day = ${daysOfSupply} days\n\n` +
+    `A (Recent) = ${debug.trailingTotal} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawA}${aFloorNote}\n` +
+    `B (Seasonal, ${seasonalSourceLabel(item.usa_seasonal_source)}) = ${seasonal3mo} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawB}${bFloorNote}`
+  );
+}
+
 // needed = sum of the three "next shipment" quantities being planned across markets.
 function computeNeeded(item) {
   return (item.uk_next_shipment || 0) + (item.de_next_shipment || 0) + (item.usa_next_shipment || 0);
@@ -216,7 +256,7 @@ function TableHeader({ showAsin }) {
   );
 }
 
-function ItemRow({ item, showAsin, onSave }) {
+function ItemRow({ item, showAsin, onSave, lookbackDays }) {
   const needed = computeNeeded(item);
   const missing = computeMissing(item);
 
@@ -251,10 +291,7 @@ function ItemRow({ item, showAsin, onSave }) {
           fontSize: "13px",
           color: item.usa_recommended_order > 0 || item.usa_recommended_order_seasonal > 0 ? SAVE_ERROR_COLOR : undefined,
         })}
-        title={
-          `Recent (A): ${formatUnits(item.usa_recommended_order)} - based on last 3 months, avg ${item.usa_avg_monthly_sales ?? 0}/month\n` +
-          `Seasonal (B): ${formatUnits(item.usa_recommended_order_seasonal)} - ${seasonalSourceLabel(item.usa_seasonal_source)}`
-        }
+        title={buildRecoTooltip(item, lookbackDays)}
       >
         {formatUnits(item.usa_recommended_order)}/{formatUnits(item.usa_recommended_order_seasonal)}
       </td>
@@ -286,7 +323,7 @@ function ItemRow({ item, showAsin, onSave }) {
   );
 }
 
-function GroupSection({ group, showAsin, expanded, onToggle, onSave }) {
+function GroupSection({ group, showAsin, expanded, onToggle, onSave, lookbackDays }) {
   return (
     <div style={cardStyle()}>
       <div
@@ -313,7 +350,7 @@ function GroupSection({ group, showAsin, expanded, onToggle, onSave }) {
             <TableHeader showAsin={showAsin} />
             <tbody>
               {group.items.map((item) => (
-                <ItemRow key={item.sku} item={item} showAsin={showAsin} onSave={onSave} />
+                <ItemRow key={item.sku} item={item} showAsin={showAsin} onSave={onSave} lookbackDays={lookbackDays} />
               ))}
             </tbody>
           </table>
@@ -439,6 +476,7 @@ export default function NextOrderPage() {
       setNextShipmentDate(data.nextShipmentDate || "");
       setRecoMeta({
         trailingMonths: data.trailingMonths || [],
+        trailingLookbackDays: data.trailingLookbackDays || 0,
         seasonalYear1Months: data.seasonalYear1Months || [],
         seasonalYear2Months: data.seasonalYear2Months || [],
       });
@@ -589,6 +627,17 @@ export default function NextOrderPage() {
     return null;
   }, [groups]);
 
+  // Same "clamp at 0" convention as the backend's x_days (an overdue date
+  // shouldn't show as negative) - computed client-side since it's pure
+  // today-vs-the-date math with no server data needed.
+  const daysUntilShipment = useMemo(() => {
+    if (!nextShipmentDate) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const target = new Date(`${nextShipmentDate}T00:00:00`);
+    return Math.max(0, Math.round((target - today) / (1000 * 60 * 60 * 24)));
+  }, [nextShipmentDate]);
+
   return (
     <div
       style={{
@@ -628,6 +677,11 @@ export default function NextOrderPage() {
         />
         {dateSaveStatus === "saving" && <span style={{ color: "#888" }}>Saving...</span>}
         {dateSaveStatus === "saved" && <span style={{ color: SAVE_OK_COLOR }}>Saved</span>}
+        {daysUntilShipment !== null && (
+          <span style={{ fontWeight: 600, color: "#333" }}>
+            ({daysUntilShipment} day{daysUntilShipment === 1 ? "" : "s"} left)
+          </span>
+        )}
         <span style={{ color: "#777" }}>
           (used to compute the USA Reco column - see the explanation and worked example at the bottom of the page)
         </span>
@@ -687,6 +741,7 @@ export default function NextOrderPage() {
               expanded={!collapsedGroups[group.group]}
               onToggle={() => toggleGroup(group.group)}
               onSave={saveField}
+              lookbackDays={recoMeta?.trailingLookbackDays}
             />
           ))}
         </div>
