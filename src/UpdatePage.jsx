@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { buttonStyle } from "./buttonStyle";
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE ||
-  "https://us-central1-mlfamzapp.cloudfunctions.net";
+// PocketBase-only functions run on the mini PC that already hosts
+// PocketBase, instead of GCP - see CLAUDE.md "AmzBot: local job runner".
+const API_BASE = "https://amzapi.mandalalifeart.com";
 
 // 2022-2024 were backfilled from an authoritative export and are locked
 // against the live pipeline (see UpdateSkuSalesMonth.py's LOCKED_YEARS_MAX) -
@@ -21,21 +22,7 @@ function bottomNavStyle() {
   };
 }
 
-function smallButtonStyle(disabled = false) {
-  return {
-    padding: "10px 18px",
-    fontSize: "14px",
-    cursor: disabled ? "not-allowed" : "pointer",
-    borderRadius: "8px",
-    border: "none",
-    background: disabled ? "#9bbcf7" : "#1976d2",
-    color: "#ffffff",
-    fontWeight: "600",
-    opacity: disabled ? 0.6 : 1,
-    textDecoration: "none",
-    display: "inline-block",
-  };
-}
+const smallButtonStyle = buttonStyle;
 
 function cardStyle() {
   return {
@@ -150,11 +137,18 @@ function DataTable({ title, rows }) {
 
 export default function UpdatePage() {
   const location = useLocation();
+  // A new-tab open (window.open, not a same-tab <Link>/navigate) has no
+  // react-router history state at all, so this page's report IDs/dates -
+  // required for it to do anything - are also accepted as URL query params
+  // (ReportViewPage's "Update" button builds one of these URLs). state
+  // still wins when present, matching the existing same-tab Home/report
+  // flow.
+  const queryParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
 
-  const usaReportId = location.state?.usaReportId || "";
-  const deReportId = location.state?.deReportId || "";
-  const startDate = location.state?.startDate || "";
-  const endDate = location.state?.endDate || "";
+  const usaReportId = location.state?.usaReportId || queryParams.get("usaReportId") || "";
+  const deReportId = location.state?.deReportId || queryParams.get("deReportId") || "";
+  const startDate = location.state?.startDate || queryParams.get("startDate") || "";
+  const endDate = location.state?.endDate || queryParams.get("endDate") || "";
 
   const [confirmMonth, setConfirmMonth] = useState("");
   const [confirmYear, setConfirmYear] = useState("");

@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
+import { buttonStyle } from "./buttonStyle";
+import AdsCountryBreakdown from "./AdsCountryBreakdown";
+import CollapsibleSection from "./CollapsibleSection";
 
 const IMAGE_BASE = "https://storage.googleapis.com/mlf-amz-images/";
 
@@ -7,6 +10,8 @@ function productLink(sku, asin) {
   return `/product?asin=${encodeURIComponent(asin || "")}&sku=${encodeURIComponent(sku || "")}`;
 }
 
+// MlfReportGet is SP-API-only (no PocketBase dependency), so it runs on
+// GCP - see CLAUDE.md "AmzBot: local job runner".
 const API_BASE = "https://us-central1-mlfamzapp.cloudfunctions.net";
 
 /*
@@ -32,6 +37,10 @@ const currencyRatesToEur = {
   DKK: 0.134,
   RON: 0.2,
   BGN: 0.51,
+};
+
+const currencyRatesToGbp = {
+  GBP: 1,
 };
 
 const MARKETPLACE_OPTIONS = [
@@ -70,7 +79,9 @@ function shouldIgnoreSalesChannel(salesChannel) {
 }
 
 function getBaseCurrencyForRegion(region) {
-  return region === "usa" ? "USD" : "EUR";
+  if (region === "usa") return "USD";
+  if (region === "uk") return "GBP";
+  return "EUR";
 }
 
 function convertCurrencyAmount(amount, fromCurrency, region) {
@@ -85,6 +96,15 @@ function convertCurrencyAmount(amount, fromCurrency, region) {
     const rate = currencyRatesToUsd[from];
     if (!rate) {
       console.warn(`Missing USD conversion rate for currency: ${from}`);
+      return safeAmount;
+    }
+    return safeAmount * rate;
+  }
+
+  if (region === "uk") {
+    const rate = currencyRatesToGbp[from];
+    if (!rate) {
+      console.warn(`Missing GBP conversion rate for currency: ${from}`);
       return safeAmount;
     }
     return safeAmount * rate;
@@ -215,9 +235,10 @@ function formatOrderTime(dateText) {
   });
 }
 
-function extractSkuSalesFromXmlPayload(payload, region, selectedMarketplace = "") {
+function extractSkuSalesFromXmlPayload(payload, region, selectedMarketplace = "", excludeMarketplace = "") {
   const baseCurrency = getBaseCurrencyForRegion(region);
   const marketplaceFilter = normalizeSalesChannel(selectedMarketplace);
+  const marketplaceExclude = normalizeSalesChannel(excludeMarketplace);
 
   if (!payload || typeof payload !== "string") {
     return {
@@ -260,6 +281,10 @@ function extractSkuSalesFromXmlPayload(payload, region, selectedMarketplace = ""
     }
 
     if (marketplaceFilter && normalizedSalesChannel !== marketplaceFilter) {
+      continue;
+    }
+
+    if (marketplaceExclude && normalizedSalesChannel === marketplaceExclude) {
       continue;
     }
 
@@ -366,9 +391,10 @@ function extractSkuSalesFromXmlPayload(payload, region, selectedMarketplace = ""
   };
 }
 
-function extractLastOrdersFromXmlPayload(payload, region, selectedMarketplace = "") {
+function extractLastOrdersFromXmlPayload(payload, region, selectedMarketplace = "", excludeMarketplace = "") {
   const baseCurrency = getBaseCurrencyForRegion(region);
   const marketplaceFilter = normalizeSalesChannel(selectedMarketplace);
+  const marketplaceExclude = normalizeSalesChannel(excludeMarketplace);
 
   if (!payload || typeof payload !== "string") {
     return [];
@@ -395,6 +421,10 @@ function extractLastOrdersFromXmlPayload(payload, region, selectedMarketplace = 
     }
 
     if (marketplaceFilter && normalizedSalesChannel !== marketplaceFilter) {
+      continue;
+    }
+
+    if (marketplaceExclude && normalizedSalesChannel === marketplaceExclude) {
       continue;
     }
 
@@ -537,20 +567,7 @@ function bottomNavStyle() {
 // Also used on a <Link> for the Home nav button (real <a>, so right-click
 // "open in new tab" works) - spelled out explicitly since Link doesn't pick
 // up App.css's generic `button` rule the way a real <button> does.
-function smallButtonStyle() {
-  return {
-    padding: "8px 16px",
-    fontSize: "14px",
-    cursor: "pointer",
-    borderRadius: "8px",
-    border: "none",
-    background: "#7d94bc",
-    color: "#fff",
-    fontWeight: 700,
-    textDecoration: "none",
-    display: "inline-block",
-  };
-}
+const smallButtonStyle = buttonStyle;
 
 function updateButtonStyle() {
   return {
@@ -578,93 +595,6 @@ function sectionCardStyle() {
     marginBottom: "20px",
     overflow: "hidden",
   };
-}
-
-function collapsibleHeaderStyle() {
-  return {
-    width: "100%",
-    boxSizing: "border-box",
-    border: "1px solid #ddd",
-    backgroundColor: "#ffffff",
-    color: "#222222",
-    borderRadius: "8px",
-    padding: "10px 12px",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "12px",
-    fontFamily: "Arial, sans-serif",
-    fontSize: "16px",
-    fontWeight: 700,
-    lineHeight: 1.3,
-    textAlign: "left",
-    opacity: 1,
-    visibility: "visible",
-    minHeight: "42px",
-  };
-}
-
-function CollapsibleSection({ title, defaultOpen = true, children }) {
-  const safeTitle = title || "Section";
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-
-  return (
-    <div style={{ marginTop: 20 }}>
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => setIsOpen((current) => !current)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setIsOpen((current) => !current);
-          }
-        }}
-        style={collapsibleHeaderStyle()}
-        aria-expanded={isOpen}
-        title={safeTitle}
-      >
-        <div
-          style={{
-            color: "#222222",
-            fontFamily: "Arial, sans-serif",
-            fontSize: "16px",
-            fontWeight: 700,
-            lineHeight: 1.3,
-            whiteSpace: "normal",
-            wordBreak: "break-word",
-            overflowWrap: "anywhere",
-            overflow: "visible",
-            opacity: 1,
-            visibility: "visible",
-            flex: "1 1 auto",
-            minWidth: 0,
-          }}
-        >
-          {safeTitle}
-        </div>
-
-        <div
-          aria-hidden="true"
-          style={{
-            color: "#222222",
-            fontFamily: "Arial, sans-serif",
-            fontSize: "16px",
-            fontWeight: 700,
-            lineHeight: 1.3,
-            opacity: 1,
-            visibility: "visible",
-            flex: "0 0 auto",
-          }}
-        >
-          {isOpen ? "▲" : "▼"}
-        </div>
-      </div>
-
-      {isOpen && <div style={{ marginTop: 12 }}>{children}</div>}
-    </div>
-  );
 }
 
 function RegionTable({ title, summary, isMobile }) {
@@ -907,7 +837,6 @@ function LastOrdersTable({ title, rows, isMobile }) {
 
 export default function ReportViewPage() {
   const location = useLocation();
-  const navigate = useNavigate();
 
   const usaReportId = location.state?.usaReportId || "";
   const deReportId = location.state?.deReportId || "";
@@ -924,16 +853,66 @@ export default function ReportViewPage() {
   const [deResponse, setDeResponse] = useState(null);
   const [selectedMarketplace, setSelectedMarketplace] = useState("");
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [expandedRegions, setExpandedRegions] = useState({});
 
   const usaSummary = useMemo(() => {
     const payload = usaResponse?.data?.payload;
     return extractSkuSalesFromXmlPayload(payload, "usa", selectedMarketplace);
   }, [usaResponse, selectedMarketplace]);
 
+  // The "de" report is really the whole EU region, and Amazon bundles the UK
+  // into it too (confirmed live 2026-09-04 - 228 real amazon.co.uk orders
+  // present in a single "de" report pull), NOT just the 9 EU_MARKETPLACES
+  // countries. So "EU" here excludes co.uk by default (kept as its own peer
+  // row below) unless the user has explicitly picked a specific marketplace
+  // from the dropdown, in which case that exact selection is honored as-is.
   const deSummary = useMemo(() => {
     const payload = deResponse?.data?.payload;
-    return extractSkuSalesFromXmlPayload(payload, "de", selectedMarketplace);
+    const excludeUk = !selectedMarketplace;
+    return extractSkuSalesFromXmlPayload(payload, "de", selectedMarketplace, excludeUk ? "amazon.co.uk" : "");
   }, [deResponse, selectedMarketplace]);
+
+  // UK's own totals - derived from the SAME already-fetched "de" report
+  // payload (no separate report request - see the note on deSummary above),
+  // always scoped to just amazon.co.uk regardless of the page-wide dropdown,
+  // same as how usaSubSummaries' Canada/Mexico rows are always fixed too.
+  const ukSummary = useMemo(() => {
+    const payload = deResponse?.data?.payload;
+    return extractSkuSalesFromXmlPayload(payload, "uk", "amazon.co.uk");
+  }, [deResponse]);
+
+  // Per-country sub-summaries for the Summary by Region table's USA/EU
+  // expand rows - reuses the same extraction function already used for the
+  // top-level totals, just re-filtered per SalesChannel. USA's own report
+  // payload already carries amazon.ca/amazon.com.mx orders (Amazon bundles
+  // NA marketplaces into one report), and DE's payload carries every other
+  // EU country via SalesChannel, matching MARKETPLACE_OPTIONS above.
+  const usaSubSummaries = useMemo(() => {
+    const payload = usaResponse?.data?.payload;
+    return [
+      { label: "Canada", value: extractSkuSalesFromXmlPayload(payload, "usa", "amazon.ca") },
+      { label: "Mexico", value: extractSkuSalesFromXmlPayload(payload, "usa", "amazon.com.mx") },
+    ];
+  }, [usaResponse]);
+
+  const euSubSummaries = useMemo(() => {
+    const payload = deResponse?.data?.payload;
+    const euCodes = [
+      { code: "amazon.de", label: "Germany" },
+      { code: "amazon.fr", label: "France" },
+      { code: "amazon.it", label: "Italy" },
+      { code: "amazon.es", label: "Spain" },
+      { code: "amazon.nl", label: "Netherlands" },
+      { code: "amazon.se", label: "Sweden" },
+      { code: "amazon.pl", label: "Poland" },
+      { code: "amazon.com.be", label: "Belgium" },
+      { code: "amazon.ie", label: "Ireland" },
+    ];
+    return euCodes.map(({ code, label }) => ({
+      label,
+      value: extractSkuSalesFromXmlPayload(payload, "de", code),
+    }));
+  }, [deResponse]);
 
   const usaLastOrders = useMemo(() => {
     const payload = usaResponse?.data?.payload;
@@ -942,8 +921,14 @@ export default function ReportViewPage() {
 
   const deLastOrders = useMemo(() => {
     const payload = deResponse?.data?.payload;
-    return extractLastOrdersFromXmlPayload(payload, "de", selectedMarketplace);
+    const excludeUk = !selectedMarketplace;
+    return extractLastOrdersFromXmlPayload(payload, "de", selectedMarketplace, excludeUk ? "amazon.co.uk" : "");
   }, [deResponse, selectedMarketplace]);
+
+  const ukLastOrders = useMemo(() => {
+    const payload = deResponse?.data?.payload;
+    return extractLastOrdersFromXmlPayload(payload, "uk", "amazon.co.uk");
+  }, [deResponse]);
 
   const usaMpCounts = useMemo(() => {
     return extractMarketplaceItemCounts(usaResponse?.data?.payload);
@@ -976,26 +961,20 @@ export default function ReportViewPage() {
       });
   }, [mergedMpCounts]);
 
+  // Per the user: Sales and Update open in a new tab rather than navigating
+  // away from this report-view page. window.open (not <Link target="_blank">
+  // or navigate()) is used because a genuinely new tab has no react-router
+  // history of its own, so react-router's navigate(path, {state}) can't
+  // carry data into it - Update's report IDs/dates are passed as URL query
+  // params instead (UpdatePage reads either source, see its own comment).
+  // Sales needs no data at all (doesn't read location.state).
   function goToSales() {
-    navigate("/sales", {
-      state: {
-        usaReportId,
-        deReportId,
-        startDate,
-        endDate,
-      },
-    });
+    window.open("/sales", "_blank", "noopener,noreferrer");
   }
 
   function goToUpdate() {
-    navigate("/update", {
-      state: {
-        usaReportId,
-        deReportId,
-        startDate,
-        endDate,
-      },
-    });
+    const params = new URLSearchParams({ usaReportId, deReportId, startDate, endDate });
+    window.open(`/update?${params.toString()}`, "_blank", "noopener,noreferrer");
   }
 
   useEffect(() => {
@@ -1212,18 +1191,62 @@ export default function ReportViewPage() {
     };
   }, [deReportId]);
 
+  const [usdRates, setUsdRates] = useState({});
+  useEffect(() => {
+    // Live 1-USD-buys-<currency> rates, same source/fallback pattern as the
+    // backend's GetMarketplaceSalesSummary.fetch_usd_rates - used only to
+    // blend this report's own EUR/GBP totals into one USD figure.
+    fetch("https://api.frankfurter.dev/v1/latest?from=USD&to=EUR,GBP")
+      .then((r) => r.json())
+      .then((d) => setUsdRates(d.rates || {}))
+      .catch(() => setUsdRates({ EUR: 0.92, GBP: 0.79 }));
+  }, []);
+
+  function toUsd(amount, currency) {
+    if (currency === "USD") return amount;
+    const rate = usdRates[currency];
+    return rate ? amount / rate : null;
+  }
+
+  const usaUsd = toUsd(usaSummary.totalAmount, usaSummary.currency);
+  const euUsd = toUsd(deSummary.totalAmount, deSummary.currency);
+  const ukUsd = toUsd(ukSummary.totalAmount, ukSummary.currency);
+  const totalSalesUsd =
+    usaUsd === null || euUsd === null || ukUsd === null ? null : usaUsd + euUsd + ukUsd;
+
   const regionSummaryRows = [
     {
       region: "USA",
       orders: usaSummary.totalOrders,
       items: usaSummary.totalItems,
       amount: `${usaSummary.totalAmount} ${usaSummary.currency}`,
+      children: usaSubSummaries.map((s) => ({
+        region: s.label,
+        orders: s.value.totalOrders,
+        items: s.value.totalItems,
+        amount: `${s.value.totalAmount} ${s.value.currency}`,
+      })),
     },
     {
-      region: "DE",
+      // Displayed as "EU" - the DE-region report actually aggregates the
+      // whole EU region (SalesChannel-disaggregated), not just Germany.
+      region: "EU",
       orders: deSummary.totalOrders,
       items: deSummary.totalItems,
       amount: `${deSummary.totalAmount} ${deSummary.currency}`,
+      children: euSubSummaries.map((s) => ({
+        region: s.label,
+        orders: s.value.totalOrders,
+        items: s.value.totalItems,
+        amount: `${s.value.totalAmount} ${s.value.currency}`,
+      })),
+    },
+    {
+      region: "UK",
+      orders: ukSummary.totalOrders,
+      items: ukSummary.totalItems,
+      amount: `${ukSummary.totalAmount} ${ukSummary.currency}`,
+      children: [],
     },
   ];
 
@@ -1244,7 +1267,12 @@ export default function ReportViewPage() {
         width: "100%",
       }}
     >
-      <h2 style={{ textAlign: "center", marginTop: 0 }}>Report View</h2>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "12px", marginBottom: "4px", flexWrap: "wrap" }}>
+        <h2 style={{ margin: 0, color: "#1976d2" }}>Report View</h2>
+        <Link style={smallButtonStyle()} to="/">
+          Home
+        </Link>
+      </div>
 
       <div
         style={{
@@ -1266,6 +1294,9 @@ export default function ReportViewPage() {
       <div style={{ maxWidth: "1100px", marginInline: "auto" }}>
         <div style={sectionCardStyle()}>
           <h3 style={{ marginTop: 0, textAlign: "center" }}>Summary by Region</h3>
+          <p style={{ textAlign: "center", fontWeight: 600, marginTop: 0 }}>
+            Total Sales (USD): {totalSalesUsd === null ? "Loading..." : `$${totalSalesUsd.toFixed(2)}`}
+          </p>
 
           <div
             style={{
@@ -1302,18 +1333,48 @@ export default function ReportViewPage() {
                 </tr>
               </thead>
               <tbody>
-                {regionSummaryRows.map((row) => (
-                  <tr key={row.region}>
-                    <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px" }}>{row.region}</td>
-                    <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px" }}>{row.orders}</td>
-                    <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px" }}>{row.items}</td>
-                    <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px" }}>{row.amount}</td>
-                  </tr>
-                ))}
+                {regionSummaryRows.map((row) => {
+                  const hasChildren = row.children && row.children.length > 0;
+                  const isOpen = !!expandedRegions[row.region];
+                  return (
+                    <Fragment key={row.region}>
+                      <tr>
+                        <td
+                          style={{
+                            border: "1px solid #ccc",
+                            padding: isMobile ? "8px" : "10px",
+                            cursor: hasChildren ? "pointer" : "default",
+                            fontWeight: 600,
+                          }}
+                          onClick={() => hasChildren && setExpandedRegions((s) => ({ ...s, [row.region]: !s[row.region] }))}
+                        >
+                          {hasChildren && <span style={{ display: "inline-block", width: "14px" }}>{isOpen ? "▾" : "▸"}</span>}
+                          {row.region}
+                        </td>
+                        <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px" }}>{row.orders}</td>
+                        <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px" }}>{row.items}</td>
+                        <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px" }}>{row.amount}</td>
+                      </tr>
+                      {isOpen &&
+                        row.children.map((child) => (
+                          <tr key={`${row.region}-${child.region}`}>
+                            <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px", paddingLeft: "34px", color: "#555" }}>
+                              {child.region}
+                            </td>
+                            <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px" }}>{child.orders}</td>
+                            <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px" }}>{child.items}</td>
+                            <td style={{ border: "1px solid #ccc", padding: isMobile ? "8px" : "10px" }}>{child.amount}</td>
+                          </tr>
+                        ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
+
+        <AdsCountryBreakdown />
 
         {loadingUsa && (
           <div style={sectionCardStyle()}>
@@ -1374,6 +1435,25 @@ export default function ReportViewPage() {
             />
           </div>
         )}
+
+        {!loadingDe && !errorDe && (
+          <div style={sectionCardStyle()}>
+            {/* UK data comes from the same "de" report payload (Amazon
+                bundles amazon.co.uk orders into it) - always scoped to just
+                the UK regardless of the page-wide marketplace dropdown. */}
+            <RegionTable
+              title="UK Totals + SKU Table (amazon.co.uk)"
+              summary={ukSummary}
+              isMobile={isMobile}
+            />
+
+            <LastOrdersTable
+              title="UK Last 10 Orders (amazon.co.uk)"
+              rows={ukLastOrders}
+              isMobile={isMobile}
+            />
+          </div>
+        )}
       </div>
 
       <div style={bottomNavStyle()}>
@@ -1390,7 +1470,7 @@ export default function ReportViewPage() {
           style={selectorStyle()}
         >
           <option value="">
-            All marketplaces ({usaSummary.totalItems + deSummary.totalItems})
+            All marketplaces ({usaSummary.totalItems + deSummary.totalItems + ukSummary.totalItems})
           </option>
 
           {sortedMarketplaceOptions.map((option) => (
