@@ -227,17 +227,16 @@ function EditableCell({ item, field, onSave }) {
   );
 }
 
-const HEADER_LABELS_WITH_ASIN = [
-  "Image", "SKU", "ASIN",
-  "USA Bal", "USA OTW", "USA Next", "USA Reco (A/B)",
-  "DE Bal", "DE OTW", "DE Next", "DE Reco (A/B)",
-  "UK Bal", "UK OTW", "UK Next", "UK Reco (A/B)",
-  "Malani Bal", "Malani Ord",
-  "Needed", "Missing", "Next Order",
-];
-const HEADER_LABELS_NO_ASIN = HEADER_LABELS_WITH_ASIN.filter((l) => l !== "ASIN");
-const LEADING_COLS_WITH_ASIN = 3; // Image, SKU, ASIN
-const LEADING_COLS_NO_ASIN = 2; // Image, SKU
+// Two-row header per the user (2026-09-22): a top row grouping columns
+// under USA / DE / UK / GENERAL (colSpan), with the actual field names
+// (Bal, OTW, Next, Reco) on the row below - the single flat "USA Bal",
+// "USA OTW", ... row got too cramped once DE/UK Reco columns were added,
+// truncating almost every header to "USA...". Dropping the repeated region
+// prefix from the row-2 labels (since the group row above already says it)
+// also frees up real width for each column.
+const REGION_SUBLABELS = ["Bal", "OTW", "Next", "Reco (A/B)"];
+const GENERAL_SUBLABELS = ["Malani Bal", "Malani Ord", "Needed", "Missing", "Next Order"];
+const ROW2_LABELS = [...REGION_SUBLABELS, ...REGION_SUBLABELS, ...REGION_SUBLABELS, ...GENERAL_SUBLABELS];
 
 function ColGroup({ showAsin }) {
   const widths = showAsin ? COLUMN_WIDTHS_WITH_ASIN : COLUMN_WIDTHS_NO_ASIN;
@@ -251,20 +250,25 @@ function ColGroup({ showAsin }) {
 }
 
 function TableHeader({ showAsin }) {
-  const labels = showAsin ? HEADER_LABELS_WITH_ASIN : HEADER_LABELS_NO_ASIN;
-  const leadingCols = showAsin ? LEADING_COLS_WITH_ASIN : LEADING_COLS_NO_ASIN;
+  const leadingLabels = showAsin ? ["Image", "SKU", "ASIN"] : ["Image", "SKU"];
+  const groupHeaderStyle = numberCellStyle({ background: "#e8e8e8", textAlign: "center", fontWeight: 700 });
+
   return (
     <thead>
       <tr>
-        {labels.map((label, i) => (
-          <th
-            key={label}
-            style={
-              i < leadingCols
-                ? tableCellStyle({ background: "#f4f4f4" })
-                : numberCellStyle({ background: "#f4f4f4" })
-            }
-          >
+        {leadingLabels.map((label) => (
+          <th key={label} rowSpan={2} style={tableCellStyle({ background: "#f4f4f4" })}>
+            {label}
+          </th>
+        ))}
+        <th colSpan={4} style={groupHeaderStyle}>USA</th>
+        <th colSpan={4} style={groupHeaderStyle}>DE</th>
+        <th colSpan={4} style={groupHeaderStyle}>UK</th>
+        <th colSpan={5} style={groupHeaderStyle}>GENERAL</th>
+      </tr>
+      <tr>
+        {ROW2_LABELS.map((label, i) => (
+          <th key={i} style={numberCellStyle({ background: "#f4f4f4" })}>
             {label}
           </th>
         ))}
