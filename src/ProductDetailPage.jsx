@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { MoveToGroupControl } from "./SalesPage";
+import { buttonStyle } from "./buttonStyle";
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE ||
-  "https://us-central1-mlfamzapp.cloudfunctions.net";
+// PocketBase-only functions run on the mini PC that already hosts
+// PocketBase, instead of GCP - see CLAUDE.md "AmzBot: local job runner".
+const API_BASE = "https://amzapi.mandalalifeart.com";
 
 const IMAGE_BASE = "https://storage.googleapis.com/mlf-amz-images/";
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -23,20 +24,7 @@ function cardStyle() {
   };
 }
 
-function blueButtonStyle() {
-  return {
-    padding: "10px 18px",
-    fontSize: "14px",
-    cursor: "pointer",
-    borderRadius: "8px",
-    border: "none",
-    background: "#1976d2",
-    color: "#fff",
-    fontWeight: "600",
-    textDecoration: "none",
-    display: "inline-block",
-  };
-}
+const blueButtonStyle = buttonStyle;
 
 function tableCellStyle(extra = {}) {
   return {
@@ -144,7 +132,7 @@ function computeNeeded(item) {
 }
 
 function computeMissing(item) {
-  return computeNeeded(item) - (item.malani_balance || 0) + (item.malani_order || 0);
+  return computeNeeded(item) - (item.malani_balance || 0) - (item.malani_order || 0);
 }
 
 const STOCK_ROW_STATUS_BORDER = {
@@ -201,15 +189,59 @@ function StockRowEditableCell({ item, field, onSave }) {
   );
 }
 
-const STOCK_ROW_HEADERS = [
-  "UK Bal", "UK OTW", "UK Next",
-  "DE Bal", "DE OTW", "DE Next",
-  "USA Bal", "USA OTW", "USA Next",
-  "Malani Bal", "Malani Ord",
-  "Needed", "Missing", "Next Order",
+// Per the user (2026-09-22): one row per region (USA/DE/UK) instead of one
+// wide row with every region's fields side by side, showing FBA + AWD
+// (instead of just a combined "Bal") plus Reco (A/B) - the same fields and
+// same Reco engine as the Next Order page's per-region column groups, just
+// laid out as rows here since a single product only ever has 3 regions to
+// show (vs. many SKUs needing columns on the list page). DE gets an extra
+// LG column (the 3rd-party Lagerpark Meiningen UG warehouse balance) that
+// USA/UK don't have, shown as "–" for those two rather than a 4th
+// region-specific table shape.
+const REGION_ROWS = [
+  { region: "usa", label: "USA", fbaField: "usa_balance_fba", awdField: "usa_balance_awd", lgField: null, otwField: "usa_on_the_way", nextField: "usa_next_shipment" },
+  { region: "de", label: "DE", fbaField: "de_balance_fba", awdField: "de_balance_awd", lgField: "de_balance_lg", otwField: "de_on_the_way", nextField: "de_next_shipment" },
+  { region: "uk", label: "UK", fbaField: "uk_balance_fba", awdField: "uk_balance_awd", lgField: null, otwField: "uk_on_the_way", nextField: "uk_next_shipment" },
 ];
 
-function StockCard({ stock, sku, onSave }) {
+function seasonalTotalFromDebug(seasonalSource, debug) {
+  switch (seasonalSource) {
+    case "2yr_avg":
+      return (debug.year1Total + debug.year2Total) / 2;
+    case "1yr_only":
+      return debug.year1Total;
+    case "2yr_only":
+      return debug.year2Total;
+    default:
+      return debug.trailingTotal;
+  }
+}
+
+// Same content/shape as NextOrderPage's buildRecoTooltip, adapted to this
+// page's data shape (recos.<region>.debug/seasonalSource/recommended... vs
+// NextOrderPage's flat item.<region>_reco_debug fields).
+function buildRecoTooltip(reco) {
+  if (!reco || !reco.debug) return "";
+  const { debug } = reco;
+  const seasonalTotal = seasonalTotalFromDebug(reco.seasonalSource, debug);
+  const rawA = Math.max(0, Math.round(debug.trailingTotal + debug.needForXDays - debug.alreadyCovered));
+  const rawB = Math.max(0, Math.round(seasonalTotal + debug.needForXDays - debug.alreadyCovered));
+  const aZeroedNote = rawA > 0 && reco.recommended === 0 ? " → zeroed out (below half the minimum order size)" : "";
+  const bZeroedNote = rawB > 0 && reco.recommendedSeasonal === 0 ? " → zeroed out (below half the minimum order size)" : "";
+  const stockoutNote = debug.zeroInventoryWeeks > 0
+    ? `\n(excludes ${debug.zeroInventoryWeeks} week${debug.zeroInventoryWeeks === 1 ? "" : "s"} of zero stock from the recent-avg calc)`
+    : "";
+
+  return (
+    `Days to next order: ${debug.xDays} days\n\n` +
+    `Avg daily sales used for A (recent): ${debug.avgDailyRecent}/day${stockoutNote}\n` +
+    `Avg daily sales used for B (seasonal): ${debug.avgDailySeasonal}/day\n\n` +
+    `A (Recent) = ${debug.trailingTotal} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawA}${aZeroedNote}\n` +
+    `B (Seasonal) = ${seasonalTotal} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawB}${bZeroedNote}`
+  );
+}
+
+function StockCard({ stock, sku, recos, onSave }) {
   const item = { sku, ...stock };
   const needed = computeNeeded(item);
   const missing = computeMissing(item);
@@ -221,10 +253,53 @@ function StockCard({ stock, sku, onSave }) {
         From sku_statistics — same row and editing as the Next Order page.
       </div>
       <div style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "820px" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "640px", marginBottom: "16px" }}>
           <thead>
             <tr>
-              {STOCK_ROW_HEADERS.map((label) => (
+              {["Region", "FBA", "AWD", "LG", "OTW", "Next", "Reco (A/B)"].map((label) => (
+                <th key={label} style={numberCellStyle({ background: "#f4f4f4" })}>
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {REGION_ROWS.map((row) => {
+              const reco = recos?.[row.region];
+              const recommended = reco?.recommended ?? 0;
+              const recommendedSeasonal = reco?.recommendedSeasonal ?? 0;
+              return (
+                <tr key={row.region}>
+                  <td style={tableCellStyle({ fontWeight: 700 })}>{row.label}</td>
+                  <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item[row.fbaField])}</td>
+                  <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item[row.awdField])}</td>
+                  <td style={numberCellStyle({ fontSize: "16px" })}>
+                    {row.lgField ? formatUnits(item[row.lgField]) : "–"}
+                  </td>
+                  <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item[row.otwField])}</td>
+                  <td style={numberCellStyle()}>
+                    <StockRowEditableCell item={item} field={row.nextField} onSave={onSave} />
+                  </td>
+                  <td
+                    style={numberCellStyle({
+                      fontSize: "16px",
+                      fontWeight: 700,
+                      color: recommended > 0 || recommendedSeasonal > 0 ? "#b00020" : undefined,
+                    })}
+                    title={buildRecoTooltip(reco)}
+                  >
+                    {formatUnits(recommended)}/{formatUnits(recommendedSeasonal)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "500px" }}>
+          <thead>
+            <tr>
+              {["Malani Bal", "Malani Ord", "Needed", "Missing", "Next Order"].map((label) => (
                 <th key={label} style={numberCellStyle({ background: "#f4f4f4" })}>
                   {label}
                 </th>
@@ -233,32 +308,12 @@ function StockCard({ stock, sku, onSave }) {
           </thead>
           <tbody>
             <tr>
-              <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.uk_balance)}</td>
-              <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.uk_on_the_way)}</td>
-              <td style={numberCellStyle()}>
-                <StockRowEditableCell item={item} field="uk_next_shipment" onSave={onSave} />
-              </td>
-
-              <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.de_balance)}</td>
-              <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.de_on_the_way)}</td>
-              <td style={numberCellStyle()}>
-                <StockRowEditableCell item={item} field="de_next_shipment" onSave={onSave} />
-              </td>
-
-              <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.usa_balance)}</td>
-              <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.usa_on_the_way)}</td>
-              <td style={numberCellStyle()}>
-                <StockRowEditableCell item={item} field="usa_next_shipment" onSave={onSave} />
-              </td>
-
               <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.malani_balance)}</td>
               <td style={numberCellStyle({ fontSize: "16px" })}>{formatUnits(item.malani_order)}</td>
-
               <td style={numberCellStyle({ fontSize: "16px", fontWeight: 700 })}>{formatUnits(needed)}</td>
               <td style={numberCellStyle({ fontSize: "16px", fontWeight: 700, color: missing > 0 ? "#b00020" : undefined })}>
                 {formatUnits(missing)}
               </td>
-
               <td style={numberCellStyle()}>
                 <StockRowEditableCell item={item} field="next_order" onSave={onSave} />
               </td>
@@ -334,14 +389,14 @@ export default function ProductDetailPage() {
 
       <div style={{ maxWidth: "1100px", marginInline: "auto", display: "grid", gap: "18px" }}>
         {displaySku && (
-          <div style={{ ...cardStyle(), display: "flex", gap: "16px", alignItems: "center" }}>
+          <div style={{ ...cardStyle(), display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
             <img
               src={`${IMAGE_BASE}${encodeURIComponent(displaySku)}.jpg`}
               alt={displaySku}
               style={{ width: "70px", height: "70px", objectFit: "cover", borderRadius: "6px" }}
             />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: "18px" }}>{displaySku}</div>
+            <div style={{ flex: "1 1 160px", minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: "18px", wordBreak: "break-word" }}>{displaySku}</div>
               <div style={{ fontFamily: "monospace", color: "#555" }}>{asin}</div>
               {result?.group && <div style={{ color: "#555", fontSize: "13px" }}>Group: {result.group}</div>}
             </div>
@@ -365,7 +420,7 @@ export default function ProductDetailPage() {
 
         {!loading && result && (
           <>
-            <StockCard stock={result.stock} sku={displaySku} onSave={saveStockField} />
+            <StockCard stock={result.stock} sku={displaySku} recos={result.recos} onSave={saveStockField} />
             {Object.entries(MARKETPLACE_LABELS).map(([code, label]) => (
               <MarketplaceTable
                 key={code}

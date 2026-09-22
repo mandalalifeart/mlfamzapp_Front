@@ -277,7 +277,20 @@ function TableHeader({ showAsin }) {
   );
 }
 
-function RecoCell({ item, region }) {
+// Per the user (2026-09-22): every field in a region's block turns red+bold
+// when that region has had no sales in the recent lookback window (reusing
+// {region}_reco_debug.trailingTotal - the same trailing-3-month total
+// already computed for the reco formula, rather than a separate fetch).
+// This flags stagnant/dead inventory for that region independent of
+// whether a reorder is actually recommended (a SKU with 0 recent sales
+// usually also has a 0 reco, since the formula is sales-driven, so this is
+// a genuinely different signal from the Reco cell's own red highlighting).
+function hasNoRecentSales(item, region) {
+  const debug = item[`${region}_reco_debug`];
+  return !debug || debug.trailingTotal <= 0;
+}
+
+function RecoCell({ item, region, noSales }) {
   const recent = item[`${region}_recommended_order`];
   const seasonal = item[`${region}_recommended_order_seasonal`];
   return (
@@ -285,12 +298,27 @@ function RecoCell({ item, region }) {
       style={valueCellStyle({
         fontWeight: 700,
         fontSize: "13px",
-        color: recent > 0 || seasonal > 0 ? SAVE_ERROR_COLOR : undefined,
+        color: noSales || recent > 0 || seasonal > 0 ? SAVE_ERROR_COLOR : undefined,
       })}
       title={buildRecoTooltip(item, region)}
     >
       {formatUnits(recent)}/{formatUnits(seasonal)}
     </td>
+  );
+}
+
+function RegionBlock({ item, region, balanceField, otwField, nextField, onSave }) {
+  const noSales = hasNoRecentSales(item, region);
+  const cellStyle = noSales ? { color: SAVE_ERROR_COLOR, fontWeight: 700 } : {};
+  return (
+    <>
+      <td style={valueCellStyle(cellStyle)}>{formatUnits(item[balanceField])}</td>
+      <td style={valueCellStyle(cellStyle)}>{formatUnits(item[otwField])}</td>
+      <td style={numberCellStyle(noSales ? { background: "#fff1f1" } : {})}>
+        <EditableCell item={item} field={nextField} onSave={onSave} />
+      </td>
+      <RecoCell item={item} region={region} noSales={noSales} />
+    </>
   );
 }
 
@@ -318,26 +346,9 @@ function ItemRow({ item, showAsin, onSave }) {
         <td style={tableCellStyle({ fontFamily: "monospace", fontSize: "10px" })}>{item.asin}</td>
       )}
 
-      <td style={valueCellStyle()}>{formatUnits(item.usa_balance)}</td>
-      <td style={valueCellStyle()}>{formatUnits(item.usa_on_the_way)}</td>
-      <td style={numberCellStyle()}>
-        <EditableCell item={item} field="usa_next_shipment" onSave={onSave} />
-      </td>
-      <RecoCell item={item} region="usa" />
-
-      <td style={valueCellStyle()}>{formatUnits(item.de_balance)}</td>
-      <td style={valueCellStyle()}>{formatUnits(item.de_on_the_way)}</td>
-      <td style={numberCellStyle()}>
-        <EditableCell item={item} field="de_next_shipment" onSave={onSave} />
-      </td>
-      <RecoCell item={item} region="de" />
-
-      <td style={valueCellStyle()}>{formatUnits(item.uk_balance)}</td>
-      <td style={valueCellStyle()}>{formatUnits(item.uk_on_the_way)}</td>
-      <td style={numberCellStyle()}>
-        <EditableCell item={item} field="uk_next_shipment" onSave={onSave} />
-      </td>
-      <RecoCell item={item} region="uk" />
+      <RegionBlock item={item} region="usa" balanceField="usa_balance" otwField="usa_on_the_way" nextField="usa_next_shipment" onSave={onSave} />
+      <RegionBlock item={item} region="de" balanceField="de_balance" otwField="de_on_the_way" nextField="de_next_shipment" onSave={onSave} />
+      <RegionBlock item={item} region="uk" balanceField="uk_balance" otwField="uk_on_the_way" nextField="uk_next_shipment" onSave={onSave} />
 
       <td style={valueCellStyle()}>{formatUnits(item.malani_balance)}</td>
       <td style={valueCellStyle()}>{formatUnits(item.malani_order)}</td>
