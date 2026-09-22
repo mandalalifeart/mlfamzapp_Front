@@ -325,6 +325,58 @@ function StockCard({ stock, sku, recos, onSave }) {
   );
 }
 
+// Toggles asin_group_mapping's end_of_life flag - per the user (2026-09-22),
+// a discontinued product should be excluded from the Next Order page
+// entirely. Applied server-side to every mapping row sharing this ASIN
+// (SetEndOfLife.py), not just this one SKU spelling, so the button's state
+// stays correct regardless of which of a product's spellings this page
+// happened to resolve to.
+function EndOfLifeButton({ sku, endOfLife, onChanged }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function toggle() {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_BASE}/SetEndOfLife`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sku, endOfLife: !endOfLife }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+      onChanged();
+    } catch (err) {
+      setError(err.message || "Failed to update");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-start" }}>
+      <button
+        onClick={toggle}
+        disabled={saving}
+        style={{
+          padding: "8px 14px",
+          borderRadius: "6px",
+          border: `1px solid ${endOfLife ? "#b00020" : "#ccc"}`,
+          background: endOfLife ? "#b00020" : "#fff",
+          color: endOfLife ? "#fff" : "#333",
+          fontWeight: 600,
+          cursor: saving ? "default" : "pointer",
+          opacity: saving ? 0.6 : 1,
+        }}
+      >
+        {endOfLife ? "✓ EndOfLife List (remove)" : "Add to EndOfLife List"}
+      </button>
+      {error && <span style={{ color: "#b00020", fontSize: "12px" }}>{error}</span>}
+    </div>
+  );
+}
+
 export default function ProductDetailPage() {
   const [searchParams] = useSearchParams();
   const asin = searchParams.get("asin") || "";
@@ -406,6 +458,9 @@ export default function ProductDetailPage() {
                 groupOptions={result.allGroups}
                 onAssigned={loadDetail}
               />
+            )}
+            {displaySku && (
+              <EndOfLifeButton sku={displaySku} endOfLife={!!result?.endOfLife} onChanged={loadDetail} />
             )}
           </div>
         )}
