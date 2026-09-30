@@ -506,11 +506,11 @@ function GroupSection({ group, years, currentMonth, showAsin, expanded, onToggle
 // each live in their own collapsible section (collapsed by default), and
 // get their own separate Best/Worst Sellers ranking. Matched on the
 // asin_group_mapping group name prefix, so a new PAREO_*/COVER_* group joins
-// its family automatically. VELVET (velvet pouf covers + stools) and
-// STUFFED (stuffed poufs) are pouf products too.
+// its family automatically. "Home Decor" (named by the user) = pouf covers
+// plus VELVET (velvet pouf covers + stools) and STUFFED (stuffed poufs).
 const FAMILIES = [
   { key: "pareo", label: "Pareo", match: (name) => /^pareo/i.test(name) },
-  { key: "pouf", label: "Poufs & Pouf Covers", match: (name) => /^(cover_|velvet|stuffed)/i.test(name) },
+  { key: "pouf", label: "Home Decor", match: (name) => /^(cover_|velvet|stuffed)/i.test(name) },
 ];
 
 function familyOf(groupName) {
@@ -631,7 +631,7 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
         <h3 style={{ margin: 0 }}>
           {open ? "▾" : "▸"} Best &amp; Worst Sellers (top {RANKING_TOP_N})
         </h3>
-        <div style={{ color: "#555", fontSize: "13px" }}>Pareo and Pouf Covers, ranked by units</div>
+        <div style={{ color: "#555", fontSize: "13px" }}>Pareo and Home Decor, ranked by units</div>
       </div>
 
       {open && (
