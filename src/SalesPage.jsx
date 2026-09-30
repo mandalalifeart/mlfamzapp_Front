@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { buttonStyle, ghostButtonStyle } from "./buttonStyle";
 import AdsCountryBreakdown from "./AdsCountryBreakdown";
@@ -519,17 +519,38 @@ function familyOf(groupName) {
 
 const RANKING_TOP_N = 20;
 const RANKING_PERIODS = [
-  { key: "last12", label: "Last 12 full months" },
+  { key: "lastweek", label: "Last week (last 7 days)" },
+  { key: "thismonth", label: "This month" },
+  { key: "lastmonth", label: "Last month" },
   { key: "last3", label: "Last 3 full months" },
+  { key: "last12", label: "Last 12 full months" },
   { key: "ytd", label: "This year (incl. current month)" },
+  { key: "lastyear", label: "Last year" },
+  { key: "all", label: "All" },
 ];
+
+// "YYYY-MM-DD" in America/Los_Angeles, n days before today - same LA day
+// boundaries sku_sales_daily is written with.
+function laDateDaysAgo(n) {
+  const d = new Date(Date.now() - n * 86400000);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(d);
+}
 
 // Units for one item over the chosen ranking period. "Full months" never
 // include the current in-progress month, so a ranking doesn't shift just
 // because it's early in the month; they reach back into last year's row
 // when needed (e.g. last 12 months in March = Mar-Dec last year + Jan-Feb).
-function unitsInPeriod(item, period, years, currentMonth) {
+function unitsInPeriod(item, period, years, currentMonth, weekByAsin) {
+  if (period === "lastweek") return weekByAsin?.[item.asin] || 0;
+  const sumRow = (row) => (row || []).reduce((a, b) => a + (b || 0), 0);
   const thisYear = item.years.find((y) => y.year === years[0])?.months || [];
+  const lastYearRow = item.years.find((y) => y.year === years[1])?.months || [];
+  if (period === "thismonth") return thisYear[(currentMonth || 1) - 1] || 0;
+  if (period === "lastmonth") {
+    return currentMonth > 1 ? thisYear[currentMonth - 2] || 0 : lastYearRow[11] || 0;
+  }
+  if (period === "lastyear") return sumRow(lastYearRow);
+  if (period === "all") return item.years.reduce((sum, y) => sum + sumRow(y.months), 0);
   if (period === "ytd") {
     return thisYear.slice(0, currentMonth).reduce((a, b) => a + (b || 0), 0);
   }
@@ -599,11 +620,44 @@ function RankingTable({ title, rows, periodLabel, selectedMarketplace, daysOfSup
 // no extra backend call). Worst sellers skip products with 0 units in the
 // period by default - those are mostly retired/relisted catalog ASINs - with
 // a checkbox to include them.
-function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace, daysOfSupplyBySku }) {
+function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace, marketplaces, daysOfSupplyBySku }) {
   const [open, setOpen] = useState(false);
   const [period, setPeriod] = useState("last12");
   const [includeZero, setIncludeZero] = useState(false);
   const periodLabel = RANKING_PERIODS.find((p) => p.key === period)?.label || "";
+
+  // "Last week" can't come from the monthly sku_sales data - it's fetched
+  // from sku_sales_daily (GetSkuSalesByDateRange) only when picked, for the
+  // last 7 full LA days (yesterday back 6 days).
+  const [weekResults, setWeekResults] = useState({}); // weekKey -> {byAsin} | {error}
+  const weekRequested = useRef(new Set());
+  const weekStart = laDateDaysAgo(7);
+  const weekEnd = laDateDaysAgo(1);
+  const weekKey = `${weekStart}|${weekEnd}|${(marketplaces || []).join(",")}`;
+  useEffect(() => {
+    if (!open || period !== "lastweek" || weekRequested.current.has(weekKey)) return;
+    weekRequested.current.add(weekKey);
+    fetch(`${LOCAL_API_BASE}/GetSkuSalesByDateRange`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ start_date: weekStart, end_date: weekEnd, marketplaces }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) throw new Error(data.error);
+        setWeekResults((prev) => ({ ...prev, [weekKey]: { byAsin: data.byAsin || {} } }));
+      })
+      .catch((err) => {
+        weekRequested.current.delete(weekKey); // allow a retry on next toggle
+        setWeekResults((prev) => ({ ...prev, [weekKey]: { error: err.message || "Failed to load last week" } }));
+      });
+  }, [open, period, weekKey, weekStart, weekEnd, marketplaces]);
+  const week = {
+    byAsin: weekResults[weekKey]?.byAsin || null,
+    error: weekResults[weekKey]?.error || "",
+    loading: !weekResults[weekKey],
+  };
+  const weekByAsin = week.byAsin;
 
   const rankings = useMemo(() => {
     return FAMILIES.map((family) => {
@@ -611,7 +665,7 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
       for (const group of groups || []) {
         if (group.group === "IGNORE" || familyOf(group.group) !== family.key) continue;
         for (const item of group.items) {
-          rows.push({ item, group: group.group, units: unitsInPeriod(item, period, years, currentMonth) });
+          rows.push({ item, group: group.group, units: unitsInPeriod(item, period, years, currentMonth, weekByAsin) });
         }
       }
       const best = [...rows].filter((r) => r.units > 0).sort((a, b) => b.units - a.units).slice(0, RANKING_TOP_N);
@@ -620,7 +674,7 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
       const zeroCount = rows.filter((r) => r.units === 0).length;
       return { family, best, worst, total: rows.length, zeroCount };
     });
-  }, [groups, years, currentMonth, period, includeZero]);
+  }, [groups, years, currentMonth, period, includeZero, weekByAsin]);
 
   return (
     <div style={{ ...cardStyle(), marginBottom: "20px" }}>
@@ -648,6 +702,16 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
               <input type="checkbox" checked={includeZero} onChange={() => setIncludeZero((v) => !v)} />
               Include products with 0 sales in worst sellers
             </label>
+            {period === "lastweek" && (
+              <span style={{ fontSize: "12px", color: week.error ? GROWTH_RED : "#555" }}>
+                {week.loading ? "Loading last week..." : week.error || `${weekStart} to ${weekEnd}`}
+              </span>
+            )}
+            {period === "all" && years.length > 0 && (
+              <span style={{ fontSize: "12px", color: "#555" }}>
+                {years[years.length - 1]} to today
+              </span>
+            )}
           </div>
 
           <div style={{ display: "grid", gap: "24px" }}>
@@ -1181,6 +1245,11 @@ export default function SalesPage() {
     setCollapsedGroups(next);
   }
 
+  const rankingMarketplaces = useMemo(
+    () => (selectedMarketplace ? [selectedMarketplace] : ALL_MARKETPLACE_VALUES),
+    [selectedMarketplace]
+  );
+
   const visibleGroups = useMemo(() => (result?.groups || []).filter((g) => g.group !== "IGNORE"), [result]);
 
   function renderGroup(group) {
@@ -1333,6 +1402,7 @@ export default function SalesPage() {
             years={years}
             currentMonth={currentMonth}
             selectedMarketplace={selectedMarketplace}
+            marketplaces={rankingMarketplaces}
             daysOfSupplyBySku={daysOfSupplyBySku}
           />
 
