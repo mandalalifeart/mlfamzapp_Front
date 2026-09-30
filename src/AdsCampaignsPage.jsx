@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+
+import { buttonStyle } from "./buttonStyle";
+import { useAdsFilterOptions } from "./useAdsFilterOptions";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -9,20 +12,7 @@ function cardStyle() {
   return { background: "#fff", border: "1px solid #ddd", borderRadius: "8px", padding: "16px" };
 }
 
-function buttonStyle() {
-  return {
-    padding: "10px 18px",
-    fontSize: "14px",
-    cursor: "pointer",
-    borderRadius: "8px",
-    border: "none",
-    background: "#1976d2",
-    color: "#fff",
-    fontWeight: "600",
-    textDecoration: "none",
-    display: "inline-block",
-  };
-}
+
 
 function inputStyle() {
   return {
@@ -56,10 +46,46 @@ const PRESETS = [
   { key: "today", label: "Today" },
   { key: "yesterday", label: "Yesterday" },
   { key: "last7days", label: "Last 7 Days" },
+  { key: "last30days", label: "Last 30 Days" },
   { key: "ytd", label: "Year to Date" },
   { key: "month", label: "Month" },
   { key: "custom", label: "Custom" },
 ];
+
+// Same "statistics like in keywords page" convention (2026-09-10, per the
+// user) - every campaign's Spend/Sales/ACOS/CPC broken out across these 5
+// fixed windows at once, stacked as its own line within one cell, shown by
+// default (preset === "") instead of one single period.
+const HISTORY_PERIODS = [
+  { key: "sevenDay", label: "7d" },
+  { key: "thirtyDay", label: "30d" },
+  { key: "sixtyDay", label: "60d" },
+  { key: "ytd", label: "YTD" },
+  { key: "lastYear", label: "Last Yr" },
+];
+
+function getHistoryPeriodRanges() {
+  const today = getLosAngelesToday();
+  const year = Number(today.slice(0, 4));
+  return {
+    sevenDay: { startDate: addDays(today, -6), endDate: today },
+    thirtyDay: { startDate: addDays(today, -29), endDate: today },
+    sixtyDay: { startDate: addDays(today, -59), endDate: today },
+    ytd: { startDate: `${year}-01-01`, endDate: today },
+    lastYear: { startDate: `${year - 1}-01-01`, endDate: `${year - 1}-12-31` },
+  };
+}
+
+// One row per campaign, each period stacked as its own line within the
+// cell, matching AdsKeywordsPage.jsx's renderPeriodLines.
+function renderPeriodLines(c, metricKey, formatter) {
+  return HISTORY_PERIODS.map((p, i) => (
+    <span key={p.key}>
+      {i > 0 && <br />}
+      <span style={{ color: "#888" }}>{p.label}:</span> {formatter(c.periods?.[p.key]?.[metricKey] || 0, c.currencyCode)}
+    </span>
+  ));
+}
 
 function getLosAngelesToday() {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -103,6 +129,8 @@ function getPresetRange(preset, selectedMonth) {
     }
     case "last7days":
       return { startDate: addDays(today, -6), endDate: today };
+    case "last30days":
+      return { startDate: addDays(today, -29), endDate: today };
     case "ytd":
       return { startDate: `${today.slice(0, 4)}-01-01`, endDate: today };
     case "month":
@@ -119,8 +147,12 @@ export default function AdsCampaignsPage() {
   const [selectedMonth, setSelectedMonth] = useState(Number(getLosAngelesToday().slice(5, 7)));
   const [countryFilter, setCountryFilter] = useState("");
   const [adProductFilter, setAdProductFilter] = useState("");
+  const [portfolioFilter, setPortfolioFilter] = useState("");
+  const { countryOptions, portfolioOptionsFor } = useAdsFilterOptions();
   const [campaigns, setCampaigns] = useState([]);
+  const [historyCampaigns, setHistoryCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [error, setError] = useState("");
 
   const currentMonth = Number(getLosAngelesToday().slice(5, 7));
@@ -144,15 +176,99 @@ export default function AdsCampaignsPage() {
     }
   }
 
+  // Mirrors AdsKeywordsPage.jsx's loadHistoryPeriods - 5 parallel calls to
+  // the same GetAdsCampaignStats endpoint, one per fixed window, merged
+  // client-side. Rows are summed (not last-wins) per campaignId within a
+  // window, same reasoning as the keywords page: a campaign can report
+  // through more than one Ads profile, and a wider window's total must
+  // never come out lower than a narrower one's.
+  async function loadHistoryPeriods() {
+    setHistoryLoading(true);
+    setError("");
+    try {
+      const ranges = getHistoryPeriodRanges();
+      const orderedKeys = ["lastYear", "ytd", "sixtyDay", "thirtyDay", "sevenDay"];
+      const responses = await Promise.all(
+        orderedKeys.map((key) => {
+          const params = new URLSearchParams({ start_date: ranges[key].startDate, end_date: ranges[key].endDate });
+          if (countryFilter) params.set("country_code", countryFilter);
+          return fetch(`${API_BASE}/GetAdsCampaignStats?${params.toString()}`).then((r) => r.json());
+        })
+      );
+      const periodsByKey = {};
+      const metaByKey = {};
+      orderedKeys.forEach((periodKey, i) => {
+        const data = responses[i];
+        if (!data.campaigns) return;
+        const sums = {};
+        for (const row of data.campaigns) {
+          const rowKey = `${row.countryCode}-${row.adProduct}-${row.campaignId}`;
+          const s = sums[rowKey] || (sums[rowKey] = { impressions: 0, clicks: 0, spend: 0, sales: 0, orders: 0 });
+          s.impressions += row.impressions || 0;
+          s.clicks += row.clicks || 0;
+          s.spend += row.spend || 0;
+          s.sales += row.sales || 0;
+          s.orders += row.orders || 0;
+          metaByKey[rowKey] = row;
+        }
+        for (const [rowKey, s] of Object.entries(sums)) {
+          periodsByKey[rowKey] = periodsByKey[rowKey] || {};
+          periodsByKey[rowKey][periodKey] = {
+            ...s,
+            acos: s.sales ? (s.spend / s.sales) * 100 : 0,
+            cpc: s.clicks ? s.spend / s.clicks : 0,
+          };
+        }
+      });
+      const merged = new Map();
+      for (const rowKey of Object.keys(metaByKey)) {
+        merged.set(rowKey, { ...metaByKey[rowKey], periods: periodsByKey[rowKey] || {} });
+      }
+      setHistoryCampaigns([...merged.values()]);
+    } catch (err) {
+      setError(err.message || "Failed to load campaign history");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate, countryFilter]);
 
-  const countryCodes = [...new Set(campaigns.map((c) => c.countryCode).filter(Boolean))].sort();
+  // The multi-window stats row is shown alongside the normal flat columns
+  // regardless of which preset/date range is selected (2026-09-10, per the
+  // user: "I want to see this row also in custom dates, actually in any
+  // date selection" + "add spend sales acos cpc columns for selected
+  // period") - fetched independently of the flat load() above, keyed only
+  // by countryFilter since its 5 windows are fixed, not tied to the
+  // preset's own range.
+  useEffect(() => {
+    loadHistoryPeriods();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countryFilter]);
+
+  useEffect(() => {
+    setPortfolioFilter("");
+  }, [countryFilter]);
+
+  useEffect(() => {
+    const root = document.getElementById("root");
+    root?.classList.add("full-bleed");
+    return () => root?.classList.remove("full-bleed");
+  }, []);
+
+  const countryCodes = countryOptions;
+  // Lets the stats sub-row look up its 5-window data by rowKey - the main
+  // row is always the flat, single-period campaigns list now.
+  const historyByKey = new Map(historyCampaigns.map((c) => [`${c.countryCode}-${c.adProduct}-${c.campaignId}`, c]));
 
   const visibleCampaigns = campaigns.filter(
-    (c) => (c.spend || 0) > 0 && (!adProductFilter || c.adProduct === adProductFilter)
+    (c) =>
+      (c.spend || 0) > 0 &&
+      (!adProductFilter || c.adProduct === adProductFilter) &&
+      (!portfolioFilter || c.portfolioName === portfolioFilter)
   );
 
   const totals = visibleCampaigns.reduce(
@@ -261,6 +377,17 @@ export default function AdsCampaignsPage() {
               ))}
             </select>
           </label>
+          <label>
+            Portfolio:{" "}
+            <select style={inputStyle()} value={portfolioFilter} onChange={(e) => setPortfolioFilter(e.target.value)}>
+              <option value="">All</option>
+              {portfolioOptionsFor(countryFilter).map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         {loading && <p>Loading campaign stats...</p>}
@@ -282,41 +409,75 @@ export default function AdsCampaignsPage() {
               <table style={{ borderCollapse: "collapse", width: "100%" }}>
                 <thead>
                   <tr>
+                    <th style={tableCellStyle({ background: "#f4f4f4" })}>Portfolio</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Campaign</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Ad Type</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Country</th>
-                    <th style={tableCellStyle({ background: "#f4f4f4" })}>Status</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Impressions</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Clicks</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Spend</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Sales</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Orders</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>ACOS</th>
+                    <th style={tableCellStyle({ background: "#f4f4f4" })}>CPC</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleCampaigns.map((c) => (
-                    <tr key={`${c.countryCode}-${c.adProduct}-${c.campaignId}`}>
+                  {visibleCampaigns.map((c) => {
+                    const rowKey = `${c.countryCode}-${c.adProduct}-${c.campaignId}`;
+                    const historyRow = historyByKey.get(rowKey);
+                    return (
+                    <Fragment key={rowKey}>
+                    <tr>
+                      <td style={tableCellStyle()}>{c.portfolioName || "–"}</td>
                       <td style={tableCellStyle()}>{c.campaignName}</td>
                       <td style={tableCellStyle()}>{AD_PRODUCT_LABELS[c.adProduct] || c.adProduct}</td>
                       <td style={tableCellStyle()}>{c.countryCode}</td>
-                      <td style={tableCellStyle()}>{c.campaignStatus}</td>
                       <td style={tableCellStyle()}>{c.impressions}</td>
                       <td style={tableCellStyle()}>{c.clicks}</td>
                       <td style={tableCellStyle()}>{formatMoney(c.spend, c.currencyCode)}</td>
                       <td style={tableCellStyle()}>{formatMoney(c.sales, c.currencyCode)}</td>
                       <td style={tableCellStyle()}>{c.orders}</td>
                       <td style={tableCellStyle()}>{c.acos.toFixed(1)}%</td>
+                      <td style={tableCellStyle()}>{formatMoney(c.clicks ? c.spend / c.clicks : 0, c.currencyCode)}</td>
                       <td style={tableCellStyle()}>
                         <Link
-                          to={`/ads-keywords?campaign_id=${encodeURIComponent(c.campaignId)}&campaign_name=${encodeURIComponent(c.campaignName)}`}
+                          to={`/ads-keywords?campaign_id=${encodeURIComponent(c.campaignId)}&campaign_name=${encodeURIComponent(c.campaignName)}&country_code=${encodeURIComponent(c.countryCode || "")}&portfolio=${encodeURIComponent(c.portfolioName || "")}&preset=${encodeURIComponent(preset)}&start=${encodeURIComponent(startDate)}&end=${encodeURIComponent(endDate)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
                         >
                           Keywords
                         </Link>
                       </td>
                     </tr>
-                  ))}
+                    {historyRow && (
+                      <tr>
+                        <td colSpan={20} style={tableCellStyle({ background: "#fafafa", padding: "8px 10px" })}>
+                          <div style={{ display: "flex", gap: "28px", flexWrap: "wrap" }}>
+                            <div>
+                              <strong>Spend</strong>
+                              <div>{renderPeriodLines(historyRow, "spend", formatMoney)}</div>
+                            </div>
+                            <div>
+                              <strong>Sales</strong>
+                              <div>{renderPeriodLines(historyRow, "sales", formatMoney)}</div>
+                            </div>
+                            <div>
+                              <strong>ACOS</strong>
+                              <div>{renderPeriodLines(historyRow, "acos", (v) => `${v.toFixed(1)}%`)}</div>
+                            </div>
+                            <div>
+                              <strong>CPC</strong>
+                              <div>{renderPeriodLines(historyRow, "cpc", formatMoney)}</div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -324,7 +485,7 @@ export default function AdsCampaignsPage() {
         )}
       </div>
 
-      <div style={{ display: "flex", justifyContent: "center", gap: "10px", marginTop: "28px", paddingBottom: "16px" }}>
+      <div style={{ display: "flex", justifyContent: "center", gap: "10px", flexWrap: "wrap", marginTop: "28px", paddingBottom: "16px" }}>
         <Link style={buttonStyle()} to="/">
           Home
         </Link>
@@ -332,7 +493,19 @@ export default function AdsCampaignsPage() {
           Ads Connections
         </Link>
         <Link style={buttonStyle()} to="/ads-keywords">
-          Keyword Stats
+          Keywords
+        </Link>
+        <Link style={buttonStyle()} to="/ads-search-terms">
+          Search Terms
+        </Link>
+        <Link style={buttonStyle()} to="/ads-advertised-products">
+          Advertised Products
+        </Link>
+        <Link style={buttonStyle()} to="/ads-bid-optimizer">
+          Bid Optimizer
+        </Link>
+        <Link style={buttonStyle()} to="/bid-change-performance">
+          Bid Change Performance
         </Link>
       </div>
     </div>

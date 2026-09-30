@@ -204,30 +204,31 @@ const REGION_ROWS = [
   { region: "uk", label: "UK", fbaField: "uk_balance_fba", awdField: "uk_balance_awd", lgField: null, otwField: "uk_on_the_way", nextField: "uk_next_shipment" },
 ];
 
-function seasonalTotalFromDebug(seasonalSource, debug) {
-  switch (seasonalSource) {
-    case "2yr_avg":
-      return (debug.year1Total + debug.year2Total) / 2;
-    case "1yr_only":
-      return debug.year1Total;
-    case "2yr_only":
-      return debug.year2Total;
+function seasonalSourceLabel(source) {
+  switch (source) {
+    case "actual":
+      return "actual same season";
+    case "fallback_recent":
+      return "no seasonal history yet for this SKU - showing the recent-based value instead";
     default:
-      return debug.trailingTotal;
+      return "";
   }
 }
 
 // Same content/shape as NextOrderPage's buildRecoTooltip, adapted to this
-// page's data shape (recos.<region>.debug/seasonalSource/recommended... vs
+// page's data shape (recos.<region>.debug/seasonal*Source/recommended... vs
 // NextOrderPage's flat item.<region>_reco_debug fields).
 function buildRecoTooltip(reco) {
   if (!reco || !reco.debug) return "";
   const { debug } = reco;
-  const seasonalTotal = seasonalTotalFromDebug(reco.seasonalSource, debug);
+  const seasonal1yr = reco.seasonal1yrSource === "actual" ? debug.year1Total : debug.trailingTotal;
+  const seasonal2yr = reco.seasonal2yrSource === "actual" ? debug.year2Total : debug.trailingTotal;
   const rawA = Math.max(0, Math.round(debug.trailingTotal + debug.needForXDays - debug.alreadyCovered));
-  const rawB = Math.max(0, Math.round(seasonalTotal + debug.needForXDays - debug.alreadyCovered));
+  const rawB = Math.max(0, Math.round(seasonal1yr + debug.needForXDays - debug.alreadyCovered));
+  const rawC = Math.max(0, Math.round(seasonal2yr + debug.needForXDays - debug.alreadyCovered));
   const aZeroedNote = rawA > 0 && reco.recommended === 0 ? " → zeroed out (below half the minimum order size)" : "";
-  const bZeroedNote = rawB > 0 && reco.recommendedSeasonal === 0 ? " → zeroed out (below half the minimum order size)" : "";
+  const bZeroedNote = rawB > 0 && reco.recommendedSeasonal1yr === 0 ? " → zeroed out (below half the minimum order size)" : "";
+  const cZeroedNote = rawC > 0 && reco.recommendedSeasonal2yr === 0 ? " → zeroed out (below half the minimum order size)" : "";
   const stockoutNote = debug.zeroInventoryWeeks > 0
     ? `\n(excludes ${debug.zeroInventoryWeeks} week${debug.zeroInventoryWeeks === 1 ? "" : "s"} of zero stock from the recent-avg calc)`
     : "";
@@ -235,10 +236,22 @@ function buildRecoTooltip(reco) {
   return (
     `Days to next order: ${debug.xDays} days\n\n` +
     `Avg daily sales used for A (recent): ${debug.avgDailyRecent}/day${stockoutNote}\n` +
-    `Avg daily sales used for B (seasonal): ${debug.avgDailySeasonal}/day\n\n` +
+    `Avg daily sales used for B (seasonal, 1yr ago): ${debug.avgDailySeasonal1yr}/day\n` +
+    `Avg daily sales used for C (seasonal, 2yr ago): ${debug.avgDailySeasonal2yr}/day\n\n` +
     `A (Recent) = ${debug.trailingTotal} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawA}${aZeroedNote}\n` +
-    `B (Seasonal) = ${seasonalTotal} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawB}${bZeroedNote}`
+    `B (Seasonal, ${seasonalSourceLabel(reco.seasonal1yrSource)}) = ${seasonal1yr} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawB}${bZeroedNote}\n` +
+    `C (Seasonal, ${seasonalSourceLabel(reco.seasonal2yrSource)}) = ${seasonal2yr} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawC}${cZeroedNote}`
   );
+}
+
+// Same "(Bal + OTW) / avg daily sales" math as NextOrderPage's
+// DaysOfSupplyCell, per the user (2026-09-24) - duplicated rather than
+// shared, matching this file's existing pattern of its own local copies of
+// seasonalSourceLabel/buildRecoTooltip rather than importing from
+// NextOrderPage.jsx.
+function formatDaysOfSupply(bal, otw, avgDaily) {
+  if (!avgDaily || avgDaily <= 0) return "∞";
+  return Math.round((bal + otw) / avgDaily).toLocaleString();
 }
 
 function StockCard({ stock, sku, recos, onSave }) {
@@ -256,7 +269,7 @@ function StockCard({ stock, sku, recos, onSave }) {
         <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "640px", marginBottom: "16px" }}>
           <thead>
             <tr>
-              {["Region", "FBA", "AWD", "LG", "OTW", "Next", "Reco (A/B)"].map((label) => (
+              {["Region", "FBA", "AWD", "LG", "OTW", "Next", "Reco (A/B/C)", "Days of Supply (A/B/C)"].map((label) => (
                 <th key={label} style={numberCellStyle({ background: "#f4f4f4" })}>
                   {label}
                 </th>
@@ -267,7 +280,10 @@ function StockCard({ stock, sku, recos, onSave }) {
             {REGION_ROWS.map((row) => {
               const reco = recos?.[row.region];
               const recommended = reco?.recommended ?? 0;
-              const recommendedSeasonal = reco?.recommendedSeasonal ?? 0;
+              const recommendedSeasonal1yr = reco?.recommendedSeasonal1yr ?? 0;
+              const recommendedSeasonal2yr = reco?.recommendedSeasonal2yr ?? 0;
+              const bal = item[`${row.region}_balance`] || 0;
+              const otw = item[row.otwField] || 0;
               return (
                 <tr key={row.region}>
                   <td style={tableCellStyle({ fontWeight: 700 })}>{row.label}</td>
@@ -284,11 +300,18 @@ function StockCard({ stock, sku, recos, onSave }) {
                     style={numberCellStyle({
                       fontSize: "16px",
                       fontWeight: 700,
-                      color: recommended > 0 || recommendedSeasonal > 0 ? "#b00020" : undefined,
+                      color: recommended > 0 || recommendedSeasonal1yr > 0 || recommendedSeasonal2yr > 0 ? "#b00020" : undefined,
                     })}
                     title={buildRecoTooltip(reco)}
                   >
-                    {formatUnits(recommended)}/{formatUnits(recommendedSeasonal)}
+                    {formatUnits(recommended)}/{formatUnits(recommendedSeasonal1yr)}/{formatUnits(recommendedSeasonal2yr)}
+                  </td>
+                  <td style={numberCellStyle({ fontSize: "13px" })}>
+                    {reco?.debug
+                      ? `${formatDaysOfSupply(bal, otw, reco.debug.avgDailyRecent)}/` +
+                        `${formatDaysOfSupply(bal, otw, reco.debug.avgDailySeasonal1yr)}/` +
+                        `${formatDaysOfSupply(bal, otw, reco.debug.avgDailySeasonal2yr)}`
+                      : "–"}
                   </td>
                 </tr>
               );

@@ -4,72 +4,9 @@ import "./App.css";
 
 const LA_TIME_ZONE = "America/Los_Angeles";
 const API_BASE = "https://us-central1-mlfamzapp.cloudfunctions.net";
-
-function formatMoney(value, currencyCode) {
-  const amount = Number(value || 0);
-  try {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: currencyCode || "USD" }).format(amount);
-  } catch {
-    return amount.toFixed(2);
-  }
-}
-
-function AdsAccountSummary() {
-  const [accounts, setAccounts] = useState(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    const now = new Date();
-    fetch(`${API_BASE}/GetAdsAccountSummary?month=${now.getMonth() + 1}&year=${now.getFullYear()}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) throw new Error(data.error);
-        setAccounts(data.accounts || []);
-      })
-      .catch((err) => setError(err.message || "Failed to load ads summary"));
-  }, []);
-
-  if (error) return null;
-  if (!accounts || accounts.length === 0) return null;
-
-  return (
-    <div
-      style={{
-        width: "100%",
-        maxWidth: "900px",
-        marginInline: "auto",
-        marginBottom: "20px",
-        background: "#efefef",
-        borderRadius: "8px",
-        padding: "16px",
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-        <h3 style={{ margin: 0 }}>Ads Accounts (This Month)</h3>
-        <Link to="/ads-campaigns" style={{ fontSize: "13px" }}>
-          View campaigns &rarr;
-        </Link>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "12px" }}>
-        {accounts.map((account) => (
-          <div
-            key={account.countryCode}
-            style={{ background: "#fff", border: "1px solid #ddd", borderRadius: "8px", padding: "12px" }}
-          >
-            <div style={{ fontWeight: 700, marginBottom: "6px" }}>{account.countryCode}</div>
-            <div style={{ fontSize: "13px", color: "#555" }}>
-              Spend: {formatMoney(account.spend, account.currencyCode)}
-            </div>
-            <div style={{ fontSize: "13px", color: "#555" }}>
-              Sales: {formatMoney(account.sales, account.currencyCode)}
-            </div>
-            <div style={{ fontSize: "13px", color: "#555" }}>ACOS: {account.acos.toFixed(1)}%</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+// PocketBase-only functions run on the mini PC that already hosts
+// PocketBase, instead of GCP - see CLAUDE.md "AmzBot: local job runner".
+const LOCAL_API_BASE = "https://amzapi.mandalalifeart.com";
 
 const presets = [
   { key: "today", label: "TODAY" },
@@ -377,6 +314,22 @@ function smallButtonStyle() {
   };
 }
 
+// Same footprint for every top-level nav button regardless of label length
+// (e.g. "Next Order" vs "Etsy"), so the row stays visually even.
+function navButtonStyle() {
+  return {
+    ...smallButtonStyle(),
+    width: "100px",
+    height: "44px",
+    padding: "0 8px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    textAlign: "center",
+    boxSizing: "border-box",
+  };
+}
+
 async function requestMarketplaceReport(payload) {
   const response = await fetch(`${API_BASE}/MlfReportReq`, {
     method: "POST",
@@ -451,6 +404,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialUrlConfig.urlError || "");
   const [errorDetails, setErrorDetails] = useState([]);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const autoSubmitStartedRef = useRef(false);
 
   const resolvedDates = useMemo(() => {
@@ -588,7 +542,6 @@ export default function App() {
 
   return (
     <div className="app" style={{ flexDirection: "column", alignItems: "center" }}>
-      <AdsAccountSummary />
       <div className="card">
         <form onSubmit={handleSubmit}>
           <div className="radio-list">
@@ -658,25 +611,60 @@ export default function App() {
           </div>
         )}
 
-        <div style={bottomNavStyle()}>
-          <Link style={smallButtonStyle()} to="/">
-            Home
-          </Link>
-          <Link style={smallButtonStyle()} to="/sales">
+        <div style={{ ...bottomNavStyle(), position: "relative" }}>
+          <Link style={navButtonStyle()} to="/sales">
             Sales
           </Link>
-          <Link style={smallButtonStyle()} to="/batch-update">
-            Batch Update
-          </Link>
-          <Link style={smallButtonStyle()} to="/ads">
+          <Link style={navButtonStyle()} to="/ads-campaigns">
             Ads
           </Link>
-          <Link style={smallButtonStyle()} to="/etsy">
-            Etsy
-          </Link>
-          <Link style={smallButtonStyle()} to="/next-order">
+          <Link style={navButtonStyle()} to="/next-order">
             Next Order
           </Link>
+          <div style={{ position: "relative" }}>
+            <button style={navButtonStyle()} onClick={() => setMoreMenuOpen((open) => !open)}>
+              More
+            </button>
+            {moreMenuOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: "calc(100% + 6px)",
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  background: "#fff",
+                  border: "1px solid #ddd",
+                  borderRadius: "8px",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "6px",
+                  padding: "8px",
+                  zIndex: 10,
+                  minWidth: "140px",
+                }}
+              >
+                <Link style={navButtonStyle()} to="/batch-update" onClick={() => setMoreMenuOpen(false)}>
+                  Batch Update
+                </Link>
+                <Link style={navButtonStyle()} to="/etsy" onClick={() => setMoreMenuOpen(false)}>
+                  Etsy
+                </Link>
+                <Link style={navButtonStyle()} to="/ops" onClick={() => setMoreMenuOpen(false)}>
+                  Ops
+                </Link>
+                <Link style={navButtonStyle()} to="/payments" onClick={() => setMoreMenuOpen(false)}>
+                  Payments
+                </Link>
+                <Link style={navButtonStyle()} to="/wise" onClick={() => setMoreMenuOpen(false)}>
+                  Wise
+                </Link>
+                <Link style={navButtonStyle()} to="/returns" onClick={() => setMoreMenuOpen(false)}>
+                  Returns
+                </Link>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

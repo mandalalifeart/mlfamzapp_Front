@@ -30,21 +30,15 @@
   }
 }
 
+/* This app's pages are all fixed-light-theme (App.css forces white
+   backgrounds unconditionally everywhere) - the dark-mode variant below
+   was unused boilerplate from whatever starter template this was scaffolded
+   from (the #social selector doesn't exist anywhere in this app's actual
+   JSX). It was making h1/h2 text flip to near-white under an OS/browser
+   dark-mode preference while the background stayed forced white, causing
+   invisible page titles on every page - removed 2026-08-31 rather than
+   patched per-page, since the bug and the fix are both truly global. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
   #social .button-icon {
     filter: invert(1) brightness(2);
   }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { buttonStyle } from "./buttonStyle";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -9,22 +10,6 @@ const PROFILE_LABELS = { USA: "USA", EU: "EU (DE)" };
 
 function cardStyle() {
   return { background: "#fff", border: "1px solid #ddd", borderRadius: "8px", padding: "16px" };
-}
-
-function buttonStyle(disabled = false) {
-  return {
-    padding: "10px 18px",
-    fontSize: "14px",
-    cursor: disabled ? "not-allowed" : "pointer",
-    borderRadius: "8px",
-    border: "none",
-    background: disabled ? "#9bbcf7" : "#1976d2",
-    color: "#fff",
-    fontWeight: "600",
-    opacity: disabled ? 0.6 : 1,
-    textDecoration: "none",
-    display: "inline-block",
-  };
 }
 
 function tableCellStyle(extra = {}) {

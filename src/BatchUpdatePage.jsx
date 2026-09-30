@@ -1,9 +1,12 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { buttonStyle, dangerButtonStyle } from "./buttonStyle";
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE ||
-  "https://us-central1-mlfamzapp.cloudfunctions.net";
+// MlfReportReq/MlfReportGet are SP-API-only (no PocketBase dependency), so
+// they run on GCP - see CLAUDE.md "AmzBot: local job runner".
+const API_BASE = "https://us-central1-mlfamzapp.cloudfunctions.net";
+// UpdateSkuSalesMonth is PocketBase-dependent and stays on the mini PC.
+const LOCAL_API_BASE = "https://amzapi.mandalalifeart.com";
 
 const LA_TIME_ZONE = "America/Los_Angeles";
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -156,7 +159,7 @@ async function pollReportReady(marketplace, reportReqId, onStatus) {
 }
 
 async function runUpdateForMonth({ reportIds, apiDates, month, year }) {
-  const response = await fetch(`${API_BASE}/UpdateSkuSalesMonth`, {
+  const response = await fetch(`${LOCAL_API_BASE}/UpdateSkuSalesMonth`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -179,35 +182,7 @@ function cardStyle() {
   return { background: "#fff", border: "1px solid #ddd", borderRadius: "8px", padding: "16px" };
 }
 
-function buttonStyle(disabled = false) {
-  return {
-    padding: "10px 18px",
-    fontSize: "14px",
-    cursor: disabled ? "not-allowed" : "pointer",
-    borderRadius: "8px",
-    border: "none",
-    background: disabled ? "#9bbcf7" : "#1976d2",
-    color: "#fff",
-    fontWeight: "600",
-    opacity: disabled ? 0.6 : 1,
-    textDecoration: "none",
-    display: "inline-block",
-  };
-}
-
-function stopButtonStyle(disabled) {
-  return {
-    padding: "10px 18px",
-    fontSize: "14px",
-    cursor: disabled ? "not-allowed" : "pointer",
-    borderRadius: "8px",
-    border: "1px solid #b00020",
-    background: "#fff",
-    color: "#b00020",
-    fontWeight: "600",
-    opacity: disabled ? 0.5 : 1,
-  };
-}
+const stopButtonStyle = dangerButtonStyle;
 
 function inputStyle() {
   return { padding: "10px", borderRadius: "8px", border: "1px solid #ccc", width: "140px" };

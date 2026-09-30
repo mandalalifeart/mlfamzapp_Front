@@ -17,10 +17,13 @@ const SAVE_OK_COLOR = "#2e7d32";
 
 // Percentages sum to 100 - table uses table-layout:fixed so these are exact
 // column widths, keeping all columns inside one screen width with no
-// horizontal scroll needed on a normal laptop/desktop viewport.
-const COLUMN_WIDTHS_WITH_ASIN = [4, 10, 4, 4, 4, 5, 6, 4, 4, 5, 6, 4, 4, 5, 6, 4, 4, 5, 6, 6];
+// horizontal scroll needed on a normal laptop/desktop viewport. Each region
+// block grew from 4 to 5 columns (2026-09-24) with the new Days of Supply
+// column (A/B/C) added alongside Reco - leading columns trimmed further to
+// make room.
+const COLUMN_WIDTHS_WITH_ASIN = [3, 8, 3, 3, 3, 4, 6, 6, 3, 3, 4, 6, 6, 3, 3, 4, 6, 6, 3, 3, 4, 5, 5];
 // ASIN's width folded into SKU when the column is hidden.
-const COLUMN_WIDTHS_NO_ASIN = [4, 14, 4, 4, 5, 6, 4, 4, 5, 6, 4, 4, 5, 6, 4, 4, 5, 6, 6];
+const COLUMN_WIDTHS_NO_ASIN = [3, 11, 3, 3, 4, 6, 6, 3, 3, 4, 6, 6, 3, 3, 4, 6, 6, 3, 3, 4, 5, 5];
 
 function cardStyle() {
   return {
@@ -87,29 +90,12 @@ function formatMonths(monthPairs) {
 
 function seasonalSourceLabel(source) {
   switch (source) {
-    case "2yr_avg":
-      return "average of the last 2 years' same season";
-    case "1yr_only":
-      return "last year's same season only (2 years ago has no history for this SKU)";
-    case "2yr_only":
-      return "2 years ago's same season only (last year has no history for this SKU)";
+    case "actual":
+      return "actual same season";
     case "fallback_recent":
       return "no seasonal history yet for this SKU - showing the recent-based value instead";
     default:
       return "";
-  }
-}
-
-function seasonal3moFromDebug(seasonalSource, debug) {
-  switch (seasonalSource) {
-    case "2yr_avg":
-      return (debug.year1Total + debug.year2Total) / 2;
-    case "1yr_only":
-      return debug.year1Total;
-    case "2yr_only":
-      return debug.year2Total;
-    default:
-      return debug.trailingTotal;
   }
 }
 
@@ -132,16 +118,21 @@ function buildRecoTooltip(item, region) {
 
   const bal = item[`${region}_balance`] || 0;
   const otw = item[`${region}_on_the_way`] || 0;
-  const seasonalSource = item[`${region}_seasonal_source`];
+  const seasonal1yrSource = item[`${region}_seasonal_1yr_source`];
+  const seasonal2yrSource = item[`${region}_seasonal_2yr_source`];
   const recommendedOrder = item[`${region}_recommended_order`];
-  const recommendedOrderSeasonal = item[`${region}_recommended_order_seasonal`];
+  const recommendedOrderSeasonal1yr = item[`${region}_recommended_order_seasonal_1yr`];
+  const recommendedOrderSeasonal2yr = item[`${region}_recommended_order_seasonal_2yr`];
   const daysOfSupply = debug.avgDailyRecent > 0 ? ((bal + otw) / debug.avgDailyRecent).toFixed(1) : "∞ (no recent sales)";
 
-  const seasonal3mo = seasonal3moFromDebug(seasonalSource, debug);
+  const seasonal1yr = seasonal1yrSource === "actual" ? debug.year1Total : debug.trailingTotal;
+  const seasonal2yr = seasonal2yrSource === "actual" ? debug.year2Total : debug.trailingTotal;
   const rawA = Math.max(0, Math.round(debug.trailingTotal + debug.needForXDays - debug.alreadyCovered));
-  const rawB = Math.max(0, Math.round(seasonal3mo + debug.needForXDays - debug.alreadyCovered));
+  const rawB = Math.max(0, Math.round(seasonal1yr + debug.needForXDays - debug.alreadyCovered));
+  const rawC = Math.max(0, Math.round(seasonal2yr + debug.needForXDays - debug.alreadyCovered));
   const aZeroedNote = rawA > 0 && recommendedOrder === 0 ? " → zeroed out (below half the minimum order size)" : "";
-  const bZeroedNote = rawB > 0 && recommendedOrderSeasonal === 0 ? " → zeroed out (below half the minimum order size)" : "";
+  const bZeroedNote = rawB > 0 && recommendedOrderSeasonal1yr === 0 ? " → zeroed out (below half the minimum order size)" : "";
+  const cZeroedNote = rawC > 0 && recommendedOrderSeasonal2yr === 0 ? " → zeroed out (below half the minimum order size)" : "";
 
   const stockoutNote = debug.zeroInventoryWeeks > 0
     ? `\n(excludes ${debug.zeroInventoryWeeks} week${debug.zeroInventoryWeeks === 1 ? "" : "s"} of zero ${region.toUpperCase()} stock from the recent-avg calc)`
@@ -151,9 +142,11 @@ function buildRecoTooltip(item, region) {
     `Days of supply: (${bal} + ${otw}) / ${debug.avgDailyRecent}/day = ${daysOfSupply} days\n` +
     `Days to next order: ${debug.xDays} days\n\n` +
     `Avg daily sales used for A (recent): ${debug.avgDailyRecent}/day${stockoutNote}\n` +
-    `Avg daily sales used for B (seasonal): ${debug.avgDailySeasonal}/day\n\n` +
+    `Avg daily sales used for B (seasonal, 1yr ago): ${debug.avgDailySeasonal1yr}/day\n` +
+    `Avg daily sales used for C (seasonal, 2yr ago): ${debug.avgDailySeasonal2yr}/day\n\n` +
     `A (Recent) = ${debug.trailingTotal} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawA}${aZeroedNote}\n` +
-    `B (Seasonal, ${seasonalSourceLabel(seasonalSource)}) = ${seasonal3mo} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawB}${bZeroedNote}`
+    `B (Seasonal, ${seasonalSourceLabel(seasonal1yrSource)}) = ${seasonal1yr} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawB}${bZeroedNote}\n` +
+    `C (Seasonal, ${seasonalSourceLabel(seasonal2yrSource)}) = ${seasonal2yr} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawC}${cZeroedNote}`
   );
 }
 
@@ -234,7 +227,7 @@ function EditableCell({ item, field, onSave }) {
 // truncating almost every header to "USA...". Dropping the repeated region
 // prefix from the row-2 labels (since the group row above already says it)
 // also frees up real width for each column.
-const REGION_SUBLABELS = ["Bal", "OTW", "Next", "Reco (A/B)"];
+const REGION_SUBLABELS = ["Bal", "OTW", "Next", "Reco (A/B/C)", "DoS (A/B/C)"];
 const GENERAL_SUBLABELS = ["Malani Bal", "Malani Ord", "Needed", "Missing", "Next Order"];
 const ROW2_LABELS = [...REGION_SUBLABELS, ...REGION_SUBLABELS, ...REGION_SUBLABELS, ...GENERAL_SUBLABELS];
 
@@ -261,9 +254,9 @@ function TableHeader({ showAsin }) {
             {label}
           </th>
         ))}
-        <th colSpan={4} style={groupHeaderStyle}>USA</th>
-        <th colSpan={4} style={groupHeaderStyle}>DE</th>
-        <th colSpan={4} style={groupHeaderStyle}>UK</th>
+        <th colSpan={5} style={groupHeaderStyle}>USA</th>
+        <th colSpan={5} style={groupHeaderStyle}>DE</th>
+        <th colSpan={5} style={groupHeaderStyle}>UK</th>
         <th colSpan={5} style={groupHeaderStyle}>GENERAL</th>
       </tr>
       <tr>
@@ -292,17 +285,53 @@ function hasNoRecentSales(item, region) {
 
 function RecoCell({ item, region, noSales }) {
   const recent = item[`${region}_recommended_order`];
-  const seasonal = item[`${region}_recommended_order_seasonal`];
+  const seasonal1yr = item[`${region}_recommended_order_seasonal_1yr`];
+  const seasonal2yr = item[`${region}_recommended_order_seasonal_2yr`];
   return (
     <td
       style={valueCellStyle({
         fontWeight: 700,
         fontSize: "13px",
-        color: noSales || recent > 0 || seasonal > 0 ? SAVE_ERROR_COLOR : undefined,
+        color: noSales || recent > 0 || seasonal1yr > 0 || seasonal2yr > 0 ? SAVE_ERROR_COLOR : undefined,
       })}
       title={buildRecoTooltip(item, region)}
     >
-      {formatUnits(recent)}/{formatUnits(seasonal)}
+      {formatUnits(recent)}/{formatUnits(seasonal1yr)}/{formatUnits(seasonal2yr)}
+    </td>
+  );
+}
+
+// Days of supply, per the user (2026-09-24): same "(Bal + OTW) / avg daily
+// sales" math already shown in the Reco tooltip, now its own column with all
+// 3 Reco sources' daily rates (A recent, B seasonal 1yr, C seasonal 2yr) -
+// answers "how many days will current stock + what's on the way last, under
+// each demand assumption" alongside the "how many more units to order"
+// question Reco already answers. No sales at that rate -> "∞" (infinite
+// supply at a 0 burn rate), not 0 or blank.
+function formatDaysOfSupply(bal, otw, avgDaily) {
+  if (!avgDaily || avgDaily <= 0) return "∞";
+  return Math.round((bal + otw) / avgDaily).toLocaleString();
+}
+
+function DaysOfSupplyCell({ item, region }) {
+  const debug = item[`${region}_reco_debug`];
+  if (!debug) return <td style={valueCellStyle()}>–</td>;
+  const bal = item[`${region}_balance`] || 0;
+  const otw = item[`${region}_on_the_way`] || 0;
+  const a = formatDaysOfSupply(bal, otw, debug.avgDailyRecent);
+  const b = formatDaysOfSupply(bal, otw, debug.avgDailySeasonal1yr);
+  const c = formatDaysOfSupply(bal, otw, debug.avgDailySeasonal2yr);
+  return (
+    <td
+      style={valueCellStyle({ fontSize: "13px" })}
+      title={
+        `Days of supply = (${bal} Bal + ${otw} OTW) / avg daily sales\n` +
+        `A (recent, ${debug.avgDailyRecent}/day): ${a} days\n` +
+        `B (seasonal 1yr, ${debug.avgDailySeasonal1yr}/day): ${b} days\n` +
+        `C (seasonal 2yr, ${debug.avgDailySeasonal2yr}/day): ${c} days`
+      }
+    >
+      {a}/{b}/{c}
     </td>
   );
 }
@@ -318,6 +347,7 @@ function RegionBlock({ item, region, balanceField, otwField, nextField, onSave }
         <EditableCell item={item} field={nextField} onSave={onSave} />
       </td>
       <RecoCell item={item} region={region} noSales={noSales} />
+      <DaysOfSupplyCell item={item} region={region} />
     </>
   );
 }
@@ -411,13 +441,13 @@ function RecoExplanation({ nextShipmentDate, recoMeta, exampleItem }) {
     <div style={cardStyle()}>
       <h3 style={{ marginTop: 0 }}>How the USA Reco column is calculated</h3>
       <p style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
-        Both recommendations answer the same question - "how many MORE units should I still add to USA Next" - so{" "}
-        <strong>0 means already covered</strong>, not "don't ship anything." They share one near-term term
+        All three recommendations answer the same question - "how many MORE units should I still add to USA Next" -
+        so <strong>0 means already covered</strong>, not "don't ship anything." They share one near-term term
         (need_for_x_days: the gap between today and when the shipment arrives) and differ only in how they forecast
         the 3 months of demand AFTER the shipment lands.
       </p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginTop: "12px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginTop: "12px" }}>
         <div>
           <strong>A - Recent</strong>
           <p style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
@@ -433,14 +463,22 @@ function RecoExplanation({ nextShipmentDate, recoMeta, exampleItem }) {
           </p>
         </div>
         <div>
-          <strong>B - Seasonal</strong>
+          <strong>B - Seasonal (1 year ago)</strong>
           <p style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
             A seasonal product's next 3 months can look nothing like its last 3 (e.g. shipping into summer from a
             winter baseline) - so instead it looks at the ACTUAL same 3 calendar months the shipment lands into, from
-            1 and 2 years ago (averaged; falls back to whichever single year has history, or to A's number if neither
-            year does).
+            1 year ago (falls back to A's number if that year has no history for this SKU).
             <br />
-            <strong>B = seasonal_3_months + need_for_x_days − USA Bal − USA OTW − USA Next</strong>
+            <strong>B = seasonal_1yr + need_for_x_days − USA Bal − USA OTW − USA Next</strong>
+          </p>
+        </div>
+        <div>
+          <strong>C - Seasonal (2 years ago)</strong>
+          <p style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
+            Same idea as B, but the ACTUAL same 3 calendar months from 2 years ago instead of 1 (falls back to A's
+            number if that year has no history for this SKU).
+            <br />
+            <strong>C = seasonal_2yr + need_for_x_days − USA Bal − USA OTW − USA Next</strong>
           </p>
         </div>
       </div>
@@ -465,26 +503,141 @@ function RecoExplanation({ nextShipmentDate, recoMeta, exampleItem }) {
             <strong>{formatUnits(exampleItem.usa_recommended_order)}</strong>
             <br />
             <br />
-            Same season 1 year ago ({formatMonths(recoMeta?.seasonalYear1Months)}): {debug.year1Total} units
+            Same season 1 year ago ({formatMonths(recoMeta?.seasonalYear1Months)}): {debug.year1Total} units (
+            {seasonalSourceLabel(exampleItem.usa_seasonal_1yr_source)})
             <br />
-            Same season 2 years ago ({formatMonths(recoMeta?.seasonalYear2Months)}): {debug.year2Total} units
+            <strong>B (Seasonal, 1yr)</strong>:{" "}
+            {exampleItem.usa_seasonal_1yr_source === "actual" ? debug.year1Total : debug.trailingTotal} +{" "}
+            {debug.needForXDays} − {debug.alreadyCovered} ={" "}
+            <strong>{formatUnits(exampleItem.usa_recommended_order_seasonal_1yr)}</strong>
             <br />
-            seasonal_3_months ({seasonalSourceLabel(exampleItem.usa_seasonal_source)}) ={" "}
-            {exampleItem.usa_seasonal_source === "2yr_avg"
-              ? `(${debug.year1Total} + ${debug.year2Total}) / 2 = ${(debug.year1Total + debug.year2Total) / 2}`
-              : exampleItem.usa_seasonal_source === "1yr_only"
-              ? debug.year1Total
-              : exampleItem.usa_seasonal_source === "2yr_only"
-              ? debug.year2Total
-              : debug.trailingTotal}
             <br />
-            <strong>B (Seasonal)</strong>: seasonal_3_months + {debug.needForXDays} − {debug.alreadyCovered} ={" "}
-            <strong>{formatUnits(exampleItem.usa_recommended_order_seasonal)}</strong>
+            Same season 2 years ago ({formatMonths(recoMeta?.seasonalYear2Months)}): {debug.year2Total} units (
+            {seasonalSourceLabel(exampleItem.usa_seasonal_2yr_source)})
+            <br />
+            <strong>C (Seasonal, 2yr)</strong>:{" "}
+            {exampleItem.usa_seasonal_2yr_source === "actual" ? debug.year2Total : debug.trailingTotal} +{" "}
+            {debug.needForXDays} − {debug.alreadyCovered} ={" "}
+            <strong>{formatUnits(exampleItem.usa_recommended_order_seasonal_2yr)}</strong>
           </div>
         </div>
       )}
     </div>
   );
+}
+
+// Per the user (2026-09-23): replaced the old plain-CSV export with a fully
+// formatted .xlsx (bold/colored header, frozen header row + autofilter,
+// right-aligned number columns, borders, and the same red highlighting
+// convention the on-page table already uses for Missing>0/Next Order>0/any
+// Reco>0) - same underlying columns as the old CSV, plus a Group column
+// since a flat export loses that grouping context otherwise.
+const XLSX_COLUMNS = [
+  { header: "Group", key: "group", width: 16 },
+  { header: "SKU", key: "sku", width: 26 },
+  { header: "UPC", key: "upc", width: 16 },
+  { header: "Supplier SKU", key: "supplierSku", width: 16 },
+  { header: "USA Reco (Recent)", key: "usaRecent", width: 16 },
+  { header: "USA Reco (Seasonal 1yr)", key: "usaSeasonal1yr", width: 18 },
+  { header: "USA Reco (Seasonal 2yr)", key: "usaSeasonal2yr", width: 18 },
+  { header: "DE Reco (Recent)", key: "deRecent", width: 15 },
+  { header: "DE Reco (Seasonal 1yr)", key: "deSeasonal1yr", width: 17 },
+  { header: "DE Reco (Seasonal 2yr)", key: "deSeasonal2yr", width: 17 },
+  { header: "UK Reco (Recent)", key: "ukRecent", width: 15 },
+  { header: "UK Reco (Seasonal 1yr)", key: "ukSeasonal1yr", width: 17 },
+  { header: "UK Reco (Seasonal 2yr)", key: "ukSeasonal2yr", width: 17 },
+  { header: "Missing", key: "missing", width: 12 },
+  { header: "Next Order", key: "nextOrder", width: 12 },
+];
+const XLSX_NUMBER_KEYS = XLSX_COLUMNS.slice(4).map((c) => c.key);
+const XLSX_HEADER_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4E78" } };
+const XLSX_ZEBRA_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F3F3" } };
+const XLSX_RED_FONT = { color: { argb: "FFB00020" }, bold: true };
+const XLSX_THIN_BORDER = { style: "thin", color: { argb: "FFCCCCCC" } };
+
+async function exportXlsx(visibleGroups) {
+  // Dynamically imported (rather than a top-level import) so this ~1MB
+  // library's code is only fetched when the Export XLSX button is actually
+  // clicked, not bundled into the page's initial load.
+  const { default: ExcelJS } = await import("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "AmzBot";
+  workbook.created = new Date();
+
+  const sheet = workbook.addWorksheet("Next Order", {
+    views: [{ state: "frozen", ySplit: 1 }],
+  });
+  sheet.columns = XLSX_COLUMNS;
+
+  const headerRow = sheet.getRow(1);
+  headerRow.eachCell((cell) => {
+    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    cell.fill = XLSX_HEADER_FILL;
+    cell.alignment = { horizontal: "center", vertical: "middle" };
+    cell.border = { top: XLSX_THIN_BORDER, bottom: XLSX_THIN_BORDER, left: XLSX_THIN_BORDER, right: XLSX_THIN_BORDER };
+  });
+  headerRow.height = 20;
+
+  let rowIndex = 0;
+  visibleGroups.forEach((group) => {
+    group.items.forEach((item) => {
+      rowIndex += 1;
+      const missing = computeMissing(item);
+      const nextOrder = item.next_order || 0;
+      const row = sheet.addRow({
+        group: group.group,
+        sku: item.sku,
+        upc: item.upc || "",
+        supplierSku: item.supplier_sku || "",
+        usaRecent: item.usa_recommended_order || 0,
+        usaSeasonal1yr: item.usa_recommended_order_seasonal_1yr || 0,
+        usaSeasonal2yr: item.usa_recommended_order_seasonal_2yr || 0,
+        deRecent: item.de_recommended_order || 0,
+        deSeasonal1yr: item.de_recommended_order_seasonal_1yr || 0,
+        deSeasonal2yr: item.de_recommended_order_seasonal_2yr || 0,
+        ukRecent: item.uk_recommended_order || 0,
+        ukSeasonal1yr: item.uk_recommended_order_seasonal_1yr || 0,
+        ukSeasonal2yr: item.uk_recommended_order_seasonal_2yr || 0,
+        missing,
+        nextOrder,
+      });
+
+      row.eachCell((cell, colNumber) => {
+        cell.border = { top: XLSX_THIN_BORDER, bottom: XLSX_THIN_BORDER, left: XLSX_THIN_BORDER, right: XLSX_THIN_BORDER };
+        const key = XLSX_COLUMNS[colNumber - 1].key;
+        if (XLSX_NUMBER_KEYS.includes(key)) {
+          cell.numFmt = "0";
+          cell.alignment = { horizontal: "right" };
+        }
+        if (rowIndex % 2 === 0) cell.fill = XLSX_ZEBRA_FILL;
+      });
+
+      // Same red-highlight convention as the on-page table: Missing>0 and
+      // Next Order>0 flag their own cell; any region's Reco>0 flags all 9
+      // Reco cells together (mirroring RecoCell's own highlight logic).
+      if (missing > 0) row.getCell("missing").font = XLSX_RED_FONT;
+      if (nextOrder > 0) row.getCell("nextOrder").font = XLSX_RED_FONT;
+      const anyReco = XLSX_NUMBER_KEYS.slice(0, 9).some((key) => Number(row.getCell(key).value || 0) > 0);
+      if (anyReco) {
+        XLSX_NUMBER_KEYS.slice(0, 9).forEach((key) => {
+          row.getCell(key).font = XLSX_RED_FONT;
+        });
+      }
+    });
+  });
+
+  sheet.autoFilter = { from: "A1", to: `${sheet.getColumn(XLSX_COLUMNS.length).letter}1` };
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `next-order-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 export default function NextOrderPage() {
@@ -493,7 +646,9 @@ export default function NextOrderPage() {
   const [groups, setGroups] = useState([]);
   const [collapsedGroups, setCollapsedGroups] = useState({});
   const [showAsin, setShowAsin] = useState(false);
-  const [onlyMissing, setOnlyMissing] = useState(false);
+  const [filterMissing, setFilterMissing] = useState(false);
+  const [filterNextOrder, setFilterNextOrder] = useState(false);
+  const [filterReco, setFilterReco] = useState(false);
   const [nextShipmentDate, setNextShipmentDate] = useState("");
   const [dateSaveStatus, setDateSaveStatus] = useState("idle"); // idle | saving | saved | error
   const [recoMeta, setRecoMeta] = useState(null); // { trailingMonths, seasonalYear1Months, seasonalYear2Months }
@@ -606,74 +761,53 @@ export default function NextOrderPage() {
     setCollapsedGroups(next);
   }
 
-  function exportCsv() {
-    const rows = [[
-      "SKU", "UPC", "Supplier SKU",
-      "USA Reco (Recent)", "USA Reco (Seasonal)",
-      "DE Reco (Recent)", "DE Reco (Seasonal)",
-      "UK Reco (Recent)", "UK Reco (Seasonal)",
-      "Missing", "Next Order",
-    ]];
-    visibleGroups.forEach((group) => {
-      group.items.forEach((item) => {
-        rows.push([
-          item.sku,
-          item.upc || "",
-          item.supplier_sku || "",
-          item.usa_recommended_order || 0,
-          item.usa_recommended_order_seasonal || 0,
-          item.de_recommended_order || 0,
-          item.de_recommended_order_seasonal || 0,
-          item.uk_recommended_order || 0,
-          item.uk_recommended_order_seasonal || 0,
-          computeMissing(item),
-          item.next_order || 0,
-        ]);
+
+  // Split into 3 independent checkboxes per the user (2026-09-23) - was one
+  // combined "Missing>0 OR Next Order>0 OR any Reco>0" checkbox. Whichever
+  // of the 3 are checked are OR'd together (same combined semantics as
+  // before when all 3 happened to be on at once); none checked shows every row.
+  function makeToggleFilter(setter) {
+    return () =>
+      setter((v) => {
+        const next = !v;
+        if (next) expandAll(); // surface the filtered rows immediately instead of leaving groups collapsed
+        return next;
       });
-    });
-
-    const csv = rows
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-      .join("\r\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `next-order-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   }
+  const toggleFilterMissing = makeToggleFilter(setFilterMissing);
+  const toggleFilterNextOrder = makeToggleFilter(setFilterNextOrder);
+  const toggleFilterReco = makeToggleFilter(setFilterReco);
 
-  function toggleOnlyMissing() {
-    setOnlyMissing((v) => {
-      const next = !v;
-      if (next) expandAll(); // surface the filtered rows immediately instead of leaving groups collapsed
-      return next;
-    });
+  const anyFilterActive = filterMissing || filterNextOrder || filterReco;
+
+  function itemHasRecoAbove0(item) {
+    return (
+      Number(item.usa_recommended_order || 0) > 0 ||
+      Number(item.usa_recommended_order_seasonal_1yr || 0) > 0 ||
+      Number(item.usa_recommended_order_seasonal_2yr || 0) > 0 ||
+      Number(item.de_recommended_order || 0) > 0 ||
+      Number(item.de_recommended_order_seasonal_1yr || 0) > 0 ||
+      Number(item.de_recommended_order_seasonal_2yr || 0) > 0 ||
+      Number(item.uk_recommended_order || 0) > 0 ||
+      Number(item.uk_recommended_order_seasonal_1yr || 0) > 0 ||
+      Number(item.uk_recommended_order_seasonal_2yr || 0) > 0
+    );
   }
 
   const visibleGroups = useMemo(() => {
-    if (!onlyMissing) return groups;
+    if (!anyFilterActive) return groups;
     return groups
       .map((g) => ({
         ...g,
         items: g.items.filter(
           (item) =>
-            computeMissing(item) > 0 ||
-            Number(item.next_order || 0) > 0 ||
-            Number(item.usa_recommended_order || 0) > 0 ||
-            Number(item.usa_recommended_order_seasonal || 0) > 0 ||
-            Number(item.de_recommended_order || 0) > 0 ||
-            Number(item.de_recommended_order_seasonal || 0) > 0 ||
-            Number(item.uk_recommended_order || 0) > 0 ||
-            Number(item.uk_recommended_order_seasonal || 0) > 0
+            (filterMissing && computeMissing(item) > 0) ||
+            (filterNextOrder && Number(item.next_order || 0) > 0) ||
+            (filterReco && itemHasRecoAbove0(item))
         ),
       }))
       .filter((g) => g.items.length > 0);
-  }, [groups, onlyMissing]);
+  }, [groups, filterMissing, filterNextOrder, filterReco, anyFilterActive]);
 
   const exampleItem = useMemo(() => {
     for (const g of groups) {
@@ -772,12 +906,20 @@ export default function NextOrderPage() {
             <button style={ghostButtonStyle()} onClick={collapseAll}>
               Collapse All Groups
             </button>
-            <button style={ghostButtonStyle()} onClick={exportCsv}>
-              Export CSV
+            <button style={ghostButtonStyle()} onClick={() => exportXlsx(visibleGroups)}>
+              Export XLSX
             </button>
             <label style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto", fontSize: "14px" }}>
-              <input type="checkbox" checked={onlyMissing} onChange={toggleOnlyMissing} />
-              Only show Missing &gt; 0 or Next Order &gt; 0 or any Reco &gt; 0
+              <input type="checkbox" checked={filterMissing} onChange={toggleFilterMissing} />
+              Only show Missing &gt; 0
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
+              <input type="checkbox" checked={filterNextOrder} onChange={toggleFilterNextOrder} />
+              Only show Next Order &gt; 0
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
+              <input type="checkbox" checked={filterReco} onChange={toggleFilterReco} />
+              Only show any Reco &gt; 0
             </label>
             <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
               <input type="checkbox" checked={showAsin} onChange={() => setShowAsin((v) => !v)} />
@@ -785,8 +927,8 @@ export default function NextOrderPage() {
             </label>
           </div>
 
-          {onlyMissing && visibleGroups.length === 0 && (
-            <div style={{ textAlign: "center", color: "#555" }}>No rows with Missing &gt; 0.</div>
+          {anyFilterActive && visibleGroups.length === 0 && (
+            <div style={{ textAlign: "center", color: "#555" }}>No rows match the selected filter(s).</div>
           )}
 
           {visibleGroups.map((group) => (

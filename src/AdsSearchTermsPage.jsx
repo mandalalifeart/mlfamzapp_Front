@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+
+import { buttonStyle } from "./buttonStyle";
+import { useAdsFilterOptions } from "./useAdsFilterOptions";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -9,20 +12,7 @@ function cardStyle() {
   return { background: "#fff", border: "1px solid #ddd", borderRadius: "8px", padding: "16px" };
 }
 
-function buttonStyle() {
-  return {
-    padding: "10px 18px",
-    fontSize: "14px",
-    cursor: "pointer",
-    borderRadius: "8px",
-    border: "none",
-    background: "#1976d2",
-    color: "#fff",
-    fontWeight: "600",
-    textDecoration: "none",
-    display: "inline-block",
-  };
-}
+
 
 function inputStyle() {
   return {
@@ -35,7 +25,11 @@ function inputStyle() {
 }
 
 function tableCellStyle(extra = {}) {
-  return { border: "1px solid #ccc", padding: "8px 10px", textAlign: "left", ...extra };
+  return { border: "1px solid #ccc", padding: "8px 10px", textAlign: "left", fontSize: "13px", ...extra };
+}
+
+function compactCellStyle(extra = {}) {
+  return tableCellStyle({ wordBreak: "break-word", whiteSpace: "normal", ...extra });
 }
 
 function formatMoney(value, currencyCode) {
@@ -106,11 +100,28 @@ export default function AdsSearchTermsPage() {
   const [selectedMonth, setSelectedMonth] = useState(Number(getLosAngelesToday().slice(5, 7)));
   const [countryFilter, setCountryFilter] = useState("");
   const [adProductFilter, setAdProductFilter] = useState("");
-  const campaignIdFilter = searchParams.get("campaign_id") || "";
-  const campaignNameFilter = searchParams.get("campaign_name") || "";
+  const [campaignFilter, setCampaignFilter] = useState(searchParams.get("campaign_id") || "");
+  const [portfolioFilter, setPortfolioFilter] = useState("");
+  const { countryOptions, portfolioOptionsFor } = useAdsFilterOptions();
   const [searchTerms, setSearchTerms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [sortField, setSortField] = useState(null);
+  const [sortDir, setSortDir] = useState("desc");
+
+  function toggleSort(field) {
+    if (sortField === field) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortField(field);
+      setSortDir("desc");
+    }
+  }
+
+  function sortArrow(field) {
+    if (sortField !== field) return "";
+    return sortDir === "desc" ? " ↓" : " ↑";
+  }
 
   const currentMonth = Number(getLosAngelesToday().slice(5, 7));
   const { startDate, endDate } =
@@ -122,7 +133,7 @@ export default function AdsSearchTermsPage() {
     try {
       const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
       if (countryFilter) params.set("country_code", countryFilter);
-      if (campaignIdFilter) params.set("campaign_id", campaignIdFilter);
+      if (portfolioFilter) params.set("portfolio", portfolioFilter);
       const response = await fetch(`${API_BASE}/GetAdsSearchTermStats?${params.toString()}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
@@ -137,13 +148,38 @@ export default function AdsSearchTermsPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate, countryFilter, campaignIdFilter]);
+  }, [startDate, endDate, countryFilter, portfolioFilter]);
 
-  const countryCodes = [...new Set(searchTerms.map((t) => t.countryCode).filter(Boolean))].sort();
+  // Same staleness fix as AdsKeywordsPage: a Campaign/Portfolio filter
+  // carried over from before a Country switch no longer matches anything in
+  // the new country's data, showing a confusing "no data" state. This page
+  // doesn't use useBidRuleProfiles, so (unlike AdsKeywordsPage) resetting
+  // portfolioFilter here too is safe - no profile-load path sets country
+  // and portfolio together for this page.
+  const didMountCountryReset = useRef(false);
+  useEffect(() => {
+    if (didMountCountryReset.current) {
+      setCampaignFilter("");
+      setPortfolioFilter("");
+    } else {
+      didMountCountryReset.current = true;
+    }
+  }, [countryFilter]);
 
-  const visibleTerms = adProductFilter
-    ? searchTerms.filter((t) => t.adProduct === adProductFilter)
-    : searchTerms;
+  useEffect(() => {
+    const root = document.getElementById("root");
+    root?.classList.add("full-bleed");
+    return () => root?.classList.remove("full-bleed");
+  }, []);
+
+  const countryCodes = countryOptions;
+  const campaignOptions = [...new Map(searchTerms.map((t) => [t.campaignId, t.campaignName])).entries()].sort(
+    (a, b) => (a[1] || "").localeCompare(b[1] || "")
+  );
+
+  const visibleTerms = searchTerms.filter(
+    (t) => (!adProductFilter || t.adProduct === adProductFilter) && (!campaignFilter || t.campaignId === campaignFilter)
+  );
 
   const totals = visibleTerms.reduce(
     (acc, t) => ({
@@ -155,6 +191,15 @@ export default function AdsSearchTermsPage() {
     }),
     { spend: 0, sales: 0, impressions: 0, clicks: 0, orders: 0 }
   );
+
+  const sortedTerms = [...visibleTerms];
+  if (sortField) {
+    sortedTerms.sort((a, b) => {
+      const av = sortField === "acos" ? a.acos || 0 : a[sortField] || 0;
+      const bv = sortField === "acos" ? b.acos || 0 : b[sortField] || 0;
+      return sortDir === "desc" ? bv - av : av - bv;
+    });
+  }
 
   return (
     <div style={{ padding: "20px 0", fontFamily: "Arial, sans-serif", minHeight: "100vh", background: "#fafafa" }}>
@@ -251,10 +296,31 @@ export default function AdsSearchTermsPage() {
               ))}
             </select>
           </label>
-          {campaignIdFilter && (
+          <label>
+            Campaign:{" "}
+            <select style={inputStyle()} value={campaignFilter} onChange={(e) => setCampaignFilter(e.target.value)}>
+              <option value="">All</option>
+              {campaignOptions.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name || id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Portfolio:{" "}
+            <select style={inputStyle()} value={portfolioFilter} onChange={(e) => setPortfolioFilter(e.target.value)}>
+              <option value="">All</option>
+              {portfolioOptionsFor(countryFilter).map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {campaignFilter && (
             <span style={{ fontSize: "13px", color: "#555" }}>
-              Filtered to campaign: <strong>{campaignNameFilter || campaignIdFilter}</strong>{" "}
-              <Link to="/ads-search-terms">(clear)</Link>
+              <Link to="/ads-search-terms" onClick={() => setCampaignFilter("")}>(clear campaign)</Link>
             </span>
           )}
         </div>
@@ -280,32 +346,51 @@ export default function AdsSearchTermsPage() {
             </div>
 
             <div style={{ overflowX: "auto" }}>
-              <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <table style={{ borderCollapse: "collapse", width: "100%", tableLayout: "fixed" }}>
+                <colgroup>
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "7%" }} />
+                  <col style={{ width: "6%" }} />
+                  <col style={{ width: "7%" }} />
+                  <col style={{ width: "7%" }} />
+                  <col style={{ width: "6%" }} />
+                  <col style={{ width: "6%" }} />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th style={tableCellStyle({ background: "#f4f4f4" })}>Search Term</th>
+                    <th style={compactCellStyle({ background: "#f4f4f4" })}>Search Term</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Matched Keyword</th>
-                    <th style={tableCellStyle({ background: "#f4f4f4" })}>Match Type</th>
+                    <th style={compactCellStyle({ background: "#f4f4f4" })}>Match Type</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Campaign</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Ad Group</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Ad Type</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Country</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Impressions</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Clicks</th>
-                    <th style={tableCellStyle({ background: "#f4f4f4" })}>Spend</th>
+                    <th style={tableCellStyle({ background: "#f4f4f4", cursor: "pointer" })} onClick={() => toggleSort("spend")}>
+                      Spend{sortArrow("spend")}
+                    </th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Sales</th>
                     <th style={tableCellStyle({ background: "#f4f4f4" })}>Orders</th>
-                    <th style={tableCellStyle({ background: "#f4f4f4" })}>ACOS</th>
+                    <th style={tableCellStyle({ background: "#f4f4f4", cursor: "pointer" })} onClick={() => toggleSort("acos")}>
+                      ACOS{sortArrow("acos")}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleTerms.map((t) => (
+                  {sortedTerms.map((t) => (
                     <tr key={`${t.countryCode}-${t.adProduct}-${t.campaignId}-${t.adGroupId}-${t.searchTerm}`}>
-                      <td style={tableCellStyle()}>{t.searchTerm}</td>
-                      <td style={tableCellStyle()}>{t.targetText}</td>
-                      <td style={tableCellStyle()}>{t.matchType}</td>
-                      <td style={tableCellStyle()}>{t.campaignName}</td>
-                      <td style={tableCellStyle()}>{t.adGroupName}</td>
+                      <td style={compactCellStyle()}>{t.searchTerm}</td>
+                      <td style={compactCellStyle()}>{t.targetText}</td>
+                      <td style={compactCellStyle()} title={t.matchType}>{t.matchType?.charAt(0) || ""}</td>
+                      <td style={compactCellStyle()}>{t.campaignName}</td>
+                      <td style={compactCellStyle()}>{t.adGroupName}</td>
                       <td style={tableCellStyle()}>{AD_PRODUCT_LABELS[t.adProduct] || t.adProduct}</td>
                       <td style={tableCellStyle()}>{t.countryCode}</td>
                       <td style={tableCellStyle()}>{t.impressions}</td>
@@ -329,6 +414,9 @@ export default function AdsSearchTermsPage() {
         </Link>
         <Link style={buttonStyle()} to="/ads-keywords">
           Keywords
+        </Link>
+        <Link style={buttonStyle()} to="/ads-advertised-products">
+          Advertised Products
         </Link>
       </div>
     </div>

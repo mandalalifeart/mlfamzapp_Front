@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { buttonStyle } from "./buttonStyle";
 
 function bottomNavStyle() {
   return {
@@ -14,20 +15,7 @@ function bottomNavStyle() {
 // Also used on a <Link> for the Home nav button (real <a>, so right-click
 // "open in new tab" works) - spelled out explicitly since Link doesn't pick
 // up App.css's generic `button` rule the way a real <button> does.
-function smallButtonStyle() {
-  return {
-    padding: "8px 16px",
-    fontSize: "14px",
-    cursor: "pointer",
-    borderRadius: "8px",
-    border: "none",
-    background: "#7d94bc",
-    color: "#fff",
-    fontWeight: 700,
-    textDecoration: "none",
-    display: "inline-block",
-  };
-}
+const smallButtonStyle = buttonStyle;
 
 function isValidReportId(reportId) {
   return Boolean(reportId && reportId !== "0");
