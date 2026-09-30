@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { buttonStyle, ghostButtonStyle } from "./buttonStyle";
+import FamilySection from "./FamilySection";
+import { FAMILIES, familyOf } from "./productFamilies";
 
 function productLink(item) {
   return `/product?asin=${encodeURIComponent(item.asin)}&sku=${encodeURIComponent(item.sku)}`;
@@ -432,6 +434,76 @@ function GroupSection({ group, showAsin, expanded, onToggle, onSave }) {
   );
 }
 
+// "Add New Product" (2026-09-30, per the user): creates the SKU's
+// asin_group_mapping row in the chosen group via AssignSkuGroup (createOnly,
+// so an existing SKU is reported rather than silently moved). ASIN is
+// optional - a product not yet listed on Amazon won't have one. Its
+// sku_statistics row is created on first edit by UpdateNextOrderField.
+function AddProductForm({ groupNames, onAdded, onCancel }) {
+  const [sku, setSku] = useState("");
+  const [group, setGroup] = useState("");
+  const [asin, setAsin] = useState("");
+  const [status, setStatus] = useState("idle"); // idle | saving | error
+  const [errorMsg, setErrorMsg] = useState("");
+
+  async function submit(e) {
+    e.preventDefault();
+    const cleanSku = sku.trim();
+    if (!cleanSku || !group) {
+      setStatus("error");
+      setErrorMsg("SKU and group are required");
+      return;
+    }
+    setStatus("saving");
+    setErrorMsg("");
+    try {
+      const response = await fetch(`${API_BASE}/AssignSkuGroup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sku: cleanSku, asin: asin.trim(), group, createOnly: true }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+      await onAdded(cleanSku, group);
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(err.message || "Failed to add product");
+    }
+  }
+
+  const inputStyle = { padding: "6px 8px", borderRadius: "6px", border: "1px solid #bbb", fontSize: "14px" };
+
+  return (
+    <form
+      onSubmit={submit}
+      style={{ ...cardStyle(), display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", background: "#f7fbf7", borderColor: "#b9d8b9" }}
+    >
+      <strong>New product:</strong>
+      <input style={inputStyle} placeholder="SKU (required)" value={sku} onChange={(e) => setSku(e.target.value)} autoFocus />
+      <select style={inputStyle} value={group} onChange={(e) => setGroup(e.target.value)}>
+        <option value="">Choose group...</option>
+        {FAMILIES.map((family) => {
+          const names = groupNames.filter((g) => familyOf(g) === family.key);
+          return names.length ? (
+            <optgroup key={family.key} label={family.label}>
+              {names.map((g) => <option key={g} value={g}>{g}</option>)}
+            </optgroup>
+          ) : null;
+        })}
+        {groupNames.filter((g) => !familyOf(g)).map((g) => <option key={g} value={g}>{g}</option>)}
+      </select>
+      <input style={inputStyle} placeholder="ASIN (optional)" value={asin} onChange={(e) => setAsin(e.target.value)} />
+      <button type="submit" style={buttonStyle()} disabled={status === "saving"}>
+        {status === "saving" ? "Adding..." : "Add"}
+      </button>
+      <button type="button" style={ghostButtonStyle()} onClick={onCancel} disabled={status === "saving"}>
+        Cancel
+      </button>
+      {status === "error" && <span style={{ color: SAVE_ERROR_COLOR, fontSize: "13px" }}>{errorMsg}</span>}
+    </form>
+  );
+}
+
 const EXPLANATION_EXAMPLE_SKU = "PareoBlueP19";
 
 function RecoExplanation({ nextShipmentDate, recoMeta, exampleItem }) {
@@ -652,6 +724,10 @@ export default function NextOrderPage() {
   const [nextShipmentDate, setNextShipmentDate] = useState("");
   const [dateSaveStatus, setDateSaveStatus] = useState("idle"); // idle | saving | saved | error
   const [recoMeta, setRecoMeta] = useState(null); // { trailingMonths, seasonalYear1Months, seasonalYear2Months }
+  // Pareo / Home Decor family sections - collapsed by default, same as /sales.
+  const [expandedFamilies, setExpandedFamilies] = useState({});
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [addedMessage, setAddedMessage] = useState("");
 
   async function loadData() {
     setLoading(true);
@@ -683,6 +759,7 @@ export default function NextOrderPage() {
         allCollapsed[g.group] = true;
       });
       setCollapsedGroups(allCollapsed);
+      setExpandedFamilies({});
     } catch (err) {
       setError(err.message || "Failed to load next order data");
     } finally {
@@ -751,9 +828,11 @@ export default function NextOrderPage() {
 
   function expandAll() {
     setCollapsedGroups({});
+    setExpandedFamilies(Object.fromEntries(FAMILIES.map((f) => [f.key, true])));
   }
 
   function collapseAll() {
+    setExpandedFamilies({});
     const next = {};
     groups.forEach((g) => {
       next[g.group] = true;
@@ -808,6 +887,32 @@ export default function NextOrderPage() {
       }))
       .filter((g) => g.items.length > 0);
   }, [groups, filterMissing, filterNextOrder, filterReco, anyFilterActive]);
+
+  const groupNames = useMemo(() => groups.map((g) => g.group).filter((g) => g !== "IGNORE").sort(), [groups]);
+
+  async function handleProductAdded(sku, group) {
+    setShowAddProduct(false);
+    await loadData();
+    // Reopen where the new row landed so it's visible right away.
+    setCollapsedGroups((prev) => ({ ...prev, [group]: false }));
+    const family = familyOf(group);
+    if (family) setExpandedFamilies((prev) => ({ ...prev, [family]: true }));
+    setAddedMessage(`Added ${sku} to ${group}`);
+    setTimeout(() => setAddedMessage(""), 5000);
+  }
+
+  function renderGroup(group) {
+    return (
+      <GroupSection
+        key={group.group}
+        group={group}
+        showAsin={showAsin}
+        expanded={!collapsedGroups[group.group]}
+        onToggle={() => toggleGroup(group.group)}
+        onSave={saveField}
+      />
+    );
+  }
 
   const exampleItem = useMemo(() => {
     for (const g of groups) {
@@ -909,6 +1014,10 @@ export default function NextOrderPage() {
             <button style={ghostButtonStyle()} onClick={() => exportXlsx(visibleGroups)}>
               Export XLSX
             </button>
+            <button style={blueButtonStyle()} onClick={() => setShowAddProduct((v) => !v)}>
+              + Add New Product
+            </button>
+            {addedMessage && <span style={{ color: SAVE_OK_COLOR, fontWeight: 600 }}>{addedMessage}</span>}
             <label style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto", fontSize: "14px" }}>
               <input type="checkbox" checked={filterMissing} onChange={toggleFilterMissing} />
               Only show Missing &gt; 0
@@ -931,16 +1040,28 @@ export default function NextOrderPage() {
             <div style={{ textAlign: "center", color: "#555" }}>No rows match the selected filter(s).</div>
           )}
 
-          {visibleGroups.map((group) => (
-            <GroupSection
-              key={group.group}
-              group={group}
-              showAsin={showAsin}
-              expanded={!collapsedGroups[group.group]}
-              onToggle={() => toggleGroup(group.group)}
-              onSave={saveField}
-            />
-          ))}
+          {showAddProduct && (
+            <AddProductForm groupNames={groupNames} onAdded={handleProductAdded} onCancel={() => setShowAddProduct(false)} />
+          )}
+
+          {FAMILIES.map((family) => {
+            const familyGroups = visibleGroups.filter((g) => familyOf(g.group) === family.key);
+            if (familyGroups.length === 0) return null;
+            const productCount = familyGroups.reduce((sum, g) => sum + g.items.length, 0);
+            return (
+              <FamilySection
+                key={family.key}
+                label={family.label}
+                summary={`${familyGroups.length} group${familyGroups.length === 1 ? "" : "s"} · ${productCount} products`}
+                expanded={!!expandedFamilies[family.key]}
+                onToggle={() => setExpandedFamilies((prev) => ({ ...prev, [family.key]: !prev[family.key] }))}
+              >
+                {familyGroups.map(renderGroup)}
+              </FamilySection>
+            );
+          })}
+
+          {visibleGroups.filter((g) => !familyOf(g.group)).map(renderGroup)}
         </div>
       )}
 

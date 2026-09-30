@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { buttonStyle, ghostButtonStyle } from "./buttonStyle";
 import AdsCountryBreakdown from "./AdsCountryBreakdown";
+import FamilySection from "./FamilySection";
+import { FAMILIES, familyOf } from "./productFamilies";
 
 // PocketBase-only functions run on the mini PC that already hosts
 // PocketBase, instead of GCP - see CLAUDE.md "AmzBot: local job runner".
@@ -502,19 +504,10 @@ function GroupSection({ group, years, currentMonth, showAsin, expanded, onToggle
   );
 }
 
-// Product families (2026-09-30, per the user): Pareo and Pouf Covers groups
-// each live in their own collapsible section (collapsed by default), and
-// get their own separate Best/Worst Sellers ranking. Matched on the
-// asin_group_mapping group name prefix, so a new PAREO_*/COVER_* group joins
-// its family automatically. "Home Decor" (named by the user) = pouf covers
-// plus VELVET (velvet pouf covers + stools) and STUFFED (stuffed poufs).
-const FAMILIES = [
-  { key: "pareo", label: "Pareo", match: (name) => /^pareo/i.test(name) },
-  { key: "pouf", label: "Home Decor", match: (name) => /^(cover_|velvet|stuffed)/i.test(name) },
-];
-
-function familyOf(groupName) {
-  return FAMILIES.find((f) => f.match(groupName || ""))?.key || null;
+function familySummary(groups) {
+  const totalThisYear = groups.reduce((sum, g) => sum + (g.totalThisYear || 0), 0);
+  const productCount = groups.reduce((sum, g) => sum + g.items.length, 0);
+  return `${groups.length} group${groups.length === 1 ? "" : "s"} · ${productCount} products · ${totalThisYear.toLocaleString()} units this year`;
 }
 
 const RANKING_TOP_N = 20;
@@ -744,28 +737,6 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// Collapsible wrapper around every group belonging to one family.
-function FamilySection({ label, groups, expanded, onToggle, children }) {
-  const totalThisYear = groups.reduce((sum, g) => sum + (g.totalThisYear || 0), 0);
-  const productCount = groups.reduce((sum, g) => sum + g.items.length, 0);
-  return (
-    <div style={{ ...cardStyle(), background: "#f3f6fb", border: "1px solid #c9d6ea" }}>
-      <div
-        onClick={onToggle}
-        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "6px", cursor: "pointer" }}
-      >
-        <h2 style={{ margin: 0, fontSize: "20px" }}>
-          {expanded ? "▾" : "▸"} {label}
-        </h2>
-        <div style={{ color: "#555", fontSize: "13px" }}>
-          {groups.length} group{groups.length === 1 ? "" : "s"} · {productCount} products · {totalThisYear.toLocaleString()} units this year
-        </div>
-      </div>
-      {expanded && <div style={{ display: "grid", gap: "18px", marginTop: "14px" }}>{children}</div>}
     </div>
   );
 }
@@ -1413,7 +1384,7 @@ export default function SalesPage() {
               <FamilySection
                 key={family.key}
                 label={family.label}
-                groups={familyGroups}
+                summary={familySummary(familyGroups)}
                 expanded={!!expandedFamilies[family.key]}
                 onToggle={() => setExpandedFamilies((prev) => ({ ...prev, [family.key]: !prev[family.key] }))}
               >
