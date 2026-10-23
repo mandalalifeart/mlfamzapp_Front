@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { buttonStyle, ghostButtonStyle } from "./buttonStyle";
 import FamilySection from "./FamilySection";
-import { FAMILIES, familyOf } from "./productFamilies";
+import { FAMILIES, familyOf, orderFamilyGroups } from "./productFamilies";
+import { balanceTooltip, buildRecoTooltip, daysOfSupplyTooltip, formatDaysOfSupply } from "./recoTooltip";
 
 function productLink(item) {
-  return `/product?asin=${encodeURIComponent(item.asin)}&sku=${encodeURIComponent(item.sku)}`;
+  return `/product?sku=${encodeURIComponent(item.sku)}`;
 }
 
 // PocketBase-only functions run on the mini PC that already hosts
@@ -17,15 +18,48 @@ const IMAGE_BASE = "https://storage.googleapis.com/mlf-amz-images/";
 const SAVE_ERROR_COLOR = "#b00020";
 const SAVE_OK_COLOR = "#2e7d32";
 
-// Percentages sum to 100 - table uses table-layout:fixed so these are exact
-// column widths, keeping all columns inside one screen width with no
-// horizontal scroll needed on a normal laptop/desktop viewport. Each region
-// block grew from 4 to 5 columns (2026-09-24) with the new Days of Supply
-// column (A/B/C) added alongside Reco - leading columns trimmed further to
-// make room.
-const COLUMN_WIDTHS_WITH_ASIN = [3, 8, 3, 3, 3, 4, 6, 6, 3, 3, 4, 6, 6, 3, 3, 4, 6, 6, 3, 3, 4, 5, 5];
-// ASIN's width folded into SKU when the column is hidden.
-const COLUMN_WIDTHS_NO_ASIN = [3, 11, 3, 3, 4, 6, 6, 3, 3, 4, 6, 6, 3, 3, 4, 6, 6, 3, 3, 4, 5, 5];
+// Relative column weights (turned into percentages per table) - the table
+// uses table-layout:fixed so everything stays inside one screen width.
+// Per the user (2026-10-03) a region (USA/DE/UK) can be expanded by clicking
+// its header: it gains yearly sales + ACOS columns, and the other regions
+// and GENERAL are hidden (2026-10-03 follow-up) until it's clicked again.
+const ALL_REGIONS = [
+  { key: "usa", label: "USA", balanceField: "usa_balance", otwField: "usa_on_the_way", nextField: "usa_next_shipment" },
+  { key: "de", label: "DE", balanceField: "de_balance", otwField: "de_on_the_way", nextField: "de_next_shipment" },
+  { key: "uk", label: "UK", balanceField: "uk_balance", otwField: "uk_on_the_way", nextField: "uk_next_shipment" },
+  { key: "au", label: "AU", balanceField: "au_balance", otwField: "au_on_the_way", nextField: "au_next_shipment" },
+];
+// AU (2026-10-20, per the user) stays hidden while no AU SKU has sellable
+// stock (first shipment still on the way) - the page sets this once per
+// render via setShowAu, with a manual "show AU" link meanwhile.
+let REGIONS = ALL_REGIONS.filter((r) => r.key !== "au");
+
+function setShowAu(show) {
+  REGIONS = show ? ALL_REGIONS : ALL_REGIONS.filter((r) => r.key !== "au");
+}
+const REGION_COL_WEIGHTS = [3, 3, 4, 6, 6];
+const EXTRA_COL_WEIGHTS = [4, 4, 4, 5, 5, 5, 4];
+const GENERAL_COL_WEIGHTS = [3, 3, 4, 5, 5];
+// GENERAL can be expanded too (2026-10-06, per the user): regions hide and
+// GENERAL gains supplier SKU, total stock and total units sold per year.
+const GENERAL_EXTRA_COL_WEIGHTS = [6, 4, 4, 4, 4];
+const GENERAL_EXTRA_LABELS = ["Supplier SKU", "Stock all (Bal+OTW)"];
+
+function regionColumnCount(region, focusRegion) {
+  if (!focusRegion) return REGION_COL_WEIGHTS.length;
+  if (focusRegion === "general") return 0;
+  return region === focusRegion ? REGION_COL_WEIGHTS.length + EXTRA_COL_WEIGHTS.length : 0;
+}
+
+function columnWeights(showAsin, focusRegion) {
+  const lead = showAsin ? [3, 8, 3] : [3, 11];
+  const regions = REGIONS.flatMap((r) => {
+    if (!focusRegion) return REGION_COL_WEIGHTS;
+    return r.key === focusRegion ? [...REGION_COL_WEIGHTS, ...EXTRA_COL_WEIGHTS] : [];
+  });
+  if (focusRegion === "general") return [...lead, ...GENERAL_COL_WEIGHTS, ...GENERAL_EXTRA_COL_WEIGHTS];
+  return [...lead, ...regions, ...(focusRegion ? [] : GENERAL_COL_WEIGHTS)];
+}
 
 function cardStyle() {
   return {
@@ -83,78 +117,25 @@ function formatUnits(value) {
   return Math.round(value || 0).toLocaleString();
 }
 
-const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function formatMonths(monthPairs) {
-  if (!monthPairs || monthPairs.length === 0) return "";
-  return monthPairs.map(([y, m]) => `${MONTH_NAMES[m - 1]} ${y}`).join(" + ");
-}
-
-function seasonalSourceLabel(source) {
-  switch (source) {
-    case "actual":
-      return "actual same season";
-    case "fallback_recent":
-      return "no seasonal history yet for this SKU - showing the recent-based value instead";
-    default:
-      return "";
-  }
-}
-
-// Full breakdown shown on hover, per the user (2026-09-20, extended same
-// day): days of supply (Bal+OTW ÷ recent daily avg), days to next order,
-// each formula's own daily average, and the exact A/B formula with real
-// numbers plugged in - reusing <region>_reco_debug (the same raw
-// intermediates the bottom-of-page worked example already renders,
-// including the daily averages themselves) so this never drifts from the
-// backend's actual calculation. Note on rounding: below half a category's
-// minimum order size the reco is zeroed out entirely; at or above half,
-// it's shown as-is (NOT rounded up to the full minimum) - see
-// GetNextOrderData.py's apply_category_min_order for the exact rule, so a
-// "raw" value computed here can legitimately differ from the displayed one
-// only by becoming 0. Generalized 2026-09-20 to work for any region
-// (usa/uk/de), originally USA-only.
-function buildRecoTooltip(item, region) {
-  const debug = item[`${region}_reco_debug`];
-  if (!debug) return "";
-
-  const bal = item[`${region}_balance`] || 0;
-  const otw = item[`${region}_on_the_way`] || 0;
-  const seasonal1yrSource = item[`${region}_seasonal_1yr_source`];
-  const seasonal2yrSource = item[`${region}_seasonal_2yr_source`];
-  const recommendedOrder = item[`${region}_recommended_order`];
-  const recommendedOrderSeasonal1yr = item[`${region}_recommended_order_seasonal_1yr`];
-  const recommendedOrderSeasonal2yr = item[`${region}_recommended_order_seasonal_2yr`];
-  const daysOfSupply = debug.avgDailyRecent > 0 ? ((bal + otw) / debug.avgDailyRecent).toFixed(1) : "∞ (no recent sales)";
-
-  const seasonal1yr = seasonal1yrSource === "actual" ? debug.year1Total : debug.trailingTotal;
-  const seasonal2yr = seasonal2yrSource === "actual" ? debug.year2Total : debug.trailingTotal;
-  const rawA = Math.max(0, Math.round(debug.trailingTotal + debug.needForXDays - debug.alreadyCovered));
-  const rawB = Math.max(0, Math.round(seasonal1yr + debug.needForXDays - debug.alreadyCovered));
-  const rawC = Math.max(0, Math.round(seasonal2yr + debug.needForXDays - debug.alreadyCovered));
-  const aZeroedNote = rawA > 0 && recommendedOrder === 0 ? " → zeroed out (below half the minimum order size)" : "";
-  const bZeroedNote = rawB > 0 && recommendedOrderSeasonal1yr === 0 ? " → zeroed out (below half the minimum order size)" : "";
-  const cZeroedNote = rawC > 0 && recommendedOrderSeasonal2yr === 0 ? " → zeroed out (below half the minimum order size)" : "";
-
-  const stockoutNote = debug.zeroInventoryWeeks > 0
-    ? `\n(excludes ${debug.zeroInventoryWeeks} week${debug.zeroInventoryWeeks === 1 ? "" : "s"} of zero ${region.toUpperCase()} stock from the recent-avg calc)`
-    : "";
-
-  return (
-    `Days of supply: (${bal} + ${otw}) / ${debug.avgDailyRecent}/day = ${daysOfSupply} days\n` +
-    `Days to next order: ${debug.xDays} days\n\n` +
-    `Avg daily sales used for A (recent): ${debug.avgDailyRecent}/day${stockoutNote}\n` +
-    `Avg daily sales used for B (seasonal, 1yr ago): ${debug.avgDailySeasonal1yr}/day\n` +
-    `Avg daily sales used for C (seasonal, 2yr ago): ${debug.avgDailySeasonal2yr}/day\n\n` +
-    `A (Recent) = ${debug.trailingTotal} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawA}${aZeroedNote}\n` +
-    `B (Seasonal, ${seasonalSourceLabel(seasonal1yrSource)}) = ${seasonal1yr} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawB}${bZeroedNote}\n` +
-    `C (Seasonal, ${seasonalSourceLabel(seasonal2yrSource)}) = ${seasonal2yr} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawC}${cZeroedNote}`
-  );
+// Reco/DoS hover text is shared with the Product page - see recoTooltip.js
+// (in-stock-days rates, Reco = demand - Bal - OTW, per the user 2026-10-03).
+function recoTooltipFor(item, region) {
+  return buildRecoTooltip(item[`${region}_reco_debug`], {
+    bal: item[`${region}_balance`] || 0,
+    otw: item[`${region}_on_the_way`] || 0,
+    region,
+    recos: [
+      item[`${region}_recommended_order`],
+      item[`${region}_recommended_order_seasonal_1yr`],
+      item[`${region}_recommended_order_seasonal_2yr`],
+    ],
+    sources: [item[`${region}_seasonal_1yr_source`], item[`${region}_seasonal_2yr_source`]],
+  });
 }
 
 // needed = sum of the three "next shipment" quantities being planned across markets.
 function computeNeeded(item) {
-  return (item.uk_next_shipment || 0) + (item.de_next_shipment || 0) + (item.usa_next_shipment || 0);
+  return (item.uk_next_shipment || 0) + (item.de_next_shipment || 0) + (item.usa_next_shipment || 0) + (item.au_next_shipment || 0);
 }
 
 // missing = needed - malani_balance - malani_order: what's still short after
@@ -174,6 +155,29 @@ const STATUS_BORDER = {
   saved: SAVE_OK_COLOR,
   error: SAVE_ERROR_COLOR,
 };
+
+// Pill-shaped on/off filter toggle for the Next Order toolbar.
+function FilterChip({ active, onClick, label }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: "6px 14px",
+        borderRadius: "999px",
+        border: `1px solid ${active ? "#1565c0" : "#bbb"}`,
+        background: active ? "#1565c0" : "#fff",
+        color: active ? "#fff" : "#333",
+        fontSize: "13px",
+        fontWeight: 600,
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {active ? "✓ " : ""}
+      {label}
+    </button>
+  );
+}
 
 function EditableCell({ item, field, onSave }) {
   const [value, setValue] = useState(item[field] ?? 0);
@@ -231,22 +235,38 @@ function EditableCell({ item, field, onSave }) {
 // also frees up real width for each column.
 const REGION_SUBLABELS = ["Bal", "OTW", "Next", "Reco (A/B/C)", "DoS (A/B/C)"];
 const GENERAL_SUBLABELS = ["Malani Bal", "Malani Ord", "Needed", "Missing", "Next Order"];
-const ROW2_LABELS = [...REGION_SUBLABELS, ...REGION_SUBLABELS, ...REGION_SUBLABELS, ...GENERAL_SUBLABELS];
 
-function ColGroup({ showAsin }) {
-  const widths = showAsin ? COLUMN_WIDTHS_WITH_ASIN : COLUMN_WIDTHS_NO_ASIN;
+function ColGroup({ showAsin, focusRegion }) {
+  const weights = columnWeights(showAsin, focusRegion);
+  const total = weights.reduce((a, b) => a + b, 0);
   return (
     <colgroup>
-      {widths.map((w, i) => (
-        <col key={i} style={{ width: `${w}%` }} />
+      {weights.map((w, i) => (
+        <col key={i} style={{ width: `${(100 * w) / total}%` }} />
       ))}
     </colgroup>
   );
 }
 
-function TableHeader({ showAsin }) {
+function TableHeader({ showAsin, focusRegion, onFocusRegion, salesYears }) {
   const leadingLabels = showAsin ? ["Image", "SKU", "ASIN"] : ["Image", "SKU"];
   const groupHeaderStyle = numberCellStyle({ background: "#e8e8e8", textAlign: "center", fontWeight: 700 });
+  const years = salesYears || [];
+  const row2 = [];
+  REGIONS.forEach((r) => {
+    if (focusRegion && r.key !== focusRegion) {
+      // hidden while another region is expanded
+    } else {
+      row2.push(...REGION_SUBLABELS);
+      if (r.key === focusRegion) {
+        row2.push(`${years[0] ?? ""} (YTD)`, `${years[1] ?? ""}`, `${years[2] ?? ""}`, "Ads ACOS (YTD)", "Sold via ads (YTD)", "TACOS (YTD)", "Malani Bal");
+      }
+    }
+  });
+  if (!focusRegion || focusRegion === "general") row2.push(...GENERAL_SUBLABELS);
+  if (focusRegion === "general") {
+    row2.push(...GENERAL_EXTRA_LABELS, `Sold ${years[0] ?? ""} (YTD)`, `Sold ${years[1] ?? ""}`, `Sold ${years[2] ?? ""}`);
+  }
 
   return (
     <thead>
@@ -256,13 +276,33 @@ function TableHeader({ showAsin }) {
             {label}
           </th>
         ))}
-        <th colSpan={5} style={groupHeaderStyle}>USA</th>
-        <th colSpan={5} style={groupHeaderStyle}>DE</th>
-        <th colSpan={5} style={groupHeaderStyle}>UK</th>
-        <th colSpan={5} style={groupHeaderStyle}>GENERAL</th>
+        {REGIONS.filter((r) => !focusRegion || r.key === focusRegion).map((r) => {
+          const focused = focusRegion === r.key;
+          return (
+            <th
+              key={r.key}
+              colSpan={regionColumnCount(r.key, focusRegion)}
+              onClick={() => onFocusRegion(focused ? null : r.key)}
+              title={focused ? "Click to show all regions again" : `Click to expand ${r.label}: yearly sales, ads ACOS and units sold via ads (other regions and GENERAL are hidden)`}
+              style={{ ...groupHeaderStyle, cursor: "pointer", userSelect: "none", background: focused ? "#d6e4f5" : "#e8e8e8" }}
+            >
+              {focused ? `${r.label} ▾ (click to show all)` : `${r.label} ▸`}
+            </th>
+          );
+        })}
+        {(!focusRegion || focusRegion === "general") && (
+          <th
+            colSpan={GENERAL_SUBLABELS.length + (focusRegion === "general" ? GENERAL_EXTRA_COL_WEIGHTS.length : 0)}
+            onClick={() => onFocusRegion(focusRegion === "general" ? null : "general")}
+            title={focusRegion === "general" ? "Click to show all regions again" : "Click to expand GENERAL: supplier SKU, total stock and total units sold per year (regions are hidden)"}
+            style={{ ...groupHeaderStyle, cursor: "pointer", userSelect: "none", background: focusRegion === "general" ? "#d6e4f5" : "#e8e8e8" }}
+          >
+            {focusRegion === "general" ? "GENERAL ▾ (click to show all)" : "GENERAL ▸"}
+          </th>
+        )}
       </tr>
       <tr>
-        {ROW2_LABELS.map((label, i) => (
+        {row2.map((label, i) => (
           <th key={i} style={numberCellStyle({ background: "#f4f4f4" })}>
             {label}
           </th>
@@ -296,25 +336,15 @@ function RecoCell({ item, region, noSales }) {
         fontSize: "13px",
         color: noSales || recent > 0 || seasonal1yr > 0 || seasonal2yr > 0 ? SAVE_ERROR_COLOR : undefined,
       })}
-      title={buildRecoTooltip(item, region)}
+      title={recoTooltipFor(item, region)}
     >
       {formatUnits(recent)}/{formatUnits(seasonal1yr)}/{formatUnits(seasonal2yr)}
     </td>
   );
 }
 
-// Days of supply, per the user (2026-09-24): same "(Bal + OTW) / avg daily
-// sales" math already shown in the Reco tooltip, now its own column with all
-// 3 Reco sources' daily rates (A recent, B seasonal 1yr, C seasonal 2yr) -
-// answers "how many days will current stock + what's on the way last, under
-// each demand assumption" alongside the "how many more units to order"
-// question Reco already answers. No sales at that rate -> "∞" (infinite
-// supply at a 0 burn rate), not 0 or blank.
-function formatDaysOfSupply(bal, otw, avgDaily) {
-  if (!avgDaily || avgDaily <= 0) return "∞";
-  return Math.round((bal + otw) / avgDaily).toLocaleString();
-}
-
+// Days of supply A/B/C = (Bal + OTW) / the matching sales-per-day (in-stock
+// days only, per the user 2026-10-03). No sales -> "∞".
 function DaysOfSupplyCell({ item, region }) {
   const debug = item[`${region}_reco_debug`];
   if (!debug) return <td style={valueCellStyle()}>–</td>;
@@ -324,37 +354,126 @@ function DaysOfSupplyCell({ item, region }) {
   const b = formatDaysOfSupply(bal, otw, debug.avgDailySeasonal1yr);
   const c = formatDaysOfSupply(bal, otw, debug.avgDailySeasonal2yr);
   return (
-    <td
-      style={valueCellStyle({ fontSize: "13px" })}
-      title={
-        `Days of supply = (${bal} Bal + ${otw} OTW) / avg daily sales\n` +
-        `A (recent, ${debug.avgDailyRecent}/day): ${a} days\n` +
-        `B (seasonal 1yr, ${debug.avgDailySeasonal1yr}/day): ${b} days\n` +
-        `C (seasonal 2yr, ${debug.avgDailySeasonal2yr}/day): ${c} days`
-      }
-    >
+    <td style={valueCellStyle({ fontSize: "13px" })} title={daysOfSupplyTooltip(debug, bal, otw)}>
       {a}/{b}/{c}
     </td>
   );
 }
 
-function RegionBlock({ item, region, balanceField, otwField, nextField, onSave }) {
+// Ads ACOS (Amazon's own spend / 7-day sales, same as Seller Central) for
+// this product in the region, this year - red above 50% (the user's own pause
+// threshold), green at 30% or below. Tooltip adds the last 30 days.
+function AcosCell({ ads }) {
+  if (!ads || (!ads.spendYtd && !ads.salesYtd)) return <td style={valueCellStyle({ fontSize: "13px", color: "#999" })}>–</td>;
+  const acos = ads.acosYtd;
+  const color = acos === null ? SAVE_ERROR_COLOR : acos > 50 ? SAVE_ERROR_COLOR : acos <= 30 ? SAVE_OK_COLOR : undefined;
+  const fmt = (v) => (v === null || v === undefined ? "no sales" : `${v}%`);
+  return (
+    <td
+      style={valueCellStyle({ fontSize: "13px", fontWeight: 700, color })}
+      title={
+        `This year: ACOS ${fmt(ads.acosYtd)} (spend ${ads.spendYtd.toLocaleString()} / ad sales ${ads.salesYtd.toLocaleString()})\n` +
+        `Last 30 days: ACOS ${fmt(ads.acos30d)} (spend ${ads.spend30d.toLocaleString()} / ad sales ${ads.sales30d.toLocaleString()})\n` +
+        "USA includes Canada/Mexico (converted to USD)."
+      }
+    >
+      {acos === null ? "∞" : `${Math.round(acos)}%`}
+    </td>
+  );
+}
+
+// Units of this product sold through ads this year (Amazon's exact-SKU
+// "units sold" from Sep 2026 on; before that Amazon's ad orders, which can
+// include other products bought after the click). Share = of all units sold
+// this year in the region.
+function AdUnitsCell({ ads, yearUnits }) {
+  if (!ads || (!ads.spendYtd && !ads.unitsYtd)) return <td style={valueCellStyle({ fontSize: "13px", color: "#999" })}>–</td>;
+  const share = yearUnits ? Math.round((100 * ads.unitsYtd) / yearUnits) : null;
+  return (
+    <td
+      style={valueCellStyle({ fontSize: "13px" })}
+      title={
+        `Sold via ads this year: ${ads.unitsYtd} of ${yearUnits || 0} units${share !== null ? ` (${share}%)` : ""}\n` +
+        `Last 30 days via ads: ${ads.units30d}\n` +
+        "Exact product units from Sep 2026; earlier months use Amazon's ad orders (can include other products)."
+      }
+    >
+      {ads.unitsYtd}
+      {share !== null && <span style={{ fontSize: "10px", color: "#666" }}> ({share}%)</span>}
+    </td>
+  );
+}
+
+// TACOS = ad spend / all sales of this product in the region this year
+// (organic + ads, Business Reports) - per the user 2026-10-23. Same colours
+// as the weekly review's TACOS targets: green <= 20%, red > 35%.
+function TacosCell({ tacos }) {
+  if (!tacos || (!tacos.spendYtd && !tacos.totalSalesYtd)) return <td style={valueCellStyle({ fontSize: "13px", color: "#999" })}>–</td>;
+  const v = tacos.tacosYtd;
+  const color = v === null ? SAVE_ERROR_COLOR : v > 35 ? SAVE_ERROR_COLOR : v <= 20 ? SAVE_OK_COLOR : undefined;
+  return (
+    <td
+      style={valueCellStyle({ fontSize: "13px", fontWeight: 700, color })}
+      title={
+        `This year: TACOS ${v === null ? "no sales" : `${v}%`} (ad spend ${tacos.spendYtd.toLocaleString()} / all sales ${tacos.totalSalesYtd.toLocaleString()})\n` +
+        "All sales = organic + ads (Business Reports, ~2 days behind). Ad spend = Sponsored Products + Display only (Sponsored Brands has no per-product spend). USA includes Canada/Mexico (converted to USD)."
+      }
+    >
+      {v === null ? "∞" : `${Math.round(v)}%`}
+    </td>
+  );
+}
+
+function RegionBlock({ item, region, balanceField, otwField, nextField, onSave, focusRegion }) {
   const noSales = hasNoRecentSales(item, region);
   const cellStyle = noSales ? { color: SAVE_ERROR_COLOR, fontWeight: 700 } : {};
+  const nextCell = (
+    <td style={numberCellStyle(noSales ? { background: "#fff1f1" } : {})}>
+      <EditableCell item={item} field={nextField} onSave={onSave} />
+    </td>
+  );
+  if (focusRegion && focusRegion !== region) return null;
+  const yearly = item[`${region}_yearly_sales`] || [];
   return (
     <>
-      <td style={valueCellStyle(cellStyle)}>{formatUnits(item[balanceField])}</td>
-      <td style={valueCellStyle(cellStyle)}>{formatUnits(item[otwField])}</td>
-      <td style={numberCellStyle(noSales ? { background: "#fff1f1" } : {})}>
-        <EditableCell item={item} field={nextField} onSave={onSave} />
+      <td style={valueCellStyle(cellStyle)} title={balanceTooltip(item[`${region}_balance_parts`])}>
+        {formatUnits(item[balanceField])}
       </td>
+      <td style={valueCellStyle(cellStyle)}>{formatUnits(item[otwField])}</td>
+      {nextCell}
       <RecoCell item={item} region={region} noSales={noSales} />
       <DaysOfSupplyCell item={item} region={region} />
+      {focusRegion === region && (
+        <>
+          <td style={valueCellStyle({ background: "#f5f9ff" })}>{formatUnits(yearly[0])}</td>
+          <td style={valueCellStyle({ background: "#f5f9ff" })}>{formatUnits(yearly[1])}</td>
+          <td style={valueCellStyle({ background: "#f5f9ff" })}>{formatUnits(yearly[2])}</td>
+          <AcosCell ads={item[`${region}_ads`]} />
+          <AdUnitsCell ads={item[`${region}_ads`]} yearUnits={yearly[0]} />
+          <TacosCell tacos={item[`${region}_tacos`]} />
+          <td style={valueCellStyle({ background: "#fbf7ee" })} title="Stock held at Malani (same for every region)">{formatUnits(item.malani_balance)}</td>
+        </>
+      )}
     </>
   );
 }
 
-function ItemRow({ item, showAsin, onSave }) {
+function GeneralExtraCells({ item }) {
+  const stock = REGIONS.reduce((sum, r) => sum + (item[r.balanceField] || 0) + (item[r.otwField] || 0), 0);
+  const parts = REGIONS.map((r) => `${r.label} ${(item[r.balanceField] || 0) + (item[r.otwField] || 0)}`).join(" · ");
+  const sold = [0, 1, 2].map((i) => REGIONS.reduce((sum, r) => sum + ((item[`${r.key}_yearly_sales`] || [])[i] || 0), 0));
+  return (
+    <>
+      <td style={tableCellStyle({ fontSize: "11px", wordBreak: "break-word", whiteSpace: "normal" })}>{item.supplier_sku || "-"}</td>
+      <td style={valueCellStyle({ fontWeight: 700 })} title={parts}>{formatUnits(stock)}</td>
+      {sold.map((n, i) => (
+        <td key={i} style={valueCellStyle()}>{formatUnits(n)}</td>
+      ))}
+    </>
+  );
+}
+
+function ItemRow({ item, showAsin, onSave, focusRegion, onAddToMalani }) {
   const needed = computeNeeded(item);
   const missing = computeMissing(item);
 
@@ -378,26 +497,75 @@ function ItemRow({ item, showAsin, onSave }) {
         <td style={tableCellStyle({ fontFamily: "monospace", fontSize: "10px" })}>{item.asin}</td>
       )}
 
-      <RegionBlock item={item} region="usa" balanceField="usa_balance" otwField="usa_on_the_way" nextField="usa_next_shipment" onSave={onSave} />
-      <RegionBlock item={item} region="de" balanceField="de_balance" otwField="de_on_the_way" nextField="de_next_shipment" onSave={onSave} />
-      <RegionBlock item={item} region="uk" balanceField="uk_balance" otwField="uk_on_the_way" nextField="uk_next_shipment" onSave={onSave} />
+      {REGIONS.map((r) => (
+        <RegionBlock
+          key={r.key}
+          item={item}
+          region={r.key}
+          balanceField={r.balanceField}
+          otwField={r.otwField}
+          nextField={r.nextField}
+          onSave={onSave}
+          focusRegion={focusRegion}
+        />
+      ))}
 
-      <td style={valueCellStyle()}>{formatUnits(item.malani_balance)}</td>
-      <td style={valueCellStyle()}>{formatUnits(item.malani_order)}</td>
+      {(!focusRegion || focusRegion === "general") && (
+        <>
+          <td style={valueCellStyle()}>{formatUnits(item.malani_balance)}</td>
+          <td style={valueCellStyle()}>{formatUnits(item.malani_order)}</td>
 
-      <td style={valueCellStyle({ fontWeight: 700 })}>{formatUnits(needed)}</td>
-      <td style={valueCellStyle({ fontWeight: 700, color: missing > 0 ? SAVE_ERROR_COLOR : undefined })}>
-        {formatUnits(missing)}
-      </td>
+          <td style={valueCellStyle({ fontWeight: 700 })}>{formatUnits(needed)}</td>
+          <td style={valueCellStyle({ fontWeight: 700, color: missing > 0 ? SAVE_ERROR_COLOR : undefined })}>
+            {formatUnits(missing)}
+          </td>
 
-      <td style={numberCellStyle()}>
-        <EditableCell item={item} field="next_order" onSave={onSave} />
-      </td>
+          <td style={numberCellStyle()}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
+              <EditableCell key={`no-${item.next_order}`} item={item} field="next_order" onSave={onSave} />
+              {Number(item.next_order || 0) > 0 && (
+                <button
+                  onClick={() => onAddToMalani(item)}
+                  title={`Add ${item.next_order} to Malani Order (then Next Order = 0)`}
+                  style={{ border: "none", background: "none", cursor: "pointer", padding: 0, fontSize: "13px", lineHeight: 1 }}
+                >
+                  ➕
+                </button>
+              )}
+            </span>
+          </td>
+        </>
+      )}
+      {focusRegion === "general" && <GeneralExtraCells item={item} />}
     </tr>
   );
 }
 
-function GroupSection({ group, showAsin, expanded, onToggle, onSave }) {
+// Group / segment totals (2026-10-18, per the user "add the total per group
+// and segment"): sum of each region's Next column plus the GENERAL Next Order.
+const TOTAL_FIELDS = [
+  ["USA", "usa_next_shipment"],
+  ["DE", "de_next_shipment"],
+  ["UK", "uk_next_shipment"],
+  ["AU", "au_next_shipment"],
+  ["Next Order", "next_order"],
+];
+
+function NextTotals({ items }) {
+  const sums = TOTAL_FIELDS.filter(([label]) => label !== "AU" || REGIONS.some((r) => r.key === "au")).map(([label, key]) => [label, items.reduce((a, it) => a + (Number(it[key]) || 0), 0)]);
+  return (
+    <span style={{ fontSize: "13px", color: "#333" }}>
+      <b>Next:</b>{" "}
+      {sums.map(([label, v], i) => (
+        <span key={label} style={{ marginLeft: i ? "10px" : 0 }}>
+          {label} <b>{v.toLocaleString()}</b>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function GroupSection({ group, showAsin, expanded, onToggle, onSave, focusRegion, onFocusRegion, salesYears, onAddToMalani }) {
   return (
     <div style={cardStyle()}>
       <div
@@ -412,19 +580,20 @@ function GroupSection({ group, showAsin, expanded, onToggle, onSave }) {
         <h3 style={{ margin: 0 }}>
           {expanded ? "▾" : "▸"} {group.group}
         </h3>
-        <div style={{ color: "#555", fontSize: "13px" }}>
-          {group.items.length} product{group.items.length === 1 ? "" : "s"}
+        <div style={{ color: "#555", fontSize: "13px", display: "flex", gap: "16px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <NextTotals items={group.items} />
+          <span>{group.items.length} product{group.items.length === 1 ? "" : "s"}</span>
         </div>
       </div>
 
       {expanded && (
         <div style={{ overflowX: "auto", marginTop: "12px" }}>
           <table style={{ borderCollapse: "collapse", width: "100%", tableLayout: "fixed" }}>
-            <ColGroup showAsin={showAsin} />
-            <TableHeader showAsin={showAsin} />
+            <ColGroup showAsin={showAsin} focusRegion={focusRegion} />
+            <TableHeader showAsin={showAsin} focusRegion={focusRegion} onFocusRegion={onFocusRegion} salesYears={salesYears} />
             <tbody>
               {group.items.map((item) => (
-                <ItemRow key={item.sku} item={item} showAsin={showAsin} onSave={onSave} />
+                <ItemRow key={item.sku} item={item} showAsin={showAsin} onSave={onSave} focusRegion={focusRegion} onAddToMalani={onAddToMalani} />
               ))}
             </tbody>
           </table>
@@ -506,92 +675,36 @@ function AddProductForm({ groupNames, onAdded, onCancel }) {
 
 const EXPLANATION_EXAMPLE_SKU = "PareoBlueP19";
 
-function RecoExplanation({ nextShipmentDate, recoMeta, exampleItem }) {
+function RecoExplanation({ nextShipmentDate, exampleItem }) {
   const debug = exampleItem?.usa_reco_debug;
-
+  const p = { fontSize: "13px", color: "#333", lineHeight: 1.6 };
   return (
     <div style={cardStyle()}>
-      <h3 style={{ marginTop: 0 }}>How the USA Reco column is calculated</h3>
-      <p style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
-        All three recommendations answer the same question - "how many MORE units should I still add to USA Next" -
-        so <strong>0 means already covered</strong>, not "don't ship anything." They share one near-term term
-        (need_for_x_days: the gap between today and when the shipment arrives) and differ only in how they forecast
-        the 3 months of demand AFTER the shipment lands.
+      <h3 style={{ marginTop: 0 }}>How Reco and Days of Supply are calculated (USA, DE and UK alike)</h3>
+      <p style={p}>
+        <strong>Sales per day</strong> = units sold in a period ÷ the days the product was <strong>in stock</strong> in
+        that marketplace (Amazon inventory ledger: USA = US warehouses, UK = UK warehouses, DE = the whole EU network).
+        Days without stock are ignored, so a stock-out doesn&apos;t make a product look slower than it is. If a period
+        has fewer than 7 in-stock days, all days are used. Days older than Amazon&apos;s ledger (~18 months) count as in stock.
       </p>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginTop: "12px" }}>
-        <div>
-          <strong>A - Recent</strong>
-          <p style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
-            Assumes the next 3 months look like the last 3.
-            <br />
-            x = days from today to Next Shipment Arriving Date
-            <br />
-            need_for_x_days = x × (last 3 months' total ÷ real days in those months)
-            <br />
-            need_for_3_months = last 3 months' total, used as-is
-            <br />
-            <strong>A = need_for_3_months + need_for_x_days − USA Bal − USA OTW − USA Next</strong>
-          </p>
-        </div>
-        <div>
-          <strong>B - Seasonal (1 year ago)</strong>
-          <p style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
-            A seasonal product's next 3 months can look nothing like its last 3 (e.g. shipping into summer from a
-            winter baseline) - so instead it looks at the ACTUAL same 3 calendar months the shipment lands into, from
-            1 year ago (falls back to A's number if that year has no history for this SKU).
-            <br />
-            <strong>B = seasonal_1yr + need_for_x_days − USA Bal − USA OTW − USA Next</strong>
-          </p>
-        </div>
-        <div>
-          <strong>C - Seasonal (2 years ago)</strong>
-          <p style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
-            Same idea as B, but the ACTUAL same 3 calendar months from 2 years ago instead of 1 (falls back to A's
-            number if that year has no history for this SKU).
-            <br />
-            <strong>C = seasonal_2yr + need_for_x_days − USA Bal − USA OTW − USA Next</strong>
-          </p>
-        </div>
-      </div>
-
+      <p style={p}>
+        <strong>Reco = next shipment</strong> (0 = nothing needed), per the user&apos;s formula:
+        <br />PA = today → Next Shipment Arriving Date; PB = the 3 months after arrival; H = Bal + OTW (Next is not counted)
+        <br />QA = pieces needed during PA; QB = pieces needed during PB
+        <br />At arrival you have max(H − QA, 0) - if stock runs out before the shipment lands, those lost sales are not re-ordered
+        <br /><strong>Next shipment = QB − max(H − QA, 0)</strong>
+        <br /><strong>A (recent)</strong>: QA and QB from the last 3 months&apos; sales per day
+        <br /><strong>B (1 year ago)</strong>: QA from the same PA dates last year, QB from the same PB months last year
+        <br /><strong>C (2 years ago)</strong>: same with 2 years ago (B/C use the recent rate where there is no history that far back)
+        <br /><strong>Days of Supply A/B/C</strong> = H ÷ sales per day (recent / season after arrival 1yr / 2yrs ago). Bal = FBA + AWD (+ LG for DE).
+      </p>
       {exampleItem && debug && (
-        <div style={{ marginTop: "16px", padding: "12px", background: "#f7f7f7", borderRadius: "6px", fontSize: "13px", lineHeight: 1.7 }}>
+        <div style={{ marginTop: "12px", padding: "12px", background: "#f7f7f7", borderRadius: "6px", fontSize: "13px", lineHeight: 1.7, whiteSpace: "pre-line" }}>
           <strong>
-            Worked example - {exampleItem.sku} ({exampleItem.asin})
+            Worked example - {exampleItem.sku} USA (next shipment {nextShipmentDate})
           </strong>
-          <div style={{ marginTop: "6px" }}>
-            Today → Next Shipment Arriving Date ({nextShipmentDate}): x = {debug.xDays} days
-            <br />
-            Last 3 months ({formatMonths(recoMeta?.trailingMonths)}): {debug.trailingTotal} units over{" "}
-            {recoMeta?.trailingLookbackDays} days → avg {exampleItem.usa_avg_monthly_sales}/month
-            <br />
-            need_for_x_days = {debug.xDays} × ({debug.trailingTotal}/{recoMeta?.trailingLookbackDays}) = {debug.needForXDays}
-            <br />
-            USA Bal + USA OTW + USA Next = {debug.alreadyCovered}
-            <br />
-            <br />
-            <strong>A (Recent)</strong>: {debug.trailingTotal} + {debug.needForXDays} − {debug.alreadyCovered} ={" "}
-            <strong>{formatUnits(exampleItem.usa_recommended_order)}</strong>
-            <br />
-            <br />
-            Same season 1 year ago ({formatMonths(recoMeta?.seasonalYear1Months)}): {debug.year1Total} units (
-            {seasonalSourceLabel(exampleItem.usa_seasonal_1yr_source)})
-            <br />
-            <strong>B (Seasonal, 1yr)</strong>:{" "}
-            {exampleItem.usa_seasonal_1yr_source === "actual" ? debug.year1Total : debug.trailingTotal} +{" "}
-            {debug.needForXDays} − {debug.alreadyCovered} ={" "}
-            <strong>{formatUnits(exampleItem.usa_recommended_order_seasonal_1yr)}</strong>
-            <br />
-            <br />
-            Same season 2 years ago ({formatMonths(recoMeta?.seasonalYear2Months)}): {debug.year2Total} units (
-            {seasonalSourceLabel(exampleItem.usa_seasonal_2yr_source)})
-            <br />
-            <strong>C (Seasonal, 2yr)</strong>:{" "}
-            {exampleItem.usa_seasonal_2yr_source === "actual" ? debug.year2Total : debug.trailingTotal} +{" "}
-            {debug.needForXDays} − {debug.alreadyCovered} ={" "}
-            <strong>{formatUnits(exampleItem.usa_recommended_order_seasonal_2yr)}</strong>
-          </div>
+          {"\n"}
+          {recoTooltipFor(exampleItem, "usa")}
         </div>
       )}
     </div>
@@ -604,108 +717,120 @@ function RecoExplanation({ nextShipmentDate, recoMeta, exampleItem }) {
 // convention the on-page table already uses for Missing>0/Next Order>0/any
 // Reco>0) - same underlying columns as the old CSV, plus a Group column
 // since a flat export loses that grouping context otherwise.
-const XLSX_COLUMNS = [
-  { header: "Group", key: "group", width: 16 },
-  { header: "SKU", key: "sku", width: 26 },
-  { header: "UPC", key: "upc", width: 16 },
-  { header: "Supplier SKU", key: "supplierSku", width: 16 },
-  { header: "USA Reco (Recent)", key: "usaRecent", width: 16 },
-  { header: "USA Reco (Seasonal 1yr)", key: "usaSeasonal1yr", width: 18 },
-  { header: "USA Reco (Seasonal 2yr)", key: "usaSeasonal2yr", width: 18 },
-  { header: "DE Reco (Recent)", key: "deRecent", width: 15 },
-  { header: "DE Reco (Seasonal 1yr)", key: "deSeasonal1yr", width: 17 },
-  { header: "DE Reco (Seasonal 2yr)", key: "deSeasonal2yr", width: 17 },
-  { header: "UK Reco (Recent)", key: "ukRecent", width: 15 },
-  { header: "UK Reco (Seasonal 1yr)", key: "ukSeasonal1yr", width: 17 },
-  { header: "UK Reco (Seasonal 2yr)", key: "ukSeasonal2yr", width: 17 },
-  { header: "Missing", key: "missing", width: 12 },
-  { header: "Next Order", key: "nextOrder", width: 12 },
+// Export per marketplace or GENERAL (2026-10-03, per the user): a
+// marketplace export has every column of that marketplace's expanded view,
+// GENERAL only the general columns. Both start with the product columns.
+const XLSX_PRODUCT_COLUMNS = [
+  { header: "Group", key: "group", width: 16, value: (item, group) => group },
+  { header: "SKU", key: "sku", width: 26, value: (item) => item.sku },
+  { header: "UPC", key: "upc", width: 16, value: (item) => item.upc || "" },
+  { header: "Supplier SKU", key: "supplierSku", width: 16, value: (item) => item.supplier_sku || "" },
 ];
-const XLSX_NUMBER_KEYS = XLSX_COLUMNS.slice(4).map((c) => c.key);
+
+function dosValue(item, region, rateKey) {
+  const rate = item[`${region}_reco_debug`]?.[rateKey];
+  if (!rate || rate <= 0) return "∞";
+  return Math.round(((item[`${region}_balance`] || 0) + (item[`${region}_on_the_way`] || 0)) / rate);
+}
+
+function regionXlsxColumns(region, years) {
+  const ads = (item) => item[`${region}_ads`] || {};
+  const yearly = (item) => item[`${region}_yearly_sales`] || [];
+  const parts = (item) => item[`${region}_balance_parts`] || {};
+  return [
+    { header: "Bal", key: "bal", width: 9, num: true, value: (i) => i[`${region}_balance`] || 0 },
+    { header: "FBA", key: "fba", width: 8, num: true, value: (i) => parts(i).fba || 0 },
+    { header: "AWD", key: "awd", width: 8, num: true, value: (i) => parts(i).awd || 0 },
+    ...(region === "de" ? [{ header: "LG", key: "lg", width: 8, num: true, value: (i) => parts(i).lg || 0 }] : []),
+    { header: "OTW", key: "otw", width: 8, num: true, value: (i) => i[`${region}_on_the_way`] || 0 },
+    { header: "Next", key: "next", width: 8, num: true, red: true, value: (i) => i[`${region}_next_shipment`] || 0 },
+    { header: "Reco A (recent)", key: "recoA", width: 14, num: true, red: true, value: (i) => i[`${region}_recommended_order`] || 0 },
+    { header: "Reco B (1yr ago)", key: "recoB", width: 15, num: true, red: true, value: (i) => i[`${region}_recommended_order_seasonal_1yr`] || 0 },
+    { header: "Reco C (2yrs ago)", key: "recoC", width: 16, num: true, red: true, value: (i) => i[`${region}_recommended_order_seasonal_2yr`] || 0 },
+    { header: "Days of Supply A", key: "dosA", width: 15, num: true, value: (i) => dosValue(i, region, "avgDailyRecent") },
+    { header: "Days of Supply B", key: "dosB", width: 15, num: true, value: (i) => dosValue(i, region, "avgDailySeasonal1yr") },
+    { header: "Days of Supply C", key: "dosC", width: 15, num: true, value: (i) => dosValue(i, region, "avgDailySeasonal2yr") },
+    { header: `Sold ${years[0] ?? ""} (YTD)`, key: "y0", width: 13, num: true, value: (i) => yearly(i)[0] || 0 },
+    { header: `Sold ${years[1] ?? ""}`, key: "y1", width: 11, num: true, value: (i) => yearly(i)[1] || 0 },
+    { header: `Sold ${years[2] ?? ""}`, key: "y2", width: 11, num: true, value: (i) => yearly(i)[2] || 0 },
+    { header: "Ads ACOS YTD %", key: "acos", width: 14, num: true, value: (i) => (ads(i).acosYtd ?? "") },
+    { header: "Sold via ads YTD", key: "adUnits", width: 15, num: true, value: (i) => ads(i).unitsYtd ?? "" },
+    { header: "TACOS YTD %", key: "tacos", width: 12, num: true, value: (i) => (i[`${region}_tacos`] || {}).tacosYtd ?? "" },
+    { header: "Malani Bal", key: "malaniBalR", width: 11, num: true, value: (i) => i.malani_balance || 0 },
+  ];
+}
+
+const GENERAL_XLSX_COLUMNS = [
+  { header: "Malani Bal", key: "malaniBal", width: 11, num: true, value: (i) => i.malani_balance || 0 },
+  { header: "Malani Order", key: "malaniOrd", width: 12, num: true, value: (i) => i.malani_order || 0 },
+  { header: "USA Next", key: "usaNext", width: 10, num: true, value: (i) => i.usa_next_shipment || 0 },
+  { header: "DE Next", key: "deNext", width: 10, num: true, value: (i) => i.de_next_shipment || 0 },
+  { header: "UK Next", key: "ukNext", width: 10, num: true, value: (i) => i.uk_next_shipment || 0 },
+  { header: "AU Next", key: "auNext", width: 10, num: true, value: (i) => i.au_next_shipment || 0 },
+  { header: "Needed", key: "needed", width: 10, num: true, value: (i) => computeNeeded(i) },
+  { header: "Missing", key: "missing", width: 10, num: true, red: true, value: (i) => computeMissing(i) },
+  { header: "Next Order", key: "nextOrder", width: 11, num: true, red: true, value: (i) => i.next_order || 0 },
+];
 const XLSX_HEADER_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4E78" } };
 const XLSX_ZEBRA_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F3F3" } };
 const XLSX_RED_FONT = { color: { argb: "FFB00020" }, bold: true };
 const XLSX_THIN_BORDER = { style: "thin", color: { argb: "FFCCCCCC" } };
 
-async function exportXlsx(visibleGroups) {
-  // Dynamically imported (rather than a top-level import) so this ~1MB
-  // library's code is only fetched when the Export XLSX button is actually
-  // clicked, not bundled into the page's initial load.
+// scope: "usa" | "de" | "uk" | "general"
+async function exportXlsx(visibleGroups, scope, years) {
+  // Dynamically imported so this ~1MB library is only fetched on export.
   const { default: ExcelJS } = await import("exceljs");
+  const columns = [
+    ...XLSX_PRODUCT_COLUMNS,
+    ...(scope === "general" ? GENERAL_XLSX_COLUMNS : regionXlsxColumns(scope, years || [])),
+  ];
+  const title = scope === "general" ? "GENERAL" : scope.toUpperCase();
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "AmzBot";
   workbook.created = new Date();
-
-  const sheet = workbook.addWorksheet("Next Order", {
-    views: [{ state: "frozen", ySplit: 1 }],
-  });
-  sheet.columns = XLSX_COLUMNS;
+  const sheet = workbook.addWorksheet(`Next Order ${title}`, { views: [{ state: "frozen", ySplit: 1 }] });
+  sheet.columns = columns.map(({ header, key, width }) => ({ header, key, width }));
 
   const headerRow = sheet.getRow(1);
   headerRow.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
     cell.fill = XLSX_HEADER_FILL;
-    cell.alignment = { horizontal: "center", vertical: "middle" };
+    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
     cell.border = { top: XLSX_THIN_BORDER, bottom: XLSX_THIN_BORDER, left: XLSX_THIN_BORDER, right: XLSX_THIN_BORDER };
   });
-  headerRow.height = 20;
+  headerRow.height = 30;
+
+  // Per the user (2026-10-03): a country file has only rows where that
+  // country's Next > 0; GENERAL only rows with Missing > 0 or Next Order > 0.
+  const keep = (item) =>
+    scope === "general"
+      ? computeMissing(item) > 0 || Number(item.next_order || 0) > 0
+      : Number(item[`${scope}_next_shipment`] || 0) > 0;
 
   let rowIndex = 0;
   visibleGroups.forEach((group) => {
-    group.items.forEach((item) => {
+    group.items.filter(keep).forEach((item) => {
       rowIndex += 1;
-      const missing = computeMissing(item);
-      const nextOrder = item.next_order || 0;
-      const row = sheet.addRow({
-        group: group.group,
-        sku: item.sku,
-        upc: item.upc || "",
-        supplierSku: item.supplier_sku || "",
-        usaRecent: item.usa_recommended_order || 0,
-        usaSeasonal1yr: item.usa_recommended_order_seasonal_1yr || 0,
-        usaSeasonal2yr: item.usa_recommended_order_seasonal_2yr || 0,
-        deRecent: item.de_recommended_order || 0,
-        deSeasonal1yr: item.de_recommended_order_seasonal_1yr || 0,
-        deSeasonal2yr: item.de_recommended_order_seasonal_2yr || 0,
-        ukRecent: item.uk_recommended_order || 0,
-        ukSeasonal1yr: item.uk_recommended_order_seasonal_1yr || 0,
-        ukSeasonal2yr: item.uk_recommended_order_seasonal_2yr || 0,
-        missing,
-        nextOrder,
-      });
-
+      const row = sheet.addRow(Object.fromEntries(columns.map((c) => [c.key, c.value(item, group.group)])));
       row.eachCell((cell, colNumber) => {
+        const col = columns[colNumber - 1];
         cell.border = { top: XLSX_THIN_BORDER, bottom: XLSX_THIN_BORDER, left: XLSX_THIN_BORDER, right: XLSX_THIN_BORDER };
-        const key = XLSX_COLUMNS[colNumber - 1].key;
-        if (XLSX_NUMBER_KEYS.includes(key)) {
-          cell.numFmt = "0";
-          cell.alignment = { horizontal: "right" };
-        }
+        if (col.num) cell.alignment = { horizontal: "right" };
         if (rowIndex % 2 === 0) cell.fill = XLSX_ZEBRA_FILL;
+        // red when > 0, same convention as the page (Next, Reco, Missing, Next Order)
+        if (col.red && typeof cell.value === "number" && cell.value > 0) cell.font = XLSX_RED_FONT;
       });
-
-      // Same red-highlight convention as the on-page table: Missing>0 and
-      // Next Order>0 flag their own cell; any region's Reco>0 flags all 9
-      // Reco cells together (mirroring RecoCell's own highlight logic).
-      if (missing > 0) row.getCell("missing").font = XLSX_RED_FONT;
-      if (nextOrder > 0) row.getCell("nextOrder").font = XLSX_RED_FONT;
-      const anyReco = XLSX_NUMBER_KEYS.slice(0, 9).some((key) => Number(row.getCell(key).value || 0) > 0);
-      if (anyReco) {
-        XLSX_NUMBER_KEYS.slice(0, 9).forEach((key) => {
-          row.getCell(key).font = XLSX_RED_FONT;
-        });
-      }
     });
   });
 
-  sheet.autoFilter = { from: "A1", to: `${sheet.getColumn(XLSX_COLUMNS.length).letter}1` };
+  sheet.autoFilter = { from: "A1", to: `${sheet.getColumn(columns.length).letter}1` };
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `next-order-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  link.download = `next-order-${title.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -721,13 +846,23 @@ export default function NextOrderPage() {
   const [filterMissing, setFilterMissing] = useState(false);
   const [filterNextOrder, setFilterNextOrder] = useState(false);
   const [filterReco, setFilterReco] = useState(false);
+  const [filterNext, setFilterNext] = useState(false);
   const [nextShipmentDate, setNextShipmentDate] = useState("");
+  // One arriving date per region (2026-10-18, per the user).
+  const [nextShipmentDates, setNextShipmentDates] = useState({});
+  // Per-region months the goods must last after arrival (2026-10-18, default 3).
+  const [coverMonths, setCoverMonths] = useState({});
   const [dateSaveStatus, setDateSaveStatus] = useState("idle"); // idle | saving | saved | error
-  const [recoMeta, setRecoMeta] = useState(null); // { trailingMonths, seasonalYear1Months, seasonalYear2Months }
   // Pareo / Home Decor family sections - collapsed by default, same as /sales.
   const [expandedFamilies, setExpandedFamilies] = useState({});
   const [showAddProduct, setShowAddProduct] = useState(false);
+  // Expanded region (one of usa/de/uk) - shared by every group's table.
+  const [focusRegion, setFocusRegion] = useState(null);
+  const [salesYears, setSalesYears] = useState([]);
   const [addedMessage, setAddedMessage] = useState("");
+  const [showAuManual, setShowAuManual] = useState(false);
+  const auHasStock = groups.some((g) => g.items.some((i) => (i.au_balance || 0) > 0));
+  setShowAu(auHasStock || showAuManual);
 
   async function loadData() {
     setLoading(true);
@@ -747,13 +882,9 @@ export default function NextOrderPage() {
 
       setGroups(data.groups || []);
       setNextShipmentDate(data.nextShipmentDate || "");
-      setRecoMeta({
-        trailingMonths: data.trailingMonths || [],
-        trailingLookbackDays: data.trailingLookbackDays || 0,
-        seasonalYear1Months: data.seasonalYear1Months || [],
-        seasonalYear2Months: data.seasonalYear2Months || [],
-      });
-
+      setNextShipmentDates(data.nextShipmentDates || {});
+      setCoverMonths(data.coverMonths || {});
+      setSalesYears(data.salesYears || []);
       const allCollapsed = {};
       (data.groups || []).forEach((g) => {
         allCollapsed[g.group] = true;
@@ -797,14 +928,60 @@ export default function NextOrderPage() {
     );
   }
 
-  async function saveNextShipmentDate(newDate) {
-    setNextShipmentDate(newDate);
+  // Per the user (2026-10-06): per-SKU icon next to Next Order moves that
+  // item's Next Order into its Malani Order (malani_order += next_order,
+  // next_order -> 0).
+  async function addNextOrderToMalani(item) {
+    const qty = Number(item.next_order || 0);
+    if (qty <= 0) return;
+    if (!window.confirm(`Add ${qty} to Malani Order for ${item.sku}? Next Order will then be 0.`)) return;
+    try {
+      const response = await fetch(`${API_BASE}/AddNextOrderToMalaniOrder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skus: [item.sku] }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data?.error || `HTTP ${response.status}`);
+      const changed = (data.changed || [])[0];
+      if (!changed) throw new Error("nothing changed");
+      setGroups((prev) =>
+        prev.map((g) => ({
+          ...g,
+          items: g.items.map((it) => (it.sku === item.sku ? { ...it, malani_order: changed.malani_order, next_order: 0 } : it)),
+        }))
+      );
+    } catch (err) {
+      window.alert(`Failed: ${err.message || err}`);
+    }
+  }
+
+  async function saveCoverMonths(value, region) {
+    if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 24) return;
+    setCoverMonths((prev) => ({ ...prev, [region]: Number(value) }));
+    try {
+      const response = await fetch(`${API_BASE}/UpdateNextShipmentDate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ region, coverMonths: value }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+      loadData();
+    } catch (err) {
+      setError(err.message || "Failed to save months");
+    }
+  }
+
+  async function saveNextShipmentDate(newDate, region) {
+    setNextShipmentDates((prev) => ({ ...prev, [region]: newDate }));
+    if (region === "usa") setNextShipmentDate(newDate);
     setDateSaveStatus("saving");
     try {
       const response = await fetch(`${API_BASE}/UpdateNextShipmentDate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: newDate }),
+        body: JSON.stringify({ date: newDate, region }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -856,8 +1033,16 @@ export default function NextOrderPage() {
   const toggleFilterMissing = makeToggleFilter(setFilterMissing);
   const toggleFilterNextOrder = makeToggleFilter(setFilterNextOrder);
   const toggleFilterReco = makeToggleFilter(setFilterReco);
+  const toggleFilterNext = makeToggleFilter(setFilterNext);
 
-  const anyFilterActive = filterMissing || filterNextOrder || filterReco;
+  const anyFilterActive = filterMissing || filterNextOrder || filterReco || filterNext;
+
+  // "Next > 0" filter (2026-10-03, per the user): the expanded marketplace's
+  // Next column, or any marketplace's when none is expanded.
+  function itemHasNextAbove0(item) {
+    const regions = focusRegion && focusRegion !== "general" ? [focusRegion] : REGIONS.map((r) => r.key);
+    return regions.some((r) => Number(item[`${r}_next_shipment`] || 0) > 0);
+  }
 
   function itemHasRecoAbove0(item) {
     return (
@@ -882,11 +1067,13 @@ export default function NextOrderPage() {
           (item) =>
             (filterMissing && computeMissing(item) > 0) ||
             (filterNextOrder && Number(item.next_order || 0) > 0) ||
-            (filterReco && itemHasRecoAbove0(item))
+            (filterReco && itemHasRecoAbove0(item)) ||
+            (filterNext && itemHasNextAbove0(item))
         ),
       }))
       .filter((g) => g.items.length > 0);
-  }, [groups, filterMissing, filterNextOrder, filterReco, anyFilterActive]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, filterMissing, filterNextOrder, filterReco, filterNext, focusRegion, anyFilterActive]);
 
   const groupNames = useMemo(() => groups.map((g) => g.group).filter((g) => g !== "IGNORE").sort(), [groups]);
 
@@ -910,6 +1097,10 @@ export default function NextOrderPage() {
         expanded={!collapsedGroups[group.group]}
         onToggle={() => toggleGroup(group.group)}
         onSave={saveField}
+        onAddToMalani={addNextOrderToMalani}
+        focusRegion={focusRegion}
+        onFocusRegion={setFocusRegion}
+        salesYears={salesYears}
       />
     );
   }
@@ -950,35 +1141,60 @@ export default function NextOrderPage() {
           justifyContent: "center",
           alignItems: "center",
           gap: "10px",
+          flexWrap: "wrap",
           marginBottom: "20px",
           fontSize: "14px",
         }}
       >
-        <label htmlFor="next-shipment-date" style={{ fontWeight: 600 }}>
-          Next Shipment Arriving Date:
-        </label>
-        <input
-          id="next-shipment-date"
-          type="date"
-          value={nextShipmentDate}
-          onChange={(e) => e.target.value && saveNextShipmentDate(e.target.value)}
-          style={{
-            padding: "4px 8px",
-            borderRadius: "4px",
-            border: `1px solid ${STATUS_BORDER[dateSaveStatus]}`,
-            colorScheme: "light",
-            fontSize: "14px",
-          }}
-        />
+        <span style={{ fontWeight: 600 }}>Next Shipment Arriving Date:</span>
+        {REGIONS.map((r) => r.key).map((region) => {
+          const value = nextShipmentDates[region] || "";
+          const left = value ? Math.max(0, Math.round((new Date(`${value}T00:00:00`) - new Date(new Date().toDateString())) / 864e5)) : null;
+          return (
+            <label key={region} style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+              <b>{region.toUpperCase()}</b>
+              <input
+                type="date"
+                value={value}
+                onChange={(e) => e.target.value && saveNextShipmentDate(e.target.value, region)}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: "4px",
+                  border: `1px solid ${STATUS_BORDER[dateSaveStatus]}`,
+                  colorScheme: "light",
+                  fontSize: "14px",
+                }}
+              />
+              {left !== null && <span style={{ color: "#333" }}>({left}d)</span>}
+              <span style={{ color: "#777" }}>enough for</span>
+              <input
+                type="number"
+                min="1"
+                max="24"
+                key={`${region}-${coverMonths[region] || 3}`}
+                defaultValue={coverMonths[region] || 3}
+                title="How many months after arrival this shipment must last"
+                onBlur={(e) => Number(e.target.value) !== (coverMonths[region] || 3) && saveCoverMonths(e.target.value, region)}
+                onKeyDown={(e) => e.key === "Enter" && e.target.blur()}
+                style={{ width: "48px", padding: "4px 6px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "13px" }}
+              />
+              <span style={{ color: "#777" }}>months</span>
+            </label>
+          );
+        })}
+        {!auHasStock && (
+          <button
+            onClick={() => setShowAuManual((v) => !v)}
+            title="AU is hidden until the first AU shipment is in stock"
+            style={{ background: "none", border: "none", color: "#1565c0", cursor: "pointer", textDecoration: "underline", fontSize: "13px" }}
+          >
+            {showAuManual ? "hide AU" : "show AU"}
+          </button>
+        )}
         {dateSaveStatus === "saving" && <span style={{ color: "#888" }}>Saving...</span>}
         {dateSaveStatus === "saved" && <span style={{ color: SAVE_OK_COLOR }}>Saved</span>}
-        {daysUntilShipment !== null && (
-          <span style={{ fontWeight: 600, color: "#333" }}>
-            ({daysUntilShipment} day{daysUntilShipment === 1 ? "" : "s"} left)
-          </span>
-        )}
         <span style={{ color: "#777" }}>
-          (used to compute the USA Reco column - see the explanation and worked example at the bottom of the page)
+          (used for the Reco columns - see the explanation and worked example at the bottom of the page)
         </span>
       </div>
 
@@ -1011,29 +1227,49 @@ export default function NextOrderPage() {
             <button style={ghostButtonStyle()} onClick={collapseAll}>
               Collapse All Groups
             </button>
-            <button style={ghostButtonStyle()} onClick={() => exportXlsx(visibleGroups)}>
-              Export XLSX
-            </button>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", border: "1px solid #ccc", borderRadius: "8px", padding: "4px 6px", background: "#fff" }}>
+              <span style={{ fontSize: "13px", fontWeight: 700, color: "#333", padding: "0 4px" }}>Export XLSX:</span>
+              {[...REGIONS.map((r) => [r.key, r.label]), ["general", "GENERAL"]].map(([scope, label]) => (
+                <button
+                  key={scope}
+                  onClick={() => exportXlsx(visibleGroups, scope, salesYears)}
+                  style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #1565c0", background: "#fff", color: "#1565c0", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
+                >
+                  {label}
+                </button>
+              ))}
+            </span>
             <button style={blueButtonStyle()} onClick={() => setShowAddProduct((v) => !v)}>
               + Add New Product
             </button>
+
             {addedMessage && <span style={{ color: SAVE_OK_COLOR, fontWeight: 600 }}>{addedMessage}</span>}
-            <label style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto", fontSize: "14px" }}>
-              <input type="checkbox" checked={filterMissing} onChange={toggleFilterMissing} />
-              Only show Missing &gt; 0
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
-              <input type="checkbox" checked={filterNextOrder} onChange={toggleFilterNextOrder} />
-              Only show Next Order &gt; 0
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
-              <input type="checkbox" checked={filterReco} onChange={toggleFilterReco} />
-              Only show any Reco &gt; 0
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto", fontSize: "14px", cursor: "pointer" }}>
               <input type="checkbox" checked={showAsin} onChange={() => setShowAsin((v) => !v)} />
               Show ASIN column
             </label>
+          </div>
+          {/* Filters on their own row as toggle chips (2026-10-03, per the user). */}
+          <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginTop: "-6px" }}>
+            <span style={{ fontWeight: 700, fontSize: "14px", color: "#333", marginRight: "4px" }}>Only show:</span>
+            <FilterChip active={filterMissing} onClick={toggleFilterMissing} label="Missing > 0" />
+            <FilterChip active={filterNextOrder} onClick={toggleFilterNextOrder} label="Next Order > 0" />
+            <FilterChip active={filterReco} onClick={toggleFilterReco} label="Any Reco > 0" />
+            <FilterChip active={filterNext} onClick={toggleFilterNext} label={focusRegion && focusRegion !== "general" ? `${focusRegion.toUpperCase()} Next > 0` : "Next > 0 (any marketplace)"} />
+            {anyFilterActive && (
+              <button
+                onClick={() => {
+                  setFilterMissing(false);
+                  setFilterNextOrder(false);
+                  setFilterReco(false);
+                  setFilterNext(false);
+                }}
+                style={{ background: "none", border: "none", color: "#1565c0", cursor: "pointer", fontSize: "13px", textDecoration: "underline" }}
+              >
+                clear filters
+              </button>
+            )}
+            {anyFilterActive && <span style={{ fontSize: "12px", color: "#777" }}>rows matching any selected filter</span>}
           </div>
 
           {anyFilterActive && visibleGroups.length === 0 && (
@@ -1045,14 +1281,19 @@ export default function NextOrderPage() {
           )}
 
           {FAMILIES.map((family) => {
-            const familyGroups = visibleGroups.filter((g) => familyOf(g.group) === family.key);
+            const familyGroups = orderFamilyGroups(family.key, visibleGroups.filter((g) => familyOf(g.group) === family.key));
             if (familyGroups.length === 0) return null;
             const productCount = familyGroups.reduce((sum, g) => sum + g.items.length, 0);
             return (
               <FamilySection
                 key={family.key}
                 label={family.label}
-                summary={`${familyGroups.length} group${familyGroups.length === 1 ? "" : "s"} · ${productCount} products`}
+                summary={
+                  <span style={{ display: "flex", gap: "16px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <NextTotals items={familyGroups.flatMap((g) => g.items)} />
+                    <span>{`${familyGroups.length} group${familyGroups.length === 1 ? "" : "s"} · ${productCount} products`}</span>
+                  </span>
+                }
                 expanded={!!expandedFamilies[family.key]}
                 onToggle={() => setExpandedFamilies((prev) => ({ ...prev, [family.key]: !prev[family.key] }))}
               >
@@ -1067,7 +1308,7 @@ export default function NextOrderPage() {
 
       {!loading && (
         <div style={{ maxWidth: "1400px", marginInline: "auto", marginTop: "24px" }}>
-          <RecoExplanation nextShipmentDate={nextShipmentDate} recoMeta={recoMeta} exampleItem={exampleItem} />
+          <RecoExplanation nextShipmentDate={nextShipmentDate} exampleItem={exampleItem} />
         </div>
       )}
 
