@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { buttonStyle } from "./buttonStyle";
 import AdsCountryBreakdown from "./AdsCountryBreakdown";
 import CollapsibleSection from "./CollapsibleSection";
+import { ReportPromotions, promoShortLabel, usePromotionNames } from "./PromotionsSection";
 
 const IMAGE_BASE = "https://storage.googleapis.com/mlf-amz-images/";
 
@@ -148,6 +149,21 @@ function getOrderItemAmount(orderItem) {
   }
 
   return getDirectChildAmount(orderItem);
+}
+
+// Per the user (2026-10-06): show the order's country in the Last Orders
+// lists - the marketplace the order came from (SalesChannel), plus the
+// ship-to country when Amazon includes one and it differs.
+const SALES_CHANNEL_COUNTRY = {
+  "amazon.com": "🇺🇸 US", "amazon.ca": "🇨🇦 CA", "amazon.com.mx": "🇲🇽 MX", "amazon.co.uk": "🇬🇧 UK",
+  "amazon.de": "🇩🇪 DE", "amazon.fr": "🇫🇷 FR", "amazon.it": "🇮🇹 IT", "amazon.es": "🇪🇸 ES",
+  "amazon.nl": "🇳🇱 NL", "amazon.se": "🇸🇪 SE", "amazon.pl": "🇵🇱 PL", "amazon.com.be": "🇧🇪 BE",
+  "amazon.ie": "🇮🇪 IE", "amazon.com.tr": "🇹🇷 TR", "amazon.ae": "🇦🇪 AE",
+};
+
+function countryForSalesChannel(salesChannel) {
+  const key = normalizeSalesChannel(salesChannel);
+  return SALES_CHANNEL_COUNTRY[key] || key.replace(/^amazon\./, "").toUpperCase() || "-";
 }
 
 function normalizeSalesChannel(salesChannel) {
@@ -448,6 +464,12 @@ function extractLastOrdersFromXmlPayload(payload, region, selectedMarketplace = 
         "CreatedDate",
       ]) || "";
     const orderSortTime = new Date(orderDateText).getTime();
+    const marketplaceCountry = countryForSalesChannel(salesChannel);
+    const shipCountry = (getFirstTagText(order, ["ShipCountry", "Country", "CountryCode"]) || "").toUpperCase();
+    const country =
+      shipCountry && !marketplaceCountry.endsWith(shipCountry === "GB" ? "UK" : shipCountry)
+        ? `${marketplaceCountry} → ${shipCountry}`
+        : marketplaceCountry;
 
     const orderItems = Array.from(order.getElementsByTagName("OrderItem"));
     const orderAmount = getDirectChildAmount(order);
@@ -478,10 +500,26 @@ function extractLastOrdersFromXmlPayload(payload, region, selectedMarketplace = 
           region
         );
 
+        // coupon/promotion ids on this item (per the user 2026-10-24: mark
+        // these orders in the Last Orders lists)
+        const promoIds = [];
+        let promoDiscount = 0;
+        for (const promo of Array.from(orderItem.getElementsByTagName("Promotion"))) {
+          const discount = Math.abs(parseFloat(promo.getElementsByTagName("ItemPromotionDiscount")[0]?.textContent || "0") || 0);
+          if (discount <= 0) continue;
+          promoDiscount += discount;
+          for (const id of (promo.getElementsByTagName("PromotionIDs")[0]?.textContent || "").split(",")) {
+            if (id.trim()) promoIds.push(id.trim());
+          }
+        }
+        const principal = getOrderItemAmount(orderItem).value;
+
         return {
           sku,
           qty: safeQty,
           itemAmountValue: convertedItemAmount,
+          promoIds,
+          promoPct: principal ? (100 * promoDiscount) / principal : 0,
         };
       })
       .filter(Boolean);
@@ -503,10 +541,13 @@ function extractLastOrdersFromXmlPayload(payload, region, selectedMarketplace = 
         time: formatOrderTime(orderDateText),
         sortTime: Number.isFinite(orderSortTime) ? orderSortTime : 0,
         orderNumber,
+        country,
         sku: item.sku,
         price: Number(price.toFixed(2)),
         currency: baseCurrency,
         quantity: item.qty,
+        promoIds: item.promoIds,
+        promoPct: item.promoPct,
       });
     }
   }
@@ -755,7 +796,7 @@ function RegionTable({ title, summary, isMobile }) {
   );
 }
 
-function LastOrdersTable({ title, rows, isMobile }) {
+function LastOrdersTable({ title, rows, isMobile, promoNames }) {
   return (
     <CollapsibleSection title={title} defaultOpen={false}>
       {rows.length === 0 ? (
@@ -785,6 +826,9 @@ function LastOrdersTable({ title, rows, isMobile }) {
                 <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "10px", textAlign: "left", background: "#f4f4f4", width: "80px" }}>
                   Time
                 </th>
+                <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "10px", textAlign: "left", background: "#f4f4f4", width: "90px" }}>
+                  Country
+                </th>
                 <th style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "10px", textAlign: "left", background: "#f4f4f4" }}>
                   SKU
                 </th>
@@ -802,9 +846,12 @@ function LastOrdersTable({ title, rows, isMobile }) {
 
             <tbody>
               {rows.map((row, index) => (
-                <tr key={`${row.orderNumber}-${row.sku}-${index}`}>
+                <tr key={`${row.orderNumber}-${row.sku}-${index}`} style={row.promoIds?.length ? { background: "#fff6e9" } : undefined}>
                   <td style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", whiteSpace: "nowrap" }}>
                     {row.time}
+                  </td>
+                  <td style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", whiteSpace: "nowrap" }}>
+                    {row.country}
                   </td>
                   <td
                     style={{
@@ -815,6 +862,11 @@ function LastOrdersTable({ title, rows, isMobile }) {
                     }}
                   >
                     {shortenSkuForMobile(row.sku, isMobile)}
+                    {row.promoIds?.length > 0 && (
+                      <div style={{ fontSize: "11px", color: "#b45309" }} title={row.promoIds.join("\n")}>
+                        🏷 {[...new Set(row.promoIds.map((id) => promoShortLabel(id, promoNames, { pct: row.promoPct, skus: { [row.sku]: 1 } })))].join(" + ")}
+                      </div>
+                    )}
                   </td>
                   <td style={{ border: "1px solid #ccc", padding: isMobile ? "6px" : "8px", textAlign: "right", whiteSpace: "nowrap" }}>
                     {row.price} {row.currency}
@@ -852,6 +904,7 @@ export default function ReportViewPage() {
   const [usaResponse, setUsaResponse] = useState(null);
   const [deResponse, setDeResponse] = useState(null);
   const [selectedMarketplace, setSelectedMarketplace] = useState("");
+  const promoNames = usePromotionNames();
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [expandedRegions, setExpandedRegions] = useState({});
 
@@ -1376,6 +1429,16 @@ export default function ReportViewPage() {
 
         <AdsCountryBreakdown />
 
+        {!loadingUsa && !loadingDe && (usaResponse || deResponse) && (
+          <div style={sectionCardStyle()}>
+            <ReportPromotions
+              usaPayload={usaResponse?.data?.payload}
+              dePayload={deResponse?.data?.payload}
+              selectedMarketplace={selectedMarketplace}
+            />
+          </div>
+        )}
+
         {loadingUsa && (
           <div style={sectionCardStyle()}>
             <h3 style={{ marginTop: 0 }}>USA</h3>
@@ -1402,6 +1465,7 @@ export default function ReportViewPage() {
               title={`USA Last 10 Orders (${selectedMarketplaceLabel})`}
               rows={usaLastOrders}
               isMobile={isMobile}
+              promoNames={promoNames}
             />
           </div>
         )}
@@ -1432,6 +1496,7 @@ export default function ReportViewPage() {
               title={`EU Last 10 Orders (${selectedMarketplaceLabel})`}
               rows={deLastOrders}
               isMobile={isMobile}
+              promoNames={promoNames}
             />
           </div>
         )}
@@ -1451,6 +1516,7 @@ export default function ReportViewPage() {
               title="UK Last 10 Orders (amazon.co.uk)"
               rows={ukLastOrders}
               isMobile={isMobile}
+              promoNames={promoNames}
             />
           </div>
         )}
