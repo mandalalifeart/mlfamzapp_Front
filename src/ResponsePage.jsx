@@ -48,19 +48,18 @@ export default function ResponsePage() {
   useEffect(() => {
     if (!hasAnyReport) return;
 
-    const timer = setTimeout(() => {
-      navigate("/report-view", {
-        replace: true,
-        state: {
-          usaReportId,
-          deReportId,
-          startDate,
-          endDate,
-        },
-      });
-    }, 7000);
-
-    return () => clearTimeout(timer);
+    // Go straight to /report-view - it checks the report at once and only
+    // waits (30s) if Amazon hasn't finished it yet (per the user 2026-10-25;
+    // there used to be a fixed 7s wait here first).
+    navigate("/report-view", {
+      replace: true,
+      state: {
+        usaReportId,
+        deReportId,
+        startDate,
+        endDate,
+      },
+    });
   }, [navigate, usaReportId, deReportId, startDate, endDate, hasAnyReport]);
 
   function goToSales() {
