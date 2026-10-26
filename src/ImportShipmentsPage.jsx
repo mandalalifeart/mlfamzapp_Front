@@ -224,6 +224,16 @@ export default function ImportShipmentsPage() {
       (s) => (supplier === "all" || s.supplier === supplier) && (!onlyMissing || s.missing.length > 0),
     );
   }, [data, supplier, onlyMissing]);
+  async function editRemark(s) {
+    const text = window.prompt(`Remark for ${s.code}:`, s.remark || "");
+    if (text === null) return;
+    try {
+      await post("SetImportShipmentRole", { shipmentId: s.id, remark: text });
+      load();
+    } catch (err) {
+      alert(`Saving the remark failed: ${err.message}`);
+    }
+  }
   // Per the user (2026-10-26): the table is divided by destination country.
   const groups = useMemo(() => {
     const by = {};
@@ -319,6 +329,16 @@ export default function ImportShipmentsPage() {
                     <td style={cell({ whiteSpace: "nowrap" })}>
                       {open[s.id] ? "▾" : "▸"} {FLAG[s.destination] || ""} <b>{s.code}</b>
                       {s.status && s.status !== "arrived" && <div style={{ color: "#1565c0", fontSize: "12px" }}>{s.status}</div>}
+                      <div style={{ fontSize: "12px", whiteSpace: "normal", maxWidth: "320px" }}>
+                        {s.remark && <span style={{ color: "#6a1b9a" }}>📝 {s.remark} </span>}
+                        <span
+                          onClick={(e) => { e.stopPropagation(); editRemark(s); }}
+                          style={{ color: "#999", cursor: "pointer" }}
+                          title="Add / edit remark"
+                        >
+                          ✏
+                        </span>
+                      </div>
                     </td>
                     <td style={cell({ whiteSpace: "nowrap" })}>{s.shipDate}</td>
                     <td style={cell()}>{s.routeLabel}</td>
