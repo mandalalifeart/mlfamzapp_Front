@@ -10,6 +10,8 @@ import { buttonStyle } from "./buttonStyle";
 const LOCAL_API_BASE = "https://amzapi.mandalalifeart.com";
 const WISE_REFRESH_KEY = import.meta.env.VITE_WISE_REFRESH_KEY || "";
 const FLAG = { US: "🇺🇸", DE: "🇩🇪", GB: "🇬🇧", AU: "🇦🇺", JP: "🇯🇵", PL: "🇵🇱" };
+const COUNTRY = { US: "USA", DE: "Germany / EU", GB: "United Kingdom", AU: "Australia", JP: "Japan", PL: "Poland" };
+const COUNTRY_ORDER = ["US", "DE", "GB", "AU", "JP", "PL"];
 
 function cardStyle(extra = {}) {
   return { background: "#fff", border: "1px solid #ddd", borderRadius: "8px", padding: "16px", marginBottom: "16px", ...extra };
@@ -222,6 +224,23 @@ export default function ImportShipmentsPage() {
       (s) => (supplier === "all" || s.supplier === supplier) && (!onlyMissing || s.missing.length > 0),
     );
   }, [data, supplier, onlyMissing]);
+  // Per the user (2026-10-26): the table is divided by destination country.
+  const groups = useMemo(() => {
+    const by = {};
+    rows.forEach((s) => (by[s.destination] = by[s.destination] || []).push(s));
+    const rank = (c) => (COUNTRY_ORDER.indexOf(c) === -1 ? 99 : COUNTRY_ORDER.indexOf(c));
+    return Object.keys(by)
+      .sort((a, b) => rank(a) - rank(b))
+      .map((c) => {
+        const list = by[c];
+        const sum = (k) => list.reduce((t, s) => t + (s.cost[k] || 0), 0);
+        return {
+          country: c, list, units: list.reduce((t, s) => t + (s.units || 0), 0),
+          goods: sum("goods"), freight: sum("freight"), duty: sum("duty"), importVat: sum("importVat"),
+          missing: list.filter((s) => s.missing.length > 0).length,
+        };
+      });
+  }, [rows]);
   const missingCount = data ? data.shipments.filter((s) => s.missing.length > 0).length : 0;
 
   return (
@@ -274,7 +293,24 @@ export default function ImportShipmentsPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((s) => (
+              {groups.map((g) => (
+                <Fragment key={g.country}>
+                  <tr style={{ background: "#e8eef7" }}>
+                    <td colSpan={3} style={cell({ fontWeight: 700, fontSize: "14px" })}>
+                      {FLAG[g.country] || ""} {COUNTRY[g.country] || g.country}
+                      <span style={{ fontWeight: 400, color: "#555", fontSize: "12px" }}> · {g.list.length} shipments</span>
+                    </td>
+                    <td style={num({ fontWeight: 700 })}>{g.units || "–"}</td>
+                    <td style={num({ fontWeight: 700 })}>{money(g.goods)}</td>
+                    <td style={num({ fontWeight: 700 })}>{money(g.freight)}</td>
+                    <td style={num({ fontWeight: 700 })}>{money(g.duty)}</td>
+                    <td style={num({ fontWeight: 700 })}>{money(g.importVat)}</td>
+                    <td style={num()}></td>
+                    <td style={cell({ fontSize: "12px", color: g.missing ? "#b00020" : "#2e7d32" })}>
+                      {g.missing ? `${g.missing} with missing docs` : "✓ all complete"}
+                    </td>
+                  </tr>
+              {g.list.map((s) => (
                 <Fragment key={s.id}>
                   <tr
                     onClick={() => setOpen((p) => ({ ...p, [s.id]: !p[s.id] }))}
@@ -310,6 +346,8 @@ export default function ImportShipmentsPage() {
                       </td>
                     </tr>
                   )}
+                </Fragment>
+              ))}
                 </Fragment>
               ))}
             </tbody>
