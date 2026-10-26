@@ -615,6 +615,9 @@ export default function App() {
           <Link style={navButtonStyle()} to="/sales">
             Sales
           </Link>
+          <Link style={navButtonStyle()} to="/asin-analytics">
+            Product Analytics
+          </Link>
           <Link style={navButtonStyle()} to="/ads-campaigns">
             Ads
           </Link>
@@ -659,8 +662,20 @@ export default function App() {
                 <Link style={navButtonStyle()} to="/wise" onClick={() => setMoreMenuOpen(false)}>
                   Wise
                 </Link>
+                <Link style={navButtonStyle()} to="/vat" onClick={() => setMoreMenuOpen(false)}>
+                  VAT
+                </Link>
                 <Link style={navButtonStyle()} to="/returns" onClick={() => setMoreMenuOpen(false)}>
                   Returns
+                </Link>
+                <Link style={navButtonStyle()} to="/archer" onClick={() => setMoreMenuOpen(false)}>
+                  Archer
+                </Link>
+                <Link style={navButtonStyle()} to="/fba-shipments" onClick={() => setMoreMenuOpen(false)}>
+                  FBA Shipments
+                </Link>
+                <Link style={navButtonStyle()} to="/shipments" onClick={() => setMoreMenuOpen(false)}>
+                  Import Shipments
                 </Link>
               </div>
             )}

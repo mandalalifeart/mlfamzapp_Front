@@ -20,7 +20,13 @@ import AdsBidOptimizerPage from "./AdsBidOptimizerPage";
 import BidChangePerformancePage from "./BidChangePerformancePage";
 import PaymentsPage from "./PaymentsPage";
 import WisePage from "./WisePage";
+import VatPage from "./VatPage";
 import ReturnsPage from "./ReturnsPage";
+import AsinAnalyticsPage from "./AsinAnalyticsPage";
+import ArcherPage from "./ArcherPage";
+import FbaShipmentsPage from "./FbaShipmentsPage";
+import ImportShipmentsPage from "./ImportShipmentsPage";
+import AdsReviewsPage from "./AdsReviewsPage";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -46,7 +52,13 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Route path="/bid-change-performance" element={<BidChangePerformancePage />} />
         <Route path="/payments" element={<PaymentsPage />} />
         <Route path="/wise" element={<WisePage />} />
+        <Route path="/vat" element={<VatPage />} />
         <Route path="/returns" element={<ReturnsPage />} />
+        <Route path="/asin-analytics" element={<AsinAnalyticsPage />} />
+        <Route path="/archer" element={<ArcherPage />} />
+        <Route path="/fba-shipments" element={<FbaShipmentsPage />} />
+        <Route path="/shipments" element={<ImportShipmentsPage />} />
+        <Route path="/ads-reviews" element={<AdsReviewsPage />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>
