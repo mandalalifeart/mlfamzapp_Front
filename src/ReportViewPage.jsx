@@ -1055,6 +1055,13 @@ export default function ReportViewPage() {
       return;
     }
 
+    if (usaReportId === "0") {
+      setUsaResponse(null);
+      const reason = location.state?.marketplaceErrors?.usa;
+      setErrorUsa(`USA report request was refused by Amazon${reason ? `: ${reason}` : ""} - request the report again`);
+      return;
+    }
+
     let cancelled = false;
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -1150,6 +1157,13 @@ export default function ReportViewPage() {
     if (!deReportId) {
       setDeResponse(null);
       setErrorDe("Missing DE report request ID");
+      return;
+    }
+
+    if (deReportId === "0") {
+      setDeResponse(null);
+      const reason = location.state?.marketplaceErrors?.de;
+      setErrorDe(`DE report request was refused by Amazon${reason ? `: ${reason}` : ""} - request the report again`);
       return;
     }
 

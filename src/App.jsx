@@ -330,7 +330,21 @@ function navButtonStyle() {
   };
 }
 
-async function requestMarketplaceReport(payload) {
+// Amazon sometimes refuses a report request for a moment (e.g. request quota
+// used up by the morning Brand Analytics jobs) - retry a couple of times
+// before giving up on that marketplace.
+async function requestMarketplaceReport(payload, attempts = 3) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await requestMarketplaceReportOnce(payload);
+    } catch (err) {
+      if (attempt >= attempts) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 20000));
+    }
+  }
+}
+
+async function requestMarketplaceReportOnce(payload) {
   const response = await fetch(`${API_BASE}/MlfReportReq`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
