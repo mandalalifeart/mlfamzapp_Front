@@ -28,6 +28,7 @@ const ALL_REGIONS = [
   { key: "de", label: "DE", balanceField: "de_balance", otwField: "de_on_the_way", nextField: "de_next_shipment" },
   { key: "uk", label: "UK", balanceField: "uk_balance", otwField: "uk_on_the_way", nextField: "uk_next_shipment" },
   { key: "au", label: "AU", balanceField: "au_balance", otwField: "au_on_the_way", nextField: "au_next_shipment" },
+  { key: "jp", label: "JP", balanceField: "jp_balance", otwField: "jp_on_the_way", nextField: "jp_next_shipment" },
 ];
 // AU (2026-10-20, per the user) stays hidden while no AU SKU has sellable
 // stock (first shipment still on the way) - the page sets this once per
@@ -36,6 +37,16 @@ let REGIONS = ALL_REGIONS.filter((r) => r.key !== "au");
 
 function setShowAu(show) {
   REGIONS = show ? ALL_REGIONS : ALL_REGIONS.filter((r) => r.key !== "au");
+}
+// JP (2026-10-30, per the user) is collapsed by default: one narrow Bal
+// column until its header is clicked (click again to collapse). The page
+// sets this once per render via setJpCollapsed.
+let JP_COLLAPSED = true;
+function setJpCollapsed(collapsed) {
+  JP_COLLAPSED = collapsed;
+}
+function isCollapsed(region, focusRegion) {
+  return region === "jp" && JP_COLLAPSED && !focusRegion;
 }
 const REGION_COL_WEIGHTS = [3, 3, 4, 6, 6];
 const EXTRA_COL_WEIGHTS = [4, 4, 4, 5, 5, 5, 4];
@@ -46,6 +57,7 @@ const GENERAL_EXTRA_COL_WEIGHTS = [6, 4, 4, 4, 4];
 const GENERAL_EXTRA_LABELS = ["Supplier SKU", "Stock all (Bal+OTW)"];
 
 function regionColumnCount(region, focusRegion) {
+  if (isCollapsed(region, focusRegion)) return 1;
   if (!focusRegion) return REGION_COL_WEIGHTS.length;
   if (focusRegion === "general") return 0;
   return region === focusRegion ? REGION_COL_WEIGHTS.length + EXTRA_COL_WEIGHTS.length : 0;
@@ -54,6 +66,7 @@ function regionColumnCount(region, focusRegion) {
 function columnWeights(showAsin, focusRegion) {
   const lead = showAsin ? [3, 8, 3] : [3, 11];
   const regions = REGIONS.flatMap((r) => {
+    if (isCollapsed(r.key, focusRegion)) return [3];
     if (!focusRegion) return REGION_COL_WEIGHTS;
     return r.key === focusRegion ? [...REGION_COL_WEIGHTS, ...EXTRA_COL_WEIGHTS] : [];
   });
@@ -135,7 +148,7 @@ function recoTooltipFor(item, region) {
 
 // needed = sum of the three "next shipment" quantities being planned across markets.
 function computeNeeded(item) {
-  return (item.uk_next_shipment || 0) + (item.de_next_shipment || 0) + (item.usa_next_shipment || 0) + (item.au_next_shipment || 0);
+  return (item.uk_next_shipment || 0) + (item.de_next_shipment || 0) + (item.usa_next_shipment || 0) + (item.au_next_shipment || 0) + (item.jp_next_shipment || 0);
 }
 
 // missing = needed - malani_balance - malani_order: what's still short after
@@ -256,6 +269,8 @@ function TableHeader({ showAsin, focusRegion, onFocusRegion, salesYears }) {
   REGIONS.forEach((r) => {
     if (focusRegion && r.key !== focusRegion) {
       // hidden while another region is expanded
+    } else if (isCollapsed(r.key, focusRegion)) {
+      row2.push("Bal");
     } else {
       row2.push(...REGION_SUBLABELS);
       if (r.key === focusRegion) {
@@ -278,6 +293,19 @@ function TableHeader({ showAsin, focusRegion, onFocusRegion, salesYears }) {
         ))}
         {REGIONS.filter((r) => !focusRegion || r.key === focusRegion).map((r) => {
           const focused = focusRegion === r.key;
+          if (r.key === "jp" && !focusRegion) {
+            return (
+              <th
+                key={r.key}
+                colSpan={regionColumnCount(r.key, focusRegion)}
+                onClick={() => onFocusRegion("jp:toggle")}
+                title={JP_COLLAPSED ? "Click to show JP columns" : "Click to collapse JP"}
+                style={{ ...groupHeaderStyle, cursor: "pointer", userSelect: "none" }}
+              >
+                {JP_COLLAPSED ? "JP ▸" : "JP ▾"}
+              </th>
+            );
+          }
           return (
             <th
               key={r.key}
@@ -433,6 +461,16 @@ function RegionBlock({ item, region, balanceField, otwField, nextField, onSave, 
     </td>
   );
   if (focusRegion && focusRegion !== region) return null;
+  if (isCollapsed(region, focusRegion)) {
+    return (
+      <td
+        style={valueCellStyle({ background: "#fafafa" })}
+        title={`JP - Bal ${item[balanceField] || 0} · OTW ${item[otwField] || 0} · Next ${item[nextField] || 0} (click the JP header to expand)`}
+      >
+        {formatUnits(item[balanceField])}
+      </td>
+    );
+  }
   const yearly = item[`${region}_yearly_sales`] || [];
   return (
     <>
@@ -548,6 +586,7 @@ const TOTAL_FIELDS = [
   ["DE", "de_next_shipment"],
   ["UK", "uk_next_shipment"],
   ["AU", "au_next_shipment"],
+  ["JP", "jp_next_shipment"],
   ["Next Order", "next_order"],
 ];
 
@@ -767,6 +806,7 @@ const GENERAL_XLSX_COLUMNS = [
   { header: "DE Next", key: "deNext", width: 10, num: true, value: (i) => i.de_next_shipment || 0 },
   { header: "UK Next", key: "ukNext", width: 10, num: true, value: (i) => i.uk_next_shipment || 0 },
   { header: "AU Next", key: "auNext", width: 10, num: true, value: (i) => i.au_next_shipment || 0 },
+  { header: "JP Next", key: "jpNext", width: 10, num: true, value: (i) => i.jp_next_shipment || 0 },
   { header: "Needed", key: "needed", width: 10, num: true, value: (i) => computeNeeded(i) },
   { header: "Missing", key: "missing", width: 10, num: true, red: true, value: (i) => computeMissing(i) },
   { header: "Next Order", key: "nextOrder", width: 11, num: true, red: true, value: (i) => i.next_order || 0 },
@@ -863,6 +903,8 @@ export default function NextOrderPage() {
   const [showAuManual, setShowAuManual] = useState(false);
   const auHasStock = groups.some((g) => g.items.some((i) => (i.au_balance || 0) > 0));
   setShowAu(auHasStock || showAuManual);
+  const [jpCollapsed, setJpCollapsedState] = useState(true);
+  setJpCollapsed(jpCollapsed);
 
   async function loadData() {
     setLoading(true);
@@ -1099,7 +1141,7 @@ export default function NextOrderPage() {
         onSave={saveField}
         onAddToMalani={addNextOrderToMalani}
         focusRegion={focusRegion}
-        onFocusRegion={setFocusRegion}
+        onFocusRegion={(key) => (key === "jp:toggle" ? setJpCollapsedState((v) => !v) : setFocusRegion(key))}
         salesYears={salesYears}
       />
     );
