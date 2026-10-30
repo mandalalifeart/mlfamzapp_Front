@@ -33,20 +33,12 @@ const ALL_REGIONS = [
 // AU (2026-10-20, per the user) stays hidden while no AU SKU has sellable
 // stock (first shipment still on the way) - the page sets this once per
 // render via setShowAu, with a manual "show AU" link meanwhile.
-let REGIONS = ALL_REGIONS.filter((r) => r.key !== "au");
+// JP (2026-10-30, per the user "same as au") works the same way: hidden
+// until it has stock or "show JP" is clicked.
+let REGIONS = ALL_REGIONS.filter((r) => r.key !== "au" && r.key !== "jp");
 
-function setShowAu(show) {
-  REGIONS = show ? ALL_REGIONS : ALL_REGIONS.filter((r) => r.key !== "au");
-}
-// JP (2026-10-30, per the user) is collapsed by default: one narrow Bal
-// column until its header is clicked (click again to collapse). The page
-// sets this once per render via setJpCollapsed.
-let JP_COLLAPSED = true;
-function setJpCollapsed(collapsed) {
-  JP_COLLAPSED = collapsed;
-}
-function isCollapsed(region, focusRegion) {
-  return region === "jp" && JP_COLLAPSED && !focusRegion;
+function setShownOptionalRegions(shown) {
+  REGIONS = ALL_REGIONS.filter((r) => (r.key !== "au" && r.key !== "jp") || shown[r.key]);
 }
 const REGION_COL_WEIGHTS = [3, 3, 4, 6, 6];
 const EXTRA_COL_WEIGHTS = [4, 4, 4, 5, 5, 5, 4];
@@ -57,7 +49,6 @@ const GENERAL_EXTRA_COL_WEIGHTS = [6, 4, 4, 4, 4];
 const GENERAL_EXTRA_LABELS = ["Supplier SKU", "Stock all (Bal+OTW)"];
 
 function regionColumnCount(region, focusRegion) {
-  if (isCollapsed(region, focusRegion)) return 1;
   if (!focusRegion) return REGION_COL_WEIGHTS.length;
   if (focusRegion === "general") return 0;
   return region === focusRegion ? REGION_COL_WEIGHTS.length + EXTRA_COL_WEIGHTS.length : 0;
@@ -66,7 +57,6 @@ function regionColumnCount(region, focusRegion) {
 function columnWeights(showAsin, focusRegion) {
   const lead = showAsin ? [3, 8, 3] : [3, 11];
   const regions = REGIONS.flatMap((r) => {
-    if (isCollapsed(r.key, focusRegion)) return [3];
     if (!focusRegion) return REGION_COL_WEIGHTS;
     return r.key === focusRegion ? [...REGION_COL_WEIGHTS, ...EXTRA_COL_WEIGHTS] : [];
   });
@@ -269,8 +259,6 @@ function TableHeader({ showAsin, focusRegion, onFocusRegion, salesYears }) {
   REGIONS.forEach((r) => {
     if (focusRegion && r.key !== focusRegion) {
       // hidden while another region is expanded
-    } else if (isCollapsed(r.key, focusRegion)) {
-      row2.push("Bal");
     } else {
       row2.push(...REGION_SUBLABELS);
       if (r.key === focusRegion) {
@@ -293,19 +281,6 @@ function TableHeader({ showAsin, focusRegion, onFocusRegion, salesYears }) {
         ))}
         {REGIONS.filter((r) => !focusRegion || r.key === focusRegion).map((r) => {
           const focused = focusRegion === r.key;
-          if (r.key === "jp" && !focusRegion) {
-            return (
-              <th
-                key={r.key}
-                colSpan={regionColumnCount(r.key, focusRegion)}
-                onClick={() => onFocusRegion("jp:toggle")}
-                title={JP_COLLAPSED ? "Click to show JP columns" : "Click to collapse JP"}
-                style={{ ...groupHeaderStyle, cursor: "pointer", userSelect: "none" }}
-              >
-                {JP_COLLAPSED ? "JP ▸" : "JP ▾"}
-              </th>
-            );
-          }
           return (
             <th
               key={r.key}
@@ -461,16 +436,6 @@ function RegionBlock({ item, region, balanceField, otwField, nextField, onSave, 
     </td>
   );
   if (focusRegion && focusRegion !== region) return null;
-  if (isCollapsed(region, focusRegion)) {
-    return (
-      <td
-        style={valueCellStyle({ background: "#fafafa" })}
-        title={`JP - Bal ${item[balanceField] || 0} · OTW ${item[otwField] || 0} · Next ${item[nextField] || 0} (click the JP header to expand)`}
-      >
-        {formatUnits(item[balanceField])}
-      </td>
-    );
-  }
   const yearly = item[`${region}_yearly_sales`] || [];
   return (
     <>
@@ -591,7 +556,7 @@ const TOTAL_FIELDS = [
 ];
 
 function NextTotals({ items }) {
-  const sums = TOTAL_FIELDS.filter(([label]) => label !== "AU" || REGIONS.some((r) => r.key === "au")).map(([label, key]) => [label, items.reduce((a, it) => a + (Number(it[key]) || 0), 0)]);
+  const sums = TOTAL_FIELDS.filter(([label]) => !["AU", "JP"].includes(label) || REGIONS.some((r) => r.label === label)).map(([label, key]) => [label, items.reduce((a, it) => a + (Number(it[key]) || 0), 0)]);
   return (
     <span style={{ fontSize: "13px", color: "#333" }}>
       <b>Next:</b>{" "}
@@ -902,9 +867,9 @@ export default function NextOrderPage() {
   const [addedMessage, setAddedMessage] = useState("");
   const [showAuManual, setShowAuManual] = useState(false);
   const auHasStock = groups.some((g) => g.items.some((i) => (i.au_balance || 0) > 0));
-  setShowAu(auHasStock || showAuManual);
-  const [jpCollapsed, setJpCollapsedState] = useState(true);
-  setJpCollapsed(jpCollapsed);
+  const [showJpManual, setShowJpManual] = useState(false);
+  const jpHasStock = groups.some((g) => g.items.some((i) => (i.jp_balance || 0) > 0));
+  setShownOptionalRegions({ au: auHasStock || showAuManual, jp: jpHasStock || showJpManual });
 
   async function loadData() {
     setLoading(true);
@@ -1141,7 +1106,7 @@ export default function NextOrderPage() {
         onSave={saveField}
         onAddToMalani={addNextOrderToMalani}
         focusRegion={focusRegion}
-        onFocusRegion={(key) => (key === "jp:toggle" ? setJpCollapsedState((v) => !v) : setFocusRegion(key))}
+        onFocusRegion={setFocusRegion}
         salesYears={salesYears}
       />
     );
@@ -1231,6 +1196,15 @@ export default function NextOrderPage() {
             style={{ background: "none", border: "none", color: "#1565c0", cursor: "pointer", textDecoration: "underline", fontSize: "13px" }}
           >
             {showAuManual ? "hide AU" : "show AU"}
+          </button>
+        )}
+        {!jpHasStock && (
+          <button
+            onClick={() => setShowJpManual((v) => !v)}
+            title="JP is hidden until JP has stock"
+            style={{ background: "none", border: "none", color: "#1565c0", cursor: "pointer", textDecoration: "underline", fontSize: "13px" }}
+          >
+            {showJpManual ? "hide JP" : "show JP"}
           </button>
         )}
         {dateSaveStatus === "saving" && <span style={{ color: "#888" }}>Saving...</span>}
