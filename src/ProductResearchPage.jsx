@@ -1,0 +1,223 @@
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { buttonStyle } from "./buttonStyle";
+
+// New products research (2026-10-31, per the user): fabric product ideas for
+// the Indian supplier (min $20, bundles), mainly extending the mushroom
+// collection. Data = Amazon US catalog search per idea (Best Seller Rank +
+// price of the top results) vs our own poufs' rank - see ProductResearch.py.
+const API_BASE = import.meta.env.VITE_API_BASE || "https://amzapi.mandalalifeart.com";
+
+const cell = { border: "1px solid #ddd", padding: "6px 8px", fontSize: "13px", verticalAlign: "top" };
+const num = { ...cell, textAlign: "right", whiteSpace: "nowrap" };
+const head = { ...cell, background: "#f4f4f4", fontWeight: 700, textAlign: "center", whiteSpace: "normal" };
+
+function fmtRank(r) {
+  return r ? `#${r.toLocaleString()}` : "–";
+}
+function fmtUsd(v) {
+  return v === null || v === undefined ? "–" : `$${Number(v).toFixed(2)}`;
+}
+
+function StatusCell({ idea, statuses, onSaved }) {
+  const [status, setStatus] = useState(idea.status);
+  const [notes, setNotes] = useState(idea.userNotes || "");
+  const [state, setState] = useState("");
+  async function save(next) {
+    setState("saving");
+    try {
+      const r = await fetch(`${API_BASE}/SetProductResearchStatus`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: idea.id, ...next }),
+      });
+      if (!r.ok) throw new Error();
+      setState("saved");
+      onSaved();
+    } catch {
+      setState("error");
+    }
+  }
+  return (
+    <td style={cell}>
+      <select
+        value={status}
+        onChange={(e) => {
+          setStatus(e.target.value);
+          save({ status: e.target.value });
+        }}
+        style={{ fontSize: "13px", padding: "2px 4px", marginBottom: "4px" }}
+      >
+        {statuses.map((s) => (
+          <option key={s} value={s}>{s}</option>
+        ))}
+      </select>
+      <textarea
+        value={notes}
+        placeholder="notes"
+        onChange={(e) => setNotes(e.target.value)}
+        onBlur={() => notes !== (idea.userNotes || "") && save({ notes })}
+        rows={2}
+        style={{ width: "100%", fontSize: "12px", boxSizing: "border-box" }}
+      />
+      {state && <div style={{ fontSize: "11px", color: state === "error" ? "#b00020" : "#2e7d32" }}>{state}</div>}
+    </td>
+  );
+}
+
+export default function ProductResearchPage() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState({});
+  const [running, setRunning] = useState(false);
+  const [sortKey, setSortKey] = useState("onThemeBetterThanOurBest");
+
+  async function load() {
+    try {
+      const r = await fetch(`${API_BASE}/GetProductResearch`);
+      const j = await r.json();
+      if (j.error) throw new Error(j.error);
+      setData(j);
+    } catch (e) {
+      setError(String(e.message || e));
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function refresh() {
+    setRunning(true);
+    try {
+      await fetch(`${API_BASE}/RunProductResearch`, { method: "POST" });
+    } catch {
+      // the server keeps working after a timeout; reload below
+    }
+    await load();
+    setRunning(false);
+  }
+
+  const ideas = useMemo(() => {
+    const list = [...(data?.ideas || [])];
+    list.sort((a, b) => ((b.research || {})[sortKey] ?? -1) - ((a.research || {})[sortKey] ?? -1));
+    return list;
+  }, [data, sortKey]);
+
+  const bench = data?.benchmark || {};
+  const sortHead = (key, label, title) => (
+    <th style={{ ...head, cursor: "pointer", background: sortKey === key ? "#d6e4f5" : head.background }} title={title} onClick={() => setSortKey(key)}>
+      {label}
+      {sortKey === key ? " ▼" : ""}
+    </th>
+  );
+
+  return (
+    <div style={{ padding: "16px", maxWidth: "1400px", margin: "0 auto", fontFamily: "system-ui, sans-serif" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+        <Link to="/">← Home</Link>
+        <h2 style={{ margin: 0 }}>New Products Research</h2>
+        <button style={buttonStyle(running)} disabled={running} onClick={refresh}>
+          {running ? "Researching… (2-4 min)" : "Refresh from Amazon"}
+        </button>
+        {data?.ranAt && <span style={{ color: "#666", fontSize: "13px" }}>Last run {new Date(data.ranAt).toLocaleString()} · Amazon US</span>}
+      </div>
+      <p style={{ fontSize: "13px", color: "#444", maxWidth: "1100px" }}>
+        Fabric products our Indian supplier can make, priced $20 or more, also as bundles - mainly to extend the mushroom
+        collection. For each idea we search Amazon US and read the Best Seller Rank (Home &amp; Kitchen) and price of the
+        top 20 results. <b>Benchmark = our own poufs</b>: best pouf family ranks {fmtRank(bench.best)} in Home &amp; Kitchen
+        (median of our pouf families {fmtRank(bench.median)}). A lower number sells more, so a competitor ranked better than{" "}
+        {fmtRank(bench.best)} sells more than our best pouf. <b>On-theme</b> = the title really is mushroom / woodland /
+        retro themed ("mushroom brown" colour products are left out). Click a row for the competitors.
+      </p>
+      {error && <div style={{ color: "#b00020" }}>{error}</div>}
+      {!data && !error && <div>Loading…</div>}
+      {data && (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <thead>
+              <tr>
+                <th style={{ ...head, width: "26%" }}>Idea</th>
+                <th style={head}>Our price / bundle</th>
+                {sortHead("onThemeBetterThanOurBest", "On-theme selling more than our best pouf", "Of the top 20 results: on-theme competitors with a better Home & Kitchen rank than our best pouf family")}
+                {sortHead("onThemeUnder100k", "On-theme under #100k", "On-theme competitors ranked under #100,000 in Home & Kitchen (strong sellers)")}
+                {sortHead("betterThanOurBest", "All results selling more than our best pouf", "Any result of the search (themed or not)")}
+                <th style={head}>Best on-theme rank</th>
+                <th style={head}>Competitor price (on-theme / all, median)</th>
+                {sortHead("pricedAtLeast20", "Results priced $20+", "How many priced results sell at $20 or more")}
+                <th style={head}>Our ads: searches with these words (90 days)</th>
+                <th style={{ ...head, width: "14%" }}>Status / notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ideas.map((idea) => {
+                const r = idea.research || {};
+                const s = r.ourSearches || {};
+                const isOpen = !!open[idea.id];
+                return (
+                  <Fragment key={idea.id}>
+                    <tr style={{ cursor: "pointer", background: isOpen ? "#f5f9ff" : undefined }}>
+                      <td style={cell} onClick={() => setOpen((o) => ({ ...o, [idea.id]: !o[idea.id] }))}>
+                        <b>{isOpen ? "▾" : "▸"} {idea.name}</b>
+                        <div style={{ color: "#555", fontSize: "12px", marginTop: "3px" }}>{idea.notes}</div>
+                        <div style={{ color: "#888", fontSize: "11px", marginTop: "3px" }}>Searches: {idea.keywords.join(" · ")}</div>
+                      </td>
+                      <td style={cell}>
+                        {idea.price}
+                        <div style={{ color: "#555", fontSize: "12px", marginTop: "3px" }}>{idea.bundle}</div>
+                      </td>
+                      <td style={{ ...num, fontWeight: 700, fontSize: "15px" }}>{r.onThemeBetterThanOurBest ?? "–"}<span style={{ fontWeight: 400, color: "#888", fontSize: "12px" }}> / {r.onTheme ?? "–"}</span></td>
+                      <td style={num}>{r.onThemeUnder100k ?? "–"}</td>
+                      <td style={num}>{r.betterThanOurBest ?? "–"}<span style={{ color: "#888", fontSize: "12px" }}> / {r.results ?? "–"}</span></td>
+                      <td style={num}>{fmtRank(r.onThemeBestRank)}</td>
+                      <td style={num}>
+                        {fmtUsd(r.onThemeMedianPrice)} / {fmtUsd(r.medianPrice)}
+                        <div style={{ color: "#888", fontSize: "11px" }}>{fmtUsd(r.minPrice)}–{fmtUsd(r.maxPrice)}</div>
+                      </td>
+                      <td style={num}>{r.pricedAtLeast20 ?? "–"}<span style={{ color: "#888", fontSize: "12px" }}> / {r.priced ?? "–"}</span></td>
+                      <td style={num} title={(s.terms || []).map((t) => `${t.term}: ${t.impressions} impr, ${t.clicks} clicks, ${t.orders} orders`).join("\n")}>
+                        {s.impressions ? `${s.impressions.toLocaleString()} impr · ${s.clicks} clicks · ${s.orders} orders` : "none"}
+                      </td>
+                      <StatusCell idea={idea} statuses={data.statuses || []} onSaved={() => {}} />
+                    </tr>
+                    {isOpen && (
+                      <tr>
+                        <td colSpan={10} style={{ ...cell, background: "#fafafa" }}>
+                          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                            <thead>
+                              <tr>
+                                <th style={head}>H&amp;K rank</th>
+                                <th style={head}>Sub-category rank</th>
+                                <th style={head}>Price</th>
+                                <th style={head}>Brand</th>
+                                <th style={head}>Title</th>
+                                <th style={head}>On-theme</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(r.competitors || []).map((c) => (
+                                <tr key={c.asin} style={{ background: c.ours ? "#eef7ee" : undefined }}>
+                                  <td style={num}>{c.rankCategory === "Home & Kitchen" ? fmtRank(c.rank) : c.rank ? `${fmtRank(c.rank)} ${c.rankCategory}` : "–"}</td>
+                                  <td style={num}>{c.subRank ? `${fmtRank(c.subRank)} ${c.subCategory}` : "–"}</td>
+                                  <td style={num}>{fmtUsd(c.price)}</td>
+                                  <td style={cell}>{c.brand}</td>
+                                  <td style={cell}>
+                                    <a href={`https://www.amazon.com/dp/${c.asin}`} target="_blank" rel="noreferrer">{c.title}</a>
+                                  </td>
+                                  <td style={{ ...cell, textAlign: "center" }}>{c.onTheme ? "✓" : ""}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}

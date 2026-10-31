@@ -24,6 +24,7 @@ import VatPage from "./VatPage";
 import ReturnsPage from "./ReturnsPage";
 import AsinAnalyticsPage from "./AsinAnalyticsPage";
 import ArcherPage from "./ArcherPage";
+import ProductResearchPage from "./ProductResearchPage";
 import FbaShipmentsPage from "./FbaShipmentsPage";
 import ImportShipmentsPage from "./ImportShipmentsPage";
 import AdsReviewsPage from "./AdsReviewsPage";
@@ -56,6 +57,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Route path="/returns" element={<ReturnsPage />} />
         <Route path="/asin-analytics" element={<AsinAnalyticsPage />} />
         <Route path="/archer" element={<ArcherPage />} />
+        <Route path="/product-research" element={<ProductResearchPage />} />
         <Route path="/fba-shipments" element={<FbaShipmentsPage />} />
         <Route path="/shipments" element={<ImportShipmentsPage />} />
         <Route path="/ads-reviews" element={<AdsReviewsPage />} />

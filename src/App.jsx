@@ -685,6 +685,9 @@ export default function App() {
                 <Link style={navButtonStyle()} to="/archer" onClick={() => setMoreMenuOpen(false)}>
                   Archer
                 </Link>
+                <Link style={navButtonStyle()} to="/product-research" onClick={() => setMoreMenuOpen(false)}>
+                  Product Research
+                </Link>
                 <Link style={navButtonStyle()} to="/fba-shipments" onClick={() => setMoreMenuOpen(false)}>
                   FBA Shipments
                 </Link>
