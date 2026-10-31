@@ -35,6 +35,7 @@ const ALL_REGIONS = [
 // render via setShowAu, with a manual "show AU" link meanwhile.
 // JP (2026-10-30, per the user "same as au") works the same way: hidden
 // until it has stock or "show JP" is clicked.
+const ACACIA_GROUP = "PAREO_ACA";
 let REGIONS = ALL_REGIONS.filter((r) => r.key !== "au" && r.key !== "jp");
 
 function setShownOptionalRegions(shown) {
@@ -847,13 +848,15 @@ function fillSheet(workbook, sheetName, columns, visibleGroups, keep) {
   sheet.autoFilter = { from: "A1", to: `${sheet.getColumn(columns.length).letter}1` };
 }
 
+let exportSupplierTag = "";
+
 async function downloadWorkbook(workbook, fileTitle) {
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `next-order-${fileTitle.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  link.download = `next-order-${fileTitle.toLowerCase()}${exportSupplierTag}-${new Date().toISOString().slice(0, 10)}.xlsx`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -936,10 +939,12 @@ export default function NextOrderPage() {
   const auHasStock = groups.some((g) => g.items.some((i) => (i.au_balance || 0) > 0));
   const [showJpManual, setShowJpManual] = useState(false);
   const [multiExport, setMultiExport] = useState({});
+  const [supplier, setSupplier] = useState("all");
   const jpHasStock = groups.some((g) => g.items.some((i) => (i.jp_balance || 0) > 0));
   setShownOptionalRegions({ au: auHasStock || showAuManual, jp: jpHasStock || showJpManual });
   const exportOptions = [...REGIONS.map((r) => [r.key, r.label]), ["general", "GENERAL"]];
   const exportSelected = exportOptions.filter(([k]) => multiExport[k]);
+  exportSupplierTag = supplier === "all" ? "" : `-${supplier}`;
 
   async function loadData() {
     setLoading(true);
@@ -1136,8 +1141,11 @@ export default function NextOrderPage() {
   }
 
   const visibleGroups = useMemo(() => {
-    if (!anyFilterActive) return groups;
-    return groups
+    // Supplier switch (2026-10-31, per the user): Acacia = PAREO_ACA group
+    // only, Malani = every other group. Applies to the page and the export.
+    const supplierGroups = supplier === "all" ? groups : groups.filter((g) => (g.group === ACACIA_GROUP) === (supplier === "acacia"));
+    if (!anyFilterActive) return supplierGroups;
+    return supplierGroups
       .map((g) => ({
         ...g,
         items: g.items.filter(
@@ -1150,7 +1158,7 @@ export default function NextOrderPage() {
       }))
       .filter((g) => g.items.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups, filterMissing, filterNextOrder, filterReco, filterNext, focusRegion, anyFilterActive]);
+  }, [groups, filterMissing, filterNextOrder, filterReco, filterNext, focusRegion, anyFilterActive, supplier]);
 
   const groupNames = useMemo(() => groups.map((g) => g.group).filter((g) => g !== "IGNORE").sort(), [groups]);
 
@@ -1345,6 +1353,11 @@ export default function NextOrderPage() {
           </div>
           {/* Filters on their own row as toggle chips (2026-10-03, per the user). */}
           <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginTop: "-6px" }}>
+            <span style={{ fontWeight: 700, fontSize: "14px", color: "#333", marginRight: "4px" }}>Supplier:</span>
+            {[["all", "All"], ["malani", "Malani"], ["acacia", "Acacia"]].map(([key, label]) => (
+              <FilterChip key={key} active={supplier === key} onClick={() => setSupplier(key)} label={label} />
+            ))}
+            <span style={{ width: "12px" }} />
             <span style={{ fontWeight: 700, fontSize: "14px", color: "#333", marginRight: "4px" }}>Only show:</span>
             <FilterChip active={filterMissing} onClick={toggleFilterMissing} label="Missing > 0" />
             <FilterChip active={filterNextOrder} onClick={toggleFilterNextOrder} label="Next Order > 0" />
