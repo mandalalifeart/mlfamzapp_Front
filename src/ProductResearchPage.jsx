@@ -70,7 +70,7 @@ export default function ProductResearchPage() {
   const [error, setError] = useState("");
   const [open, setOpen] = useState({});
   const [running, setRunning] = useState(false);
-  const [sortKey, setSortKey] = useState("onThemeBetterThanOurBest");
+  const [sortKey, setSortKey] = useState("score");
   const [kind, setKind] = useState("all");
 
   async function load() {
@@ -101,7 +101,8 @@ export default function ProductResearchPage() {
   const ideas = useMemo(() => {
     const kindOf = (i) => (i.kind === "bundle" ? "bundle" : i.id.startsWith("mushroom") || i.id.startsWith("groovy") || i.id.startsWith("cottagecore") ? "mushroom" : "other");
     const list = (data?.ideas || []).filter((i) => kind === "all" || kindOf(i) === kind);
-    list.sort((a, b) => ((b.research || {})[sortKey] ?? -1) - ((a.research || {})[sortKey] ?? -1));
+    const val = (i) => (sortKey === "score" ? i.score?.score : (i.research || {})[sortKey]) ?? -1;
+    list.sort((a, b) => val(b) - val(a));
     return list;
   }, [data, sortKey, kind]);
 
@@ -149,7 +150,9 @@ export default function ProductResearchPage() {
           <table style={{ borderCollapse: "collapse", width: "100%" }}>
             <thead>
               <tr>
-                <th style={{ ...head, width: "26%" }}>Idea</th>
+                <th style={head}>#</th>
+                {sortHead("score", "Score (0-100)", "Demand 35 (on-theme competitors outselling our best pouf, 20+ = full) + strong sellers 20 (on-theme under #100k, 10+ = full) + price 25 (share of results priced $20+) + our proof 20 (our ad orders on these searches, 90 days, 20+ = full)")}
+                <th style={{ ...head, width: "24%" }}>Idea</th>
                 <th style={head}>Our price / bundle</th>
                 {sortHead("onThemeBetterThanOurBest", "On-theme selling more than our best pouf", "Of the top 20 results: on-theme competitors with a better Home & Kitchen rank than our best pouf family")}
                 {sortHead("onThemeUnder100k", "On-theme under #100k", "On-theme competitors ranked under #100,000 in Home & Kitchen (strong sellers)")}
@@ -169,6 +172,13 @@ export default function ProductResearchPage() {
                 return (
                   <Fragment key={idea.id}>
                     <tr style={{ cursor: "pointer", background: isOpen ? "#f5f9ff" : undefined }}>
+                      <td style={{ ...num, fontWeight: 700 }}>{idea.rank ?? "–"}</td>
+                      <td
+                        style={{ ...num, fontWeight: 700, fontSize: "16px", color: (idea.score?.score ?? 0) >= 60 ? "#2e7d32" : (idea.score?.score ?? 0) >= 35 ? "#b26a00" : "#888" }}
+                        title={idea.score ? `Demand ${idea.score.demand}/35\nStrong sellers ${idea.score.strong}/20\nPrice ${idea.score.price}/25\nOur ads proof ${idea.score.ours}/20` : ""}
+                      >
+                        {idea.score?.score ?? "–"}
+                      </td>
                       <td style={cell} onClick={() => setOpen((o) => ({ ...o, [idea.id]: !o[idea.id] }))}>
                         <b>{isOpen ? "▾" : "▸"} {idea.name}</b>
                         {idea.kind === "bundle" && <span style={{ marginLeft: "6px", fontSize: "11px", background: "#fff3cd", border: "1px solid #e0c46c", borderRadius: "4px", padding: "0 4px" }}>BUNDLE</span>}
@@ -195,7 +205,7 @@ export default function ProductResearchPage() {
                     </tr>
                     {isOpen && (
                       <tr>
-                        <td colSpan={10} style={{ ...cell, background: "#fafafa" }}>
+                        <td colSpan={12} style={{ ...cell, background: "#fafafa" }}>
                           <table style={{ borderCollapse: "collapse", width: "100%" }}>
                             <thead>
                               <tr>
