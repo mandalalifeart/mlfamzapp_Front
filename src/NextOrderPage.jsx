@@ -40,7 +40,10 @@ let REGIONS = ALL_REGIONS.filter((r) => r.key !== "au" && r.key !== "jp");
 function setShownOptionalRegions(shown) {
   REGIONS = ALL_REGIONS.filter((r) => (r.key !== "au" && r.key !== "jp") || shown[r.key]);
 }
-const REGION_COL_WEIGHTS = [3, 3, 4, 6, 6];
+// Reco + DoS only show when the region is expanded (2026-10-31, per the user:
+// not in the normal all-regions view).
+const REGION_COL_WEIGHTS = [3, 3, 4];
+const REGION_FOCUS_COL_WEIGHTS = [6, 6];
 const EXTRA_COL_WEIGHTS = [4, 4, 4, 5, 5, 5, 4];
 const GENERAL_COL_WEIGHTS = [3, 3, 4, 5, 5];
 // GENERAL can be expanded too (2026-10-06, per the user): regions hide and
@@ -51,14 +54,14 @@ const GENERAL_EXTRA_LABELS = ["Supplier SKU", "Stock all (Bal+OTW)"];
 function regionColumnCount(region, focusRegion) {
   if (!focusRegion) return REGION_COL_WEIGHTS.length;
   if (focusRegion === "general") return 0;
-  return region === focusRegion ? REGION_COL_WEIGHTS.length + EXTRA_COL_WEIGHTS.length : 0;
+  return region === focusRegion ? REGION_COL_WEIGHTS.length + REGION_FOCUS_COL_WEIGHTS.length + EXTRA_COL_WEIGHTS.length : 0;
 }
 
 function columnWeights(showAsin, focusRegion) {
   const lead = showAsin ? [3, 8, 3] : [3, 11];
   const regions = REGIONS.flatMap((r) => {
     if (!focusRegion) return REGION_COL_WEIGHTS;
-    return r.key === focusRegion ? [...REGION_COL_WEIGHTS, ...EXTRA_COL_WEIGHTS] : [];
+    return r.key === focusRegion ? [...REGION_COL_WEIGHTS, ...REGION_FOCUS_COL_WEIGHTS, ...EXTRA_COL_WEIGHTS] : [];
   });
   if (focusRegion === "general") return [...lead, ...GENERAL_COL_WEIGHTS, ...GENERAL_EXTRA_COL_WEIGHTS];
   return [...lead, ...regions, ...(focusRegion ? [] : GENERAL_COL_WEIGHTS)];
@@ -236,7 +239,8 @@ function EditableCell({ item, field, onSave }) {
 // truncating almost every header to "USA...". Dropping the repeated region
 // prefix from the row-2 labels (since the group row above already says it)
 // also frees up real width for each column.
-const REGION_SUBLABELS = ["Bal", "OTW", "Next", "Reco (A/B/C)", "DoS (A/B/C)"];
+const REGION_SUBLABELS = ["Bal", "OTW", "Next"];
+const REGION_FOCUS_SUBLABELS = ["Reco (A/B/C)", "DoS (A/B/C)"];
 const GENERAL_SUBLABELS = ["Malani Bal", "Malani Ord", "Needed", "Missing", "Next Order"];
 
 function ColGroup({ showAsin, focusRegion }) {
@@ -251,6 +255,20 @@ function ColGroup({ showAsin, focusRegion }) {
   );
 }
 
+// Column names always fully visible (2026-10-31, per the user): wrap onto a
+// second line instead of cutting with "...".
+const HEADER_WRAP_STYLE = tableCellStyle({
+  background: "#f4f4f4",
+  textAlign: "center",
+  whiteSpace: "normal",
+  textOverflow: "clip",
+  overflow: "visible",
+  wordBreak: "normal",
+  overflowWrap: "anywhere",
+  lineHeight: "1.2",
+  verticalAlign: "middle",
+});
+
 function TableHeader({ showAsin, focusRegion, onFocusRegion, salesYears }) {
   const leadingLabels = showAsin ? ["Image", "SKU", "ASIN"] : ["Image", "SKU"];
   const groupHeaderStyle = numberCellStyle({ background: "#e8e8e8", textAlign: "center", fontWeight: 700 });
@@ -262,6 +280,7 @@ function TableHeader({ showAsin, focusRegion, onFocusRegion, salesYears }) {
     } else {
       row2.push(...REGION_SUBLABELS);
       if (r.key === focusRegion) {
+        row2.push(...REGION_FOCUS_SUBLABELS);
         row2.push(`${years[0] ?? ""} (YTD)`, `${years[1] ?? ""}`, `${years[2] ?? ""}`, "Ads ACOS (YTD)", "Sold via ads (YTD)", "TACOS (YTD)", "Malani Bal");
       }
     }
@@ -306,7 +325,7 @@ function TableHeader({ showAsin, focusRegion, onFocusRegion, salesYears }) {
       </tr>
       <tr>
         {row2.map((label, i) => (
-          <th key={i} style={numberCellStyle({ background: "#f4f4f4" })}>
+          <th key={i} style={HEADER_WRAP_STYLE}>
             {label}
           </th>
         ))}
@@ -444,10 +463,10 @@ function RegionBlock({ item, region, balanceField, otwField, nextField, onSave, 
       </td>
       <td style={valueCellStyle(cellStyle)}>{formatUnits(item[otwField])}</td>
       {nextCell}
-      <RecoCell item={item} region={region} noSales={noSales} />
-      <DaysOfSupplyCell item={item} region={region} />
       {focusRegion === region && (
         <>
+          <RecoCell item={item} region={region} noSales={noSales} />
+          <DaysOfSupplyCell item={item} region={region} />
           <td style={valueCellStyle({ background: "#f5f9ff" })}>{formatUnits(yearly[0])}</td>
           <td style={valueCellStyle({ background: "#f5f9ff" })}>{formatUnits(yearly[1])}</td>
           <td style={valueCellStyle({ background: "#f5f9ff" })}>{formatUnits(yearly[2])}</td>
