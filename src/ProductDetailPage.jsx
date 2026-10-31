@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { buildRecoTooltip, daysOfSupplyTooltip, formatDaysOfSupply } from "./recoTooltip";
 import { Link, useSearchParams } from "react-router-dom";
 import { MoveToGroupControl } from "./SalesPage";
 import { buttonStyle } from "./buttonStyle";
@@ -204,54 +205,15 @@ const REGION_ROWS = [
   { region: "uk", label: "UK", fbaField: "uk_balance_fba", awdField: "uk_balance_awd", lgField: null, otwField: "uk_on_the_way", nextField: "uk_next_shipment" },
 ];
 
-function seasonalSourceLabel(source) {
-  switch (source) {
-    case "actual":
-      return "actual same season";
-    case "fallback_recent":
-      return "no seasonal history yet for this SKU - showing the recent-based value instead";
-    default:
-      return "";
-  }
-}
-
-// Same content/shape as NextOrderPage's buildRecoTooltip, adapted to this
-// page's data shape (recos.<region>.debug/seasonal*Source/recommended... vs
-// NextOrderPage's flat item.<region>_reco_debug fields).
-function buildRecoTooltip(reco) {
-  if (!reco || !reco.debug) return "";
-  const { debug } = reco;
-  const seasonal1yr = reco.seasonal1yrSource === "actual" ? debug.year1Total : debug.trailingTotal;
-  const seasonal2yr = reco.seasonal2yrSource === "actual" ? debug.year2Total : debug.trailingTotal;
-  const rawA = Math.max(0, Math.round(debug.trailingTotal + debug.needForXDays - debug.alreadyCovered));
-  const rawB = Math.max(0, Math.round(seasonal1yr + debug.needForXDays - debug.alreadyCovered));
-  const rawC = Math.max(0, Math.round(seasonal2yr + debug.needForXDays - debug.alreadyCovered));
-  const aZeroedNote = rawA > 0 && reco.recommended === 0 ? " → zeroed out (below half the minimum order size)" : "";
-  const bZeroedNote = rawB > 0 && reco.recommendedSeasonal1yr === 0 ? " → zeroed out (below half the minimum order size)" : "";
-  const cZeroedNote = rawC > 0 && reco.recommendedSeasonal2yr === 0 ? " → zeroed out (below half the minimum order size)" : "";
-  const stockoutNote = debug.zeroInventoryWeeks > 0
-    ? `\n(excludes ${debug.zeroInventoryWeeks} week${debug.zeroInventoryWeeks === 1 ? "" : "s"} of zero stock from the recent-avg calc)`
-    : "";
-
-  return (
-    `Days to next order: ${debug.xDays} days\n\n` +
-    `Avg daily sales used for A (recent): ${debug.avgDailyRecent}/day${stockoutNote}\n` +
-    `Avg daily sales used for B (seasonal, 1yr ago): ${debug.avgDailySeasonal1yr}/day\n` +
-    `Avg daily sales used for C (seasonal, 2yr ago): ${debug.avgDailySeasonal2yr}/day\n\n` +
-    `A (Recent) = ${debug.trailingTotal} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawA}${aZeroedNote}\n` +
-    `B (Seasonal, ${seasonalSourceLabel(reco.seasonal1yrSource)}) = ${seasonal1yr} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawB}${bZeroedNote}\n` +
-    `C (Seasonal, ${seasonalSourceLabel(reco.seasonal2yrSource)}) = ${seasonal2yr} + ${debug.needForXDays} - ${debug.alreadyCovered} = ${rawC}${cZeroedNote}`
-  );
-}
-
-// Same "(Bal + OTW) / avg daily sales" math as NextOrderPage's
-// DaysOfSupplyCell, per the user (2026-09-24) - duplicated rather than
-// shared, matching this file's existing pattern of its own local copies of
-// seasonalSourceLabel/buildRecoTooltip rather than importing from
-// NextOrderPage.jsx.
-function formatDaysOfSupply(bal, otw, avgDaily) {
-  if (!avgDaily || avgDaily <= 0) return "∞";
-  return Math.round((bal + otw) / avgDaily).toLocaleString();
+// Reco / Days-of-Supply hover text shared with the Next Order page
+// (recoTooltip.js): in-stock-days rates, Reco = demand - Bal - OTW.
+function recoTooltip(reco, region, bal, otw) {
+  if (!reco) return "";
+  return buildRecoTooltip(reco.debug, {
+    bal, otw, region,
+    recos: [reco.recommended, reco.recommendedSeasonal1yr, reco.recommendedSeasonal2yr],
+    sources: [reco.seasonal1yrSource, reco.seasonal2yrSource],
+  });
 }
 
 function StockCard({ stock, sku, recos, onSave }) {
@@ -302,11 +264,11 @@ function StockCard({ stock, sku, recos, onSave }) {
                       fontWeight: 700,
                       color: recommended > 0 || recommendedSeasonal1yr > 0 || recommendedSeasonal2yr > 0 ? "#b00020" : undefined,
                     })}
-                    title={buildRecoTooltip(reco)}
+                    title={recoTooltip(reco, row.region, bal, otw)}
                   >
                     {formatUnits(recommended)}/{formatUnits(recommendedSeasonal1yr)}/{formatUnits(recommendedSeasonal2yr)}
                   </td>
-                  <td style={numberCellStyle({ fontSize: "13px" })}>
+                  <td style={numberCellStyle({ fontSize: "13px" })} title={daysOfSupplyTooltip(reco?.debug, bal, otw)}>
                     {reco?.debug
                       ? `${formatDaysOfSupply(bal, otw, reco.debug.avgDailyRecent)}/` +
                         `${formatDaysOfSupply(bal, otw, reco.debug.avgDailySeasonal1yr)}/` +
@@ -402,7 +364,7 @@ function EndOfLifeButton({ sku, endOfLife, onChanged }) {
 
 export default function ProductDetailPage() {
   const [searchParams] = useSearchParams();
-  const asin = searchParams.get("asin") || "";
+  const asinFromUrl = searchParams.get("asin") || "";
   const skuFromUrl = searchParams.get("sku") || "";
 
   const [loading, setLoading] = useState(false);
@@ -417,7 +379,8 @@ export default function ProductDetailPage() {
       const response = await fetch(`${API_BASE}/GetProductDetail`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ asin }),
+        // per the user (2026-10-12): SKU alone is enough - the backend resolves the ASIN
+        body: JSON.stringify({ sku: skuFromUrl, asin: asinFromUrl }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
@@ -430,9 +393,9 @@ export default function ProductDetailPage() {
   }
 
   useEffect(() => {
-    if (asin) loadDetail();
+    if (skuFromUrl || asinFromUrl) loadDetail();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asin]);
+  }, [skuFromUrl, asinFromUrl]);
 
   useEffect(() => {
     const root = document.getElementById("root");
@@ -440,7 +403,8 @@ export default function ProductDetailPage() {
     return () => root?.classList.remove("full-bleed");
   }, []);
 
-  const displaySku = result?.mainSku || skuFromUrl;
+  const displaySku = skuFromUrl || result?.mainSku;
+  const asin = result?.asin || asinFromUrl;
   const years = useMemo(() => result?.years || [], [result]);
 
   async function saveStockField(sku, field, value) {
@@ -488,9 +452,9 @@ export default function ProductDetailPage() {
           </div>
         )}
 
-        {(error || !asin) && (
+        {(error || (!skuFromUrl && !asinFromUrl)) && (
           <div style={{ color: "#b00020", background: "#fff1f1", border: "1px solid #f0caca", padding: "10px", borderRadius: "8px", textAlign: "center" }}>
-            {error || "Missing asin parameter"}
+            {error || "Missing sku parameter"}
           </div>
         )}
 

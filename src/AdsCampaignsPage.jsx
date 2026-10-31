@@ -443,7 +443,9 @@ export default function AdsCampaignsPage() {
                       <td style={tableCellStyle()}>{formatMoney(c.clicks ? c.spend / c.clicks : 0, c.currencyCode)}</td>
                       <td style={tableCellStyle()}>
                         <Link
-                          to={`/ads-keywords?campaign_id=${encodeURIComponent(c.campaignId)}&campaign_name=${encodeURIComponent(c.campaignName)}&country_code=${encodeURIComponent(c.countryCode || "")}&portfolio=${encodeURIComponent(c.portfolioName || "")}&preset=${encodeURIComponent(preset)}&start=${encodeURIComponent(startDate)}&end=${encodeURIComponent(endDate)}`}
+                          // "month" isn't carried as a preset - the keywords page would fall back to the
+                          // CURRENT month - so a selected month is passed as its exact custom date range.
+                          to={`/ads-keywords?campaign_id=${encodeURIComponent(c.campaignId)}&campaign_name=${encodeURIComponent(c.campaignName)}&country_code=${encodeURIComponent(c.countryCode || "")}&portfolio=${encodeURIComponent(c.portfolioName || "")}&preset=${encodeURIComponent(preset === "month" ? "custom" : preset)}&start=${encodeURIComponent(startDate)}&end=${encodeURIComponent(endDate)}`}
                           target="_blank"
                           rel="noopener noreferrer"
                         >
@@ -506,6 +508,9 @@ export default function AdsCampaignsPage() {
         </Link>
         <Link style={buttonStyle()} to="/bid-change-performance">
           Bid Change Performance
+        </Link>
+        <Link style={buttonStyle()} to="/ads-reviews">
+          Weekly Reviews
         </Link>
       </div>
     </div>

@@ -146,12 +146,50 @@ export default function AdsAdvertisedProductsPage() {
     return () => root?.classList.remove("full-bleed");
   }, []);
 
+  // Must be unique per row: the same ASIN can be advertised in several ad
+  // groups of one campaign (75 such rows in Sep 2026). A non-unique key made
+  // React keep stale row order when re-sorting (e.g. ACOS sort "not working")
+  // and made one checkbox tick every duplicate row (so "Pause Checked" could
+  // hit more ads than intended) - found 2026-10-02.
   function rowKey(p) {
-    return `${p.countryCode}-${p.adProduct}-${p.campaignId}-${p.asin}`;
+    return `${p.profileId}-${p.countryCode}-${p.adProduct}-${p.campaignId}-${p.adGroupId}-${p.asin}-${p.sku}`;
   }
 
   function toggleChecked(key) {
     setChecked((c) => ({ ...c, [key]: !c[key] }));
+  }
+
+  // Bulk-select by ACOS (per the user, 2026-10-02): ticks every visible,
+  // writable, non-archived row whose ACOS is above the threshold; rows with
+  // spend but no sales (ACOS undefined / infinite) are included optionally.
+  const [acosThreshold, setAcosThreshold] = useState(() => {
+    try {
+      return Number(localStorage.getItem("adsProducts.acosThreshold")) || 100;
+    } catch {
+      return 100;
+    }
+  });
+  const [includeNoSales, setIncludeNoSales] = useState(true);
+
+  function isRowWritable(p) {
+    const key = rowKey(p);
+    const isArchived = enabled[key] ? false : paused[key] ? false : p.adStatus === "ARCHIVED";
+    return !isArchived && p.profileId && !String(p.profileId).startsWith("unknown");
+  }
+
+  function checkAboveAcos() {
+    try {
+      localStorage.setItem("adsProducts.acosThreshold", String(acosThreshold));
+    } catch {
+      /* convenience only */
+    }
+    const next = {};
+    for (const p of sortedProducts) {
+      if (!isRowWritable(p)) continue;
+      const noSales = !(p.sales > 0) && p.spend > 0;
+      if ((noSales && includeNoSales) || (p.sales > 0 && p.acos > Number(acosThreshold))) next[rowKey(p)] = true;
+    }
+    setChecked(next);
   }
 
   async function pauseAllChecked() {
@@ -386,6 +424,34 @@ export default function AdsAdvertisedProductsPage() {
               >
                 {enabling ? "Enabling..." : "Enable Checked"}
               </button>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontWeight: 400, fontSize: "13px" }}>
+                Check all with ACOS above
+                <input
+                  type="number"
+                  min={0}
+                  value={acosThreshold}
+                  onChange={(e) => setAcosThreshold(e.target.value)}
+                  style={{ width: "64px", padding: "4px", fontSize: "13px" }}
+                />
+                %
+                <label style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                  <input type="checkbox" checked={includeNoSales} onChange={(e) => setIncludeNoSales(e.target.checked)} />
+                  + spend with no sales
+                </label>
+                <button
+                  onClick={checkAboveAcos}
+                  style={{ ...buttonStyle(false), minWidth: "auto", padding: "6px 12px", fontSize: "13px" }}
+                >
+                  Check
+                </button>
+                <button
+                  onClick={() => setChecked({})}
+                  style={{ ...buttonStyle(false), minWidth: "auto", padding: "6px 12px", fontSize: "13px", background: "#888" }}
+                >
+                  Uncheck all
+                </button>
+                <span style={{ color: "#555" }}>{Object.values(checked).filter(Boolean).length} checked</span>
+              </span>
             </div>
 
             <div style={{ overflowX: "auto" }}>
@@ -426,12 +492,12 @@ export default function AdsAdvertisedProductsPage() {
                   {sortedProducts.map((p) => {
                     const key = rowKey(p);
                     const isArchived = enabled[key] ? false : paused[key] ? false : p.adStatus === "ARCHIVED";
-                    // Only the live-connected US Ads account can actually be
-                    // written to right now - EU/UK rows here come from the
-                    // manual CSV import and the connected EU profile has no
-                    // real access to those campaigns (known account-mismatch
-                    // issue), so pause/enable would just fail there.
-                    const notWritable = p.countryCode !== "US";
+                    // Every row with a real Ads profile id is writable - the EU/UK
+                    // profiles are live-connected since the 2026-09-04 profile
+                    // refresh (verified 2026-10-02: FR/SE product ads resolve via
+                    // advertising-api-eu). Only placeholder ids ("unknown-PL",
+                    // from old manual CSV imports) can't be written.
+                    const notWritable = !p.profileId || String(p.profileId).startsWith("unknown");
                     return (
                       <tr key={key}>
                         <td style={tableCellStyle()}>
@@ -440,7 +506,7 @@ export default function AdsAdvertisedProductsPage() {
                               Archived
                             </span>
                           ) : notWritable ? (
-                            <span style={{ color: "#ccc", fontSize: "11px" }} title="Not connected to the live Ads API for this marketplace yet - pause/enable isn't available for non-US rows">
+                            <span style={{ color: "#ccc", fontSize: "11px" }} title="No live Ads profile for this row (old CSV-imported data) - pause/enable isn't available">
                               —
                             </span>
                           ) : (

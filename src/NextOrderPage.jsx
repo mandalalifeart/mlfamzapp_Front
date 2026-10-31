@@ -857,28 +857,37 @@ async function exportXlsx(visibleGroups, scope, years) {
   await downloadWorkbook(workbook, title);
 }
 
-// Several marketplaces in one file (2026-10-31, per the user): first sheet
-// "Combined" = product columns + each chosen marketplace's Next + total
-// (rows where any chosen Next > 0), then one full sheet per marketplace.
-async function exportXlsxMulti(visibleGroups, regions, years) {
-  if (!regions.length) return;
+// Export (2026-10-31, per the user): tick any of the marketplaces and/or
+// GENERAL. One ticked = the same single-sheet file as before. Several = one
+// file: a "Combined" sheet (product columns + each ticked marketplace's Next
+// + total, rows where any of them > 0) when 2+ marketplaces are ticked, then
+// one full sheet per ticked marketplace, then GENERAL.
+async function exportSelectedXlsx(visibleGroups, selected, years) {
+  if (!selected.length) return;
+  if (selected.length === 1) {
+    await exportXlsx(visibleGroups, selected[0][0], years);
+    return;
+  }
+  const regions = selected.filter(([k]) => k !== "general").map(([key, label]) => ({ key, label }));
   const workbook = await newWorkbook();
-  const combinedColumns = [
-    ...XLSX_PRODUCT_COLUMNS,
-    ...regions.map((r) => ({
-      header: `${r.label} Next`, key: `${r.key}Next`, width: 10, num: true, red: true,
-      value: (i) => i[`${r.key}_next_shipment`] || 0,
-    })),
-    {
-      header: "Total Next", key: "totalNext", width: 11, num: true, red: true,
-      value: (i) => regions.reduce((s, r) => s + Number(i[`${r.key}_next_shipment`] || 0), 0),
-    },
-    { header: "Malani Bal", key: "malaniBal", width: 11, num: true, value: (i) => i.malani_balance || 0 },
-  ];
-  fillSheet(workbook, "Combined", combinedColumns, visibleGroups,
-    (i) => regions.some((r) => Number(i[`${r.key}_next_shipment`] || 0) > 0));
-  regions.forEach((r) => addScopeSheet(workbook, visibleGroups, r.key, years, `Next Order ${r.label}`));
-  await downloadWorkbook(workbook, regions.map((r) => r.label).join("-"));
+  if (regions.length >= 2) {
+    const combinedColumns = [
+      ...XLSX_PRODUCT_COLUMNS,
+      ...regions.map((r) => ({
+        header: `${r.label} Next`, key: `${r.key}Next`, width: 10, num: true, red: true,
+        value: (i) => i[`${r.key}_next_shipment`] || 0,
+      })),
+      {
+        header: "Total Next", key: "totalNext", width: 11, num: true, red: true,
+        value: (i) => regions.reduce((s, r) => s + Number(i[`${r.key}_next_shipment`] || 0), 0),
+      },
+      { header: "Malani Bal", key: "malaniBal", width: 11, num: true, value: (i) => i.malani_balance || 0 },
+    ];
+    fillSheet(workbook, "Combined", combinedColumns, visibleGroups,
+      (i) => regions.some((r) => Number(i[`${r.key}_next_shipment`] || 0) > 0));
+  }
+  selected.forEach(([key, label]) => addScopeSheet(workbook, visibleGroups, key, years, `Next Order ${label}`));
+  await downloadWorkbook(workbook, selected.map(([, label]) => label).join("-"));
 }
 
 export default function NextOrderPage() {
@@ -910,6 +919,8 @@ export default function NextOrderPage() {
   const [multiExport, setMultiExport] = useState({});
   const jpHasStock = groups.some((g) => g.items.some((i) => (i.jp_balance || 0) > 0));
   setShownOptionalRegions({ au: auHasStock || showAuManual, jp: jpHasStock || showJpManual });
+  const exportOptions = [...REGIONS.map((r) => [r.key, r.label]), ["general", "GENERAL"]];
+  const exportSelected = exportOptions.filter(([k]) => multiExport[k]);
 
   async function loadData() {
     setLoading(true);
@@ -1283,34 +1294,22 @@ export default function NextOrderPage() {
             <button style={ghostButtonStyle()} onClick={collapseAll}>
               Collapse All Groups
             </button>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", border: "1px solid #ccc", borderRadius: "8px", padding: "4px 6px", background: "#fff" }}>
-              <span style={{ fontSize: "13px", fontWeight: 700, color: "#333", padding: "0 4px" }}>Export XLSX:</span>
-              {[...REGIONS.map((r) => [r.key, r.label]), ["general", "GENERAL"]].map(([scope, label]) => (
-                <button
-                  key={scope}
-                  onClick={() => exportXlsx(visibleGroups, scope, salesYears)}
-                  style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #1565c0", background: "#fff", color: "#1565c0", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
-                >
-                  {label}
-                </button>
-              ))}
-            </span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", border: "1px solid #ccc", borderRadius: "8px", padding: "4px 8px", background: "#fff" }}>
-              <span style={{ fontSize: "13px", fontWeight: 700, color: "#333" }}>Combined:</span>
-              {REGIONS.map((r) => (
-                <label key={r.key} style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "13px", cursor: "pointer" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", border: "1px solid #ccc", borderRadius: "8px", padding: "4px 8px", background: "#fff" }}>
+              <span style={{ fontSize: "13px", fontWeight: 700, color: "#333" }}>Export XLSX:</span>
+              {exportOptions.map(([key, label]) => (
+                <label key={key} style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "13px", cursor: "pointer" }}>
                   <input
                     type="checkbox"
-                    checked={!!multiExport[r.key]}
-                    onChange={() => setMultiExport((m) => ({ ...m, [r.key]: !m[r.key] }))}
+                    checked={!!multiExport[key]}
+                    onChange={() => setMultiExport((m) => ({ ...m, [key]: !m[key] }))}
                   />
-                  {r.label}
+                  {label}
                 </label>
               ))}
               <button
-                disabled={!REGIONS.some((r) => multiExport[r.key])}
-                onClick={() => exportXlsxMulti(visibleGroups, REGIONS.filter((r) => multiExport[r.key]), salesYears)}
-                style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #1565c0", background: "#1565c0", color: "#fff", fontWeight: 600, fontSize: "13px", cursor: "pointer", opacity: REGIONS.some((r) => multiExport[r.key]) ? 1 : 0.4 }}
+                disabled={!exportSelected.length}
+                onClick={() => exportSelectedXlsx(visibleGroups, exportSelected, salesYears)}
+                style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #1565c0", background: "#1565c0", color: "#fff", fontWeight: 600, fontSize: "13px", cursor: "pointer", opacity: exportSelected.length ? 1 : 0.4 }}
               >
                 Export
               </button>

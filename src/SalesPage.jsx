@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { buttonStyle, ghostButtonStyle } from "./buttonStyle";
 import AdsCountryBreakdown from "./AdsCountryBreakdown";
+import { SalesPromotionsCard } from "./PromotionsSection";
 import FamilySection from "./FamilySection";
-import { FAMILIES, familyOf } from "./productFamilies";
+import { FAMILIES, familyOf, orderFamilyGroups } from "./productFamilies";
 
 // PocketBase-only functions run on the mini PC that already hosts
 // PocketBase, instead of GCP - see CLAUDE.md "AmzBot: local job runner".
@@ -40,6 +41,10 @@ const ETSY_MARKETPLACE_OPTIONS = [
   { value: "etsy_uk", label: "Etsy UK" },
 ];
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// Per the user (2026-10-04): the current month's column is highlighted in
+// every table (summary, group and product rows) - bold on a light background.
+const CURRENT_MONTH_BG = "#fff3c4";
+const currentMonthIndex = () => new Date().getMonth();
 
 const MAIN_SKU_WIDTH = "144px";
 // Narrowed + smaller font per the user (2026-09-24) - was unset/full-width.
@@ -177,15 +182,15 @@ function TableHeader({ showAsin }) {
   return (
     <thead>
       <tr>
-        <th style={tableCellStyle({ background: "#f4f4f4" })}>Image</th>
+        <th style={tableCellStyle({ background: "#f4f4f4", width: "1%", whiteSpace: "nowrap" })}>Image</th>
         <th style={tableCellStyle({ background: "#f4f4f4", width: MAIN_SKU_WIDTH })}>Main SKU</th>
         {showAsin && (
           <th style={tableCellStyle({ background: "#f4f4f4", width: ASIN_WIDTH, fontSize: "11px" })}>ASIN</th>
         )}
         <th style={tableCellStyle({ background: "#f4f4f4" })}>Period</th>
         <th style={numberCellStyle({ background: "#f4f4f4" })}>Total</th>
-        {MONTH_LABELS.map((m) => (
-          <th key={m} style={numberCellStyle({ background: "#f4f4f4" })}>
+        {MONTH_LABELS.map((m, i) => (
+          <th key={m} style={numberCellStyle({ background: i === currentMonthIndex() ? CURRENT_MONTH_BG : "#f4f4f4" })}>
             {m}
           </th>
         ))}
@@ -236,7 +241,8 @@ function YearRows({ rowKeyPrefix, years, yearRows, currentMonth, growthPct, rend
             key={m}
             style={numberCellStyle({
               minWidth: "48px",
-              fontWeight: isCurrentYear ? 700 : undefined,
+              fontWeight: isCurrentYear || m === (currentMonth || currentMonthIndex() + 1) - 1 ? 700 : undefined,
+              background: m === (currentMonth || currentMonthIndex() + 1) - 1 ? CURRENT_MONTH_BG : undefined,
               color: monthColor({
                 isCurrentYear,
                 curMonths: row.months,
@@ -329,7 +335,7 @@ function ItemRows({ item, showAsin, years, currentMonth, returnsByAsin, selected
       renderLeading={(rowCount) => (
         <>
           <td rowSpan={rowCount} style={tableCellStyle({ verticalAlign: "top", width: "70px" })}>
-            <Link to={`/product?asin=${encodeURIComponent(item.asin)}&sku=${encodeURIComponent(item.mainSku)}`} target="_blank" rel="noopener noreferrer">
+            <Link to={`/product?sku=${encodeURIComponent(item.mainSku)}`} target="_blank" rel="noopener noreferrer">
               <img
                 src={`${IMAGE_BASE}${encodeURIComponent(item.mainSku)}.jpg`}
                 alt={item.mainSku}
@@ -340,7 +346,7 @@ function ItemRows({ item, showAsin, years, currentMonth, returnsByAsin, selected
 
           <td rowSpan={rowCount} style={tableCellStyle({ verticalAlign: "top", fontWeight: 600, width: MAIN_SKU_WIDTH })}>
             <Link
-              to={`/product?asin=${encodeURIComponent(item.asin)}&sku=${encodeURIComponent(item.mainSku)}`}
+              to={`/product?sku=${encodeURIComponent(item.mainSku)}`}
               target="_blank"
               rel="noopener noreferrer"
               style={{ color: "inherit", textDecoration: "none" }}
@@ -510,7 +516,26 @@ function familySummary(groups) {
   return `${groups.length} group${groups.length === 1 ? "" : "s"} · ${productCount} products · ${totalThisYear.toLocaleString()} units this year`;
 }
 
-const RANKING_TOP_N = 20;
+const RANKING_TOP_N_DEFAULT = 20;
+const RANKING_TOP_N_KEY = "sales.bestWorst.topN";
+const RANKING_DIRECTION_KEY = "sales.bestWorst.direction";
+const EU_STOCK_MARKETPLACES = ["de", "fr", "it", "es", "nl", "se", "pl", "be", "ie"];
+
+// Units in stock (Bal + OTW) for the selected marketplace's stock region, or
+// across USA/DE/UK when all marketplaces are selected (Pan-EU stock in DE
+// serves the other EU countries). Returns {total, parts: [[region, n]]}.
+function stockFor(sku, selectedMarketplace, daysOfSupplyBySku) {
+  const data = daysOfSupplyBySku?.[sku];
+  if (!data) return { total: 0, parts: [] };
+  let regions = ["usa", "de", "uk"];
+  if (selectedMarketplace === "usa" || selectedMarketplace === "uk") regions = [selectedMarketplace];
+  else if (EU_STOCK_MARKETPLACES.includes(selectedMarketplace)) regions = ["de"];
+  const parts = regions.map((r) => [r, (data[r]?.stock || 0) + (data[r]?.otw || 0)]).filter(([, n]) => n > 0);
+  return { total: parts.reduce((a, [, n]) => a + n, 0), parts };
+}
+// Per the user (2026-10-02): stuffed poufs are left out of the Best/Worst
+// rankings (they stay in the Home Decor family everywhere else).
+const RANKING_EXCLUDED_GROUP = /^stuffed/i;
 const RANKING_PERIODS = [
   { key: "lastweek", label: "Last week (last 7 days)" },
   { key: "thismonth", label: "This month" },
@@ -564,16 +589,17 @@ function RankingTable({ title, rows, periodLabel, selectedMarketplace, daysOfSup
           <table style={{ borderCollapse: "collapse", width: "100%" }}>
             <thead>
               <tr>
-                <th style={numberCellStyle({ background: "#f4f4f4" })}>#</th>
-                <th style={tableCellStyle({ background: "#f4f4f4" })}>Image</th>
+                <th style={numberCellStyle({ background: "#f4f4f4", width: "1%" })}>#</th>
+                <th style={tableCellStyle({ background: "#f4f4f4", width: "1%", whiteSpace: "nowrap" })}>Image</th>
                 <th style={tableCellStyle({ background: "#f4f4f4" })}>Main SKU</th>
                 <th style={tableCellStyle({ background: "#f4f4f4" })}>Group</th>
                 <th style={numberCellStyle({ background: "#f4f4f4" })} title={periodLabel}>Units</th>
+                <th style={numberCellStyle({ background: "#f4f4f4" })} title="Bal + OTW">Stock</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row, i) => {
-                const href = `/product?asin=${encodeURIComponent(row.item.asin)}&sku=${encodeURIComponent(row.item.mainSku)}`;
+                const href = `/product?sku=${encodeURIComponent(row.item.mainSku)}`;
                 return (
                   <tr key={row.item.asin}>
                     <td style={numberCellStyle({ color: "#555" })}>{i + 1}</td>
@@ -596,7 +622,19 @@ function RankingTable({ title, rows, periodLabel, selectedMarketplace, daysOfSup
                       <DaysOfSupplyInline sku={row.item.mainSku} selectedMarketplace={selectedMarketplace} daysOfSupplyBySku={daysOfSupplyBySku} />
                     </td>
                     <td style={tableCellStyle({ fontSize: "12px", color: "#555" })}>{row.group}</td>
-                    <td style={numberCellStyle({ fontWeight: 700 })}>{formatUnits(row.units)}</td>
+                    <td style={numberCellStyle({ fontWeight: 700, color: row.units === 0 ? GROWTH_RED : undefined })}>
+                      {formatUnits(row.units)}
+                    </td>
+                    <td style={numberCellStyle({ fontSize: "12px", color: "#555" })}>
+                      {row.stock.parts.length === 0
+                        ? "—"
+                        : row.stock.parts.map(([r, n]) => (
+                            <div key={r}>
+                              {row.stock.parts.length > 1 || !selectedMarketplace ? `${r.toUpperCase()} ` : ""}
+                              {formatUnits(n)}
+                            </div>
+                          ))}
+                    </td>
                   </tr>
                 );
               })}
@@ -616,7 +654,37 @@ function RankingTable({ title, rows, periodLabel, selectedMarketplace, daysOfSup
 function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace, marketplaces, daysOfSupplyBySku }) {
   const [open, setOpen] = useState(false);
   const [period, setPeriod] = useState("last12");
-  const [includeZero, setIncludeZero] = useState(false);
+  const [direction, setDirection] = useState(() => {
+    try {
+      return localStorage.getItem(RANKING_DIRECTION_KEY) === "worst" ? "worst" : "best";
+    } catch {
+      return "best";
+    }
+  });
+  function changeDirection(value) {
+    setDirection(value);
+    try {
+      localStorage.setItem(RANKING_DIRECTION_KEY, value);
+    } catch {
+      /* per-browser convenience only */
+    }
+  }
+  const [topN, setTopN] = useState(() => {
+    try {
+      return Number(localStorage.getItem(RANKING_TOP_N_KEY)) || RANKING_TOP_N_DEFAULT;
+    } catch {
+      return RANKING_TOP_N_DEFAULT;
+    }
+  });
+  function changeTopN(value) {
+    const n = Math.max(1, Math.min(200, Number(value) || RANKING_TOP_N_DEFAULT));
+    setTopN(n);
+    try {
+      localStorage.setItem(RANKING_TOP_N_KEY, String(n));
+    } catch {
+      /* per-browser convenience only */
+    }
+  }
   const periodLabel = RANKING_PERIODS.find((p) => p.key === period)?.label || "";
 
   // "Last week" can't come from the monthly sku_sales data - it's fetched
@@ -657,17 +725,25 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
       const rows = [];
       for (const group of groups || []) {
         if (group.group === "IGNORE" || familyOf(group.group) !== family.key) continue;
+        if (RANKING_EXCLUDED_GROUP.test(group.group || "")) continue;
         for (const item of group.items) {
-          rows.push({ item, group: group.group, units: unitsInPeriod(item, period, years, currentMonth, weekByAsin) });
+          rows.push({
+            item,
+            group: group.group,
+            units: unitsInPeriod(item, period, years, currentMonth, weekByAsin),
+            stock: stockFor(item.mainSku, selectedMarketplace, daysOfSupplyBySku),
+          });
         }
       }
-      const best = [...rows].filter((r) => r.units > 0).sort((a, b) => b.units - a.units).slice(0, RANKING_TOP_N);
-      const worstPool = includeZero ? rows : rows.filter((r) => r.units > 0);
-      const worst = [...worstPool].sort((a, b) => a.units - b.units).slice(0, RANKING_TOP_N);
-      const zeroCount = rows.filter((r) => r.units === 0).length;
-      return { family, best, worst, total: rows.length, zeroCount };
+      // Per the user (2026-10-04): products with 0 sales are listed when they
+      // have stock (Bal + OTW); 0 sales and no stock = retired, left out.
+      const pool = rows.filter((r) => r.units > 0 || r.stock.total > 0);
+      const sign = direction === "worst" ? 1 : -1;
+      const ranked = [...pool].sort((a, b) => sign * (a.units - b.units) || b.stock.total - a.stock.total).slice(0, topN);
+      const zeroWithStock = pool.filter((r) => r.units === 0).length;
+      return { family, ranked, total: pool.length, zeroWithStock };
     });
-  }, [groups, years, currentMonth, period, includeZero, weekByAsin]);
+  }, [groups, years, currentMonth, period, direction, weekByAsin, topN, selectedMarketplace, daysOfSupplyBySku]);
 
   return (
     <div style={{ ...cardStyle(), marginBottom: "20px" }}>
@@ -676,7 +752,7 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
         style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "6px", cursor: "pointer" }}
       >
         <h3 style={{ margin: 0 }}>
-          {open ? "▾" : "▸"} Best &amp; Worst Sellers (top {RANKING_TOP_N})
+          {open ? "▾" : "▸"} Best &amp; Worst Sellers
         </h3>
         <div style={{ color: "#555", fontSize: "13px" }}>Pareo and Home Decor, ranked by units</div>
       </div>
@@ -691,9 +767,21 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
                 </option>
               ))}
             </select>
+            <select value={direction} onChange={(e) => changeDirection(e.target.value)} style={selectorStyle()}>
+              <option value="best">Best → worst</option>
+              <option value="worst">Worst → best</option>
+            </select>
             <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
-              <input type="checkbox" checked={includeZero} onChange={() => setIncludeZero((v) => !v)} />
-              Include products with 0 sales in worst sellers
+              Show
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={topN}
+                onChange={(e) => changeTopN(e.target.value)}
+                style={{ width: "60px", padding: "4px", fontSize: "13px" }}
+              />
+              items
             </label>
             {period === "lastweek" && (
               <span style={{ fontSize: "12px", color: week.error ? GROWTH_RED : "#555" }}>
@@ -707,32 +795,27 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
             )}
           </div>
 
-          <div style={{ display: "grid", gap: "24px" }}>
-            {rankings.map(({ family, best, worst, total, zeroCount }) => (
-              <div key={family.key}>
-                <h3 style={{ margin: "0 0 4px" }}>{family.label}</h3>
-                <div style={{ color: "#555", fontSize: "12px", marginBottom: "10px" }}>
-                  {total} products · {zeroCount} with 0 sales in {periodLabel.toLowerCase()}
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "16px" }}>
+          {/* One collapsible section per family, each on its own row, collapsed by default (per the user 2026-10-04). */}
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "12px" }}>
+            {rankings.map(({ family, ranked, total, zeroWithStock }) => (
+              <details key={family.key} style={{ border: "1px solid #e3e3e3", borderRadius: "8px", padding: "10px 12px" }}>
+                <summary style={{ cursor: "pointer" }}>
+                  <strong style={{ fontSize: "16px" }}>{family.label}</strong>
+                  <span style={{ color: "#555", fontSize: "12px", marginLeft: "10px" }}>
+                    {total} products · {zeroWithStock} with stock but 0 sales in {periodLabel.toLowerCase()}
+                  </span>
+                </summary>
+                <div style={{ marginTop: "10px" }}>
                   <RankingTable
-                    title={`🏆 Best ${RANKING_TOP_N}`}
-                    rows={best}
+                    title={`${direction === "best" ? "🏆 Best → worst" : "🐢 Worst → best"} (${ranked.length})`}
+                    rows={ranked}
                     periodLabel={periodLabel}
                     selectedMarketplace={selectedMarketplace}
                     daysOfSupplyBySku={daysOfSupplyBySku}
-                    emptyText="No sales in this period."
-                  />
-                  <RankingTable
-                    title={`🐢 Worst ${RANKING_TOP_N}`}
-                    rows={worst}
-                    periodLabel={periodLabel}
-                    selectedMarketplace={selectedMarketplace}
-                    daysOfSupplyBySku={daysOfSupplyBySku}
-                    emptyText="No products to rank."
+                    emptyText="No products with sales or stock."
                   />
                 </div>
-              </div>
+              </details>
             ))}
           </div>
         </div>
@@ -940,8 +1023,8 @@ function SummaryBlock({ title, years, currentMonth, yearRows, growthPct, formatV
             <tr>
               <th style={tableCellStyle({ background: "#f4f4f4" })}>Period</th>
               <th style={numberCellStyle({ background: "#f4f4f4" })}>Total</th>
-              {MONTH_LABELS.map((m) => (
-                <th key={m} style={numberCellStyle({ background: "#f4f4f4" })}>
+              {MONTH_LABELS.map((m, i) => (
+                <th key={m} style={numberCellStyle({ background: i === currentMonthIndex() ? CURRENT_MONTH_BG : "#f4f4f4" })}>
                   {m}
                 </th>
               ))}
@@ -1333,6 +1416,8 @@ export default function SalesPage() {
         <AdsCountryBreakdown />
       </div>
 
+      <SalesPromotionsCard marketplaces={selectedMarketplace ? [selectedMarketplace] : ALL_MARKETPLACE_VALUES} />
+
       {error && (
         <div
           style={{
@@ -1358,7 +1443,7 @@ export default function SalesPage() {
       )}
 
       {!loading && result && (
-        <div style={{ display: "grid", gap: "18px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "18px" }}>
           <div style={{ display: "flex", gap: "10px" }}>
             <button style={ghostButtonStyle()} onClick={expandAll}>
               Expand All Groups
@@ -1378,7 +1463,7 @@ export default function SalesPage() {
           />
 
           {FAMILIES.map((family) => {
-            const familyGroups = visibleGroups.filter((g) => familyOf(g.group) === family.key);
+            const familyGroups = orderFamilyGroups(family.key, visibleGroups.filter((g) => familyOf(g.group) === family.key));
             if (familyGroups.length === 0) return null;
             return (
               <FamilySection

@@ -18,7 +18,7 @@ export default function FamilySection({ label, summary, expanded, onToggle, chil
         </h2>
         <div style={{ color: "#555", fontSize: "13px" }}>{summary}</div>
       </div>
-      {expanded && <div style={{ display: "grid", gap: "18px", marginTop: "14px" }}>{children}</div>}
+      {expanded && <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "18px", marginTop: "14px" }}>{children}</div>}
     </div>
   );
 }
