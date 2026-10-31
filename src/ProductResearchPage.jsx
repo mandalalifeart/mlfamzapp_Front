@@ -19,6 +19,8 @@ function fmtUsd(v) {
   return v === null || v === undefined ? "–" : `$${Number(v).toFixed(2)}`;
 }
 
+const POOL_LABELS = { main: "Main list", option: "Bundle pool: option", ready: "Bundle pool: ready bundle" };
+
 function StatusCell({ idea, statuses, onSaved }) {
   const [status, setStatus] = useState(idea.status);
   const [notes, setNotes] = useState(idea.userNotes || "");
@@ -33,7 +35,6 @@ function StatusCell({ idea, statuses, onSaved }) {
       });
       if (!r.ok) throw new Error();
       setState("saved");
-      onSaved();
     } catch {
       setState("error");
     }
@@ -60,6 +61,16 @@ function StatusCell({ idea, statuses, onSaved }) {
         rows={2}
         style={{ width: "100%", fontSize: "12px", boxSizing: "border-box" }}
       />
+      <select
+        value={idea.pool}
+        title="Move this product to the bundles pool"
+        onChange={(e) => save({ pool: e.target.value }).then(onSaved)}
+        style={{ fontSize: "12px", padding: "2px 4px", marginTop: "4px", width: "100%" }}
+      >
+        {Object.entries(POOL_LABELS).map(([k, label]) => (
+          <option key={k} value={k}>{k === "main" ? "Move to: main list" : label}</option>
+        ))}
+      </select>
       {state && <div style={{ fontSize: "11px", color: state === "error" ? "#b00020" : "#2e7d32" }}>{state}</div>}
     </td>
   );
@@ -100,10 +111,13 @@ export default function ProductResearchPage() {
 
   const ideas = useMemo(() => {
     const kindOf = (i) => (i.kind === "bundle" ? "bundle" : i.id.startsWith("mushroom") || i.id.startsWith("groovy") || i.id.startsWith("cottagecore") ? "mushroom" : "other");
-    const list = (data?.ideas || []).filter((i) => kind === "all" || kindOf(i) === kind);
     const val = (i) => (sortKey === "score" ? i.score?.score : (i.research || {})[sortKey]) ?? -1;
-    list.sort((a, b) => val(b) - val(a));
-    return list;
+    const sorted = (l) => l.sort((a, b) => val(b) - val(a));
+    const all = data?.ideas || [];
+    if (kind === "bundle") {
+      return { ready: sorted(all.filter((i) => i.pool === "ready")), option: sorted(all.filter((i) => i.pool === "option")) };
+    }
+    return { main: sorted(all.filter((i) => i.pool === "main" && (kind === "all" || kindOf(i) === kind))) };
   }, [data, sortKey, kind]);
 
   const bench = data?.benchmark || {};
@@ -114,38 +128,8 @@ export default function ProductResearchPage() {
     </th>
   );
 
-  return (
-    <div style={{ padding: "16px", maxWidth: "1400px", margin: "0 auto", fontFamily: "system-ui, sans-serif" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-        <Link to="/">← Home</Link>
-        <h2 style={{ margin: 0 }}>New Products Research</h2>
-        <button style={buttonStyle(running)} disabled={running} onClick={refresh}>
-          {running ? "Researching… (2-4 min)" : "Refresh from Amazon"}
-        </button>
-        {data?.ranAt && <span style={{ color: "#666", fontSize: "13px" }}>Last run {new Date(data.ranAt).toLocaleString()} · Amazon US</span>}
-      </div>
-      <p style={{ fontSize: "13px", color: "#444", maxWidth: "1100px" }}>
-        Fabric products our Indian supplier can make, priced $20 or more, also as bundles - mainly to extend the mushroom
-        collection. For each idea we search Amazon US and read the Best Seller Rank (Home &amp; Kitchen) and price of the
-        top 20 results. <b>Benchmark = our own poufs</b>: best pouf family ranks {fmtRank(bench.best)} in Home &amp; Kitchen
-        (median of our pouf families {fmtRank(bench.median)}). A lower number sells more, so a competitor ranked better than{" "}
-        {fmtRank(bench.best)} sells more than our best pouf. <b>On-theme</b> = the title really is mushroom / woodland /
-        retro themed ("mushroom brown" colour products are left out). Click a row for the competitors.
-      </p>
-      <div style={{ display: "flex", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
-        {[["all", "All ideas"], ["mushroom", "Mushroom / retro"], ["other", "Other fabric products"], ["bundle", "Bundles (3 cheaper items)"]].map(([k, label]) => (
-          <button
-            key={k}
-            onClick={() => setKind(k)}
-            style={{ padding: "6px 14px", borderRadius: "999px", border: `1px solid ${kind === k ? "#1565c0" : "#bbb"}`, background: kind === k ? "#1565c0" : "#fff", color: kind === k ? "#fff" : "#333", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {error && <div style={{ color: "#b00020" }}>{error}</div>}
-      {!data && !error && <div>Loading…</div>}
-      {data && (
+  function renderTable(list) {
+    return (
         <div style={{ overflowX: "auto" }}>
           <table style={{ borderCollapse: "collapse", width: "100%" }}>
             <thead>
@@ -165,7 +149,7 @@ export default function ProductResearchPage() {
               </tr>
             </thead>
             <tbody>
-              {ideas.map((idea) => {
+              {list.map((idea) => {
                 const r = idea.research || {};
                 const s = r.ourSearches || {};
                 const isOpen = !!open[idea.id];
@@ -201,7 +185,7 @@ export default function ProductResearchPage() {
                       <td style={num} title={(s.terms || []).map((t) => `${t.term}: ${t.impressions} impr, ${t.clicks} clicks, ${t.orders} orders`).join("\n")}>
                         {s.impressions ? `${s.impressions.toLocaleString()} impr · ${s.clicks} clicks · ${s.orders} orders` : "none"}
                       </td>
-                      <StatusCell idea={idea} statuses={data.statuses || []} onSaved={() => {}} />
+                      <StatusCell key={idea.pool} idea={idea} statuses={data.statuses || []} onSaved={load} />
                     </tr>
                     {isOpen && (
                       <tr>
@@ -241,6 +225,52 @@ export default function ProductResearchPage() {
             </tbody>
           </table>
         </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: "16px", maxWidth: "1400px", margin: "0 auto", fontFamily: "system-ui, sans-serif" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+        <Link to="/">← Home</Link>
+        <h2 style={{ margin: 0 }}>New Products Research</h2>
+        <button style={buttonStyle(running)} disabled={running} onClick={refresh}>
+          {running ? "Researching… (2-4 min)" : "Refresh from Amazon"}
+        </button>
+        {data?.ranAt && <span style={{ color: "#666", fontSize: "13px" }}>Last run {new Date(data.ranAt).toLocaleString()} · Amazon US</span>}
+      </div>
+      <p style={{ fontSize: "13px", color: "#444", maxWidth: "1100px" }}>
+        Fabric products our Indian supplier can make, priced $20 or more, also as bundles - mainly to extend the mushroom
+        collection. For each idea we search Amazon US and read the Best Seller Rank (Home &amp; Kitchen) and price of the
+        top 20 results. <b>Benchmark = our own poufs</b>: best pouf family ranks {fmtRank(bench.best)} in Home &amp; Kitchen
+        (median of our pouf families {fmtRank(bench.median)}). A lower number sells more, so a competitor ranked better than{" "}
+        {fmtRank(bench.best)} sells more than our best pouf. <b>On-theme</b> = the title really is mushroom / woodland /
+        retro themed ("mushroom brown" colour products are left out). Click a row for the competitors.
+      </p>
+      <div style={{ display: "flex", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
+        {[["all", "All ideas"], ["mushroom", "Mushroom / retro"], ["other", "Other fabric products"], ["bundle", `Bundles pool (${(data?.ideas || []).filter((i) => i.pool !== "main").length})`]].map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setKind(k)}
+            style={{ padding: "6px 14px", borderRadius: "999px", border: `1px solid ${kind === k ? "#1565c0" : "#bbb"}`, background: kind === k ? "#1565c0" : "#fff", color: kind === k ? "#fff" : "#333", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {error && <div style={{ color: "#b00020" }}>{error}</div>}
+      {!data && !error && <div>Loading…</div>}
+      {data && kind !== "bundle" && renderTable(ideas.main)}
+      {data && kind === "bundle" && (
+        <>
+          <h3 style={{ margin: "14px 0 6px" }}>Ready bundles ({ideas.ready.length})</h3>
+          <p style={{ fontSize: "12px", color: "#555", margin: "0 0 6px" }}>Bundles we would sell as they are.</p>
+          {renderTable(ideas.ready)}
+          <h3 style={{ margin: "22px 0 6px" }}>Options for bundles ({ideas.option.length})</h3>
+          <p style={{ fontSize: "12px", color: "#555", margin: "0 0 6px" }}>
+            Products to combine into bundles. Move any product here with the "Move to" menu in its Status column.
+          </p>
+          {ideas.option.length ? renderTable(ideas.option) : <div style={{ color: "#888", fontSize: "13px" }}>Nothing here yet.</div>}
+        </>
       )}
     </div>
   );
