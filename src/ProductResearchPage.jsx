@@ -71,6 +71,7 @@ export default function ProductResearchPage() {
   const [open, setOpen] = useState({});
   const [running, setRunning] = useState(false);
   const [sortKey, setSortKey] = useState("onThemeBetterThanOurBest");
+  const [kind, setKind] = useState("all");
 
   async function load() {
     try {
@@ -98,10 +99,11 @@ export default function ProductResearchPage() {
   }
 
   const ideas = useMemo(() => {
-    const list = [...(data?.ideas || [])];
+    const kindOf = (i) => (i.kind === "bundle" ? "bundle" : i.id.startsWith("mushroom") || i.id.startsWith("groovy") || i.id.startsWith("cottagecore") ? "mushroom" : "other");
+    const list = (data?.ideas || []).filter((i) => kind === "all" || kindOf(i) === kind);
     list.sort((a, b) => ((b.research || {})[sortKey] ?? -1) - ((a.research || {})[sortKey] ?? -1));
     return list;
-  }, [data, sortKey]);
+  }, [data, sortKey, kind]);
 
   const bench = data?.benchmark || {};
   const sortHead = (key, label, title) => (
@@ -129,6 +131,17 @@ export default function ProductResearchPage() {
         {fmtRank(bench.best)} sells more than our best pouf. <b>On-theme</b> = the title really is mushroom / woodland /
         retro themed ("mushroom brown" colour products are left out). Click a row for the competitors.
       </p>
+      <div style={{ display: "flex", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
+        {[["all", "All ideas"], ["mushroom", "Mushroom / retro"], ["other", "Other fabric products"], ["bundle", "Bundles (3 cheaper items)"]].map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setKind(k)}
+            style={{ padding: "6px 14px", borderRadius: "999px", border: `1px solid ${kind === k ? "#1565c0" : "#bbb"}`, background: kind === k ? "#1565c0" : "#fff", color: kind === k ? "#fff" : "#333", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       {error && <div style={{ color: "#b00020" }}>{error}</div>}
       {!data && !error && <div>Loading…</div>}
       {data && (
@@ -158,6 +171,7 @@ export default function ProductResearchPage() {
                     <tr style={{ cursor: "pointer", background: isOpen ? "#f5f9ff" : undefined }}>
                       <td style={cell} onClick={() => setOpen((o) => ({ ...o, [idea.id]: !o[idea.id] }))}>
                         <b>{isOpen ? "▾" : "▸"} {idea.name}</b>
+                        {idea.kind === "bundle" && <span style={{ marginLeft: "6px", fontSize: "11px", background: "#fff3cd", border: "1px solid #e0c46c", borderRadius: "4px", padding: "0 4px" }}>BUNDLE</span>}
                         <div style={{ color: "#555", fontSize: "12px", marginTop: "3px" }}>{idea.notes}</div>
                         <div style={{ color: "#888", fontSize: "11px", marginTop: "3px" }}>Searches: {idea.keywords.join(" · ")}</div>
                       </td>
