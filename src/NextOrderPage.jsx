@@ -781,19 +781,23 @@ const XLSX_ZEBRA_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "F
 const XLSX_RED_FONT = { color: { argb: "FFB00020" }, bold: true };
 const XLSX_THIN_BORDER = { style: "thin", color: { argb: "FFCCCCCC" } };
 
-// scope: "usa" | "de" | "uk" | "general"
-async function exportXlsx(visibleGroups, scope, years) {
-  // Dynamically imported so this ~1MB library is only fetched on export.
-  const { default: ExcelJS } = await import("exceljs");
+// One sheet per scope ("usa" | "de" | "uk" | "au" | "jp" | "general").
+function addScopeSheet(workbook, visibleGroups, scope, years, sheetName) {
   const columns = [
     ...XLSX_PRODUCT_COLUMNS,
     ...(scope === "general" ? GENERAL_XLSX_COLUMNS : regionXlsxColumns(scope, years || [])),
   ];
-  const title = scope === "general" ? "GENERAL" : scope.toUpperCase();
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = "AmzBot";
-  workbook.created = new Date();
-  const sheet = workbook.addWorksheet(`Next Order ${title}`, { views: [{ state: "frozen", ySplit: 1 }] });
+  // Per the user (2026-10-03): a country file has only rows where that
+  // country's Next > 0; GENERAL only rows with Missing > 0 or Next Order > 0.
+  const keep = (item) =>
+    scope === "general"
+      ? computeMissing(item) > 0 || Number(item.next_order || 0) > 0
+      : Number(item[`${scope}_next_shipment`] || 0) > 0;
+  fillSheet(workbook, sheetName, columns, visibleGroups, keep);
+}
+
+function fillSheet(workbook, sheetName, columns, visibleGroups, keep) {
+  const sheet = workbook.addWorksheet(sheetName, { views: [{ state: "frozen", ySplit: 1 }] });
   sheet.columns = columns.map(({ header, key, width }) => ({ header, key, width }));
 
   const headerRow = sheet.getRow(1);
@@ -804,13 +808,6 @@ async function exportXlsx(visibleGroups, scope, years) {
     cell.border = { top: XLSX_THIN_BORDER, bottom: XLSX_THIN_BORDER, left: XLSX_THIN_BORDER, right: XLSX_THIN_BORDER };
   });
   headerRow.height = 30;
-
-  // Per the user (2026-10-03): a country file has only rows where that
-  // country's Next > 0; GENERAL only rows with Missing > 0 or Next Order > 0.
-  const keep = (item) =>
-    scope === "general"
-      ? computeMissing(item) > 0 || Number(item.next_order || 0) > 0
-      : Number(item[`${scope}_next_shipment`] || 0) > 0;
 
   let rowIndex = 0;
   visibleGroups.forEach((group) => {
@@ -829,17 +826,59 @@ async function exportXlsx(visibleGroups, scope, years) {
   });
 
   sheet.autoFilter = { from: "A1", to: `${sheet.getColumn(columns.length).letter}1` };
+}
 
+async function downloadWorkbook(workbook, fileTitle) {
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `next-order-${title.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  link.download = `next-order-${fileTitle.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+async function newWorkbook() {
+  // Dynamically imported so this ~1MB library is only fetched on export.
+  const { default: ExcelJS } = await import("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "AmzBot";
+  workbook.created = new Date();
+  return workbook;
+}
+
+async function exportXlsx(visibleGroups, scope, years) {
+  const title = scope === "general" ? "GENERAL" : scope.toUpperCase();
+  const workbook = await newWorkbook();
+  addScopeSheet(workbook, visibleGroups, scope, years, `Next Order ${title}`);
+  await downloadWorkbook(workbook, title);
+}
+
+// Several marketplaces in one file (2026-10-31, per the user): first sheet
+// "Combined" = product columns + each chosen marketplace's Next + total
+// (rows where any chosen Next > 0), then one full sheet per marketplace.
+async function exportXlsxMulti(visibleGroups, regions, years) {
+  if (!regions.length) return;
+  const workbook = await newWorkbook();
+  const combinedColumns = [
+    ...XLSX_PRODUCT_COLUMNS,
+    ...regions.map((r) => ({
+      header: `${r.label} Next`, key: `${r.key}Next`, width: 10, num: true, red: true,
+      value: (i) => i[`${r.key}_next_shipment`] || 0,
+    })),
+    {
+      header: "Total Next", key: "totalNext", width: 11, num: true, red: true,
+      value: (i) => regions.reduce((s, r) => s + Number(i[`${r.key}_next_shipment`] || 0), 0),
+    },
+    { header: "Malani Bal", key: "malaniBal", width: 11, num: true, value: (i) => i.malani_balance || 0 },
+  ];
+  fillSheet(workbook, "Combined", combinedColumns, visibleGroups,
+    (i) => regions.some((r) => Number(i[`${r.key}_next_shipment`] || 0) > 0));
+  regions.forEach((r) => addScopeSheet(workbook, visibleGroups, r.key, years, `Next Order ${r.label}`));
+  await downloadWorkbook(workbook, regions.map((r) => r.label).join("-"));
 }
 
 export default function NextOrderPage() {
@@ -868,6 +907,7 @@ export default function NextOrderPage() {
   const [showAuManual, setShowAuManual] = useState(false);
   const auHasStock = groups.some((g) => g.items.some((i) => (i.au_balance || 0) > 0));
   const [showJpManual, setShowJpManual] = useState(false);
+  const [multiExport, setMultiExport] = useState({});
   const jpHasStock = groups.some((g) => g.items.some((i) => (i.jp_balance || 0) > 0));
   setShownOptionalRegions({ au: auHasStock || showAuManual, jp: jpHasStock || showJpManual });
 
@@ -1236,7 +1276,7 @@ export default function NextOrderPage() {
 
       {!loading && groups.length > 0 && (
         <div style={{ display: "grid", gap: "18px" }}>
-          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
             <button style={ghostButtonStyle()} onClick={expandAll}>
               Expand All Groups
             </button>
@@ -1254,6 +1294,26 @@ export default function NextOrderPage() {
                   {label}
                 </button>
               ))}
+            </span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", border: "1px solid #ccc", borderRadius: "8px", padding: "4px 8px", background: "#fff" }}>
+              <span style={{ fontSize: "13px", fontWeight: 700, color: "#333" }}>Combined:</span>
+              {REGIONS.map((r) => (
+                <label key={r.key} style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "13px", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={!!multiExport[r.key]}
+                    onChange={() => setMultiExport((m) => ({ ...m, [r.key]: !m[r.key] }))}
+                  />
+                  {r.label}
+                </label>
+              ))}
+              <button
+                disabled={!REGIONS.some((r) => multiExport[r.key])}
+                onClick={() => exportXlsxMulti(visibleGroups, REGIONS.filter((r) => multiExport[r.key]), salesYears)}
+                style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #1565c0", background: "#1565c0", color: "#fff", fontWeight: 600, fontSize: "13px", cursor: "pointer", opacity: REGIONS.some((r) => multiExport[r.key]) ? 1 : 0.4 }}
+              >
+                Export
+              </button>
             </span>
             <button style={blueButtonStyle()} onClick={() => setShowAddProduct((v) => !v)}>
               + Add New Product
