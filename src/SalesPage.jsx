@@ -578,7 +578,40 @@ function unitsInPeriod(item, period, years, currentMonth, weekByAsin) {
   return completed.slice(-n).reduce((a, b) => a + (b || 0), 0);
 }
 
-function RankingTable({ title, rows, periodLabel, selectedMarketplace, daysOfSupplyBySku, emptyText }) {
+// Date range (LA, inclusive) for a ranking period - used by the profit / ACOS /
+// TACOS modes, which come from order_items (stored since 2025-01).
+function periodDateRange(period) {
+  const today = laDateDaysAgo(0);
+  const [y, m] = today.split("-").map(Number);
+  const pad = (n) => String(n).padStart(2, "0");
+  const monthStart = (yy, mm) => `${yy}-${pad(mm)}-01`;
+  const monthEnd = (yy, mm) => `${yy}-${pad(mm)}-${pad(new Date(Date.UTC(yy, mm, 0)).getUTCDate())}`;
+  const shift = (yy, mm, k) => {
+    const t = yy * 12 + (mm - 1) + k;
+    return [Math.floor(t / 12), (t % 12) + 1];
+  };
+  const [ly, lm] = shift(y, m, -1);
+  if (period === "lastweek") return [laDateDaysAgo(7), laDateDaysAgo(1)];
+  if (period === "thismonth") return [monthStart(y, m), today];
+  if (period === "lastmonth") return [monthStart(ly, lm), monthEnd(ly, lm)];
+  if (period === "last3") return [monthStart(...shift(y, m, -3)), monthEnd(ly, lm)];
+  if (period === "last12") return [monthStart(...shift(y, m, -12)), monthEnd(ly, lm)];
+  if (period === "ytd") return [`${y}-01-01`, today];
+  if (period === "lastyear") return [`${y - 1}-01-01`, `${y - 1}-12-31`];
+  return ["2025-01-01", today];
+}
+
+const RANKING_MODES = [
+  { key: "units", label: "Units (ignore ads)" },
+  { key: "margin", label: "Margin after ads" },
+  { key: "acos", label: "ACOS" },
+  { key: "tacos", label: "TACOS" },
+];
+const usd0 = (v) => (v == null ? "—" : `$${Math.round(v).toLocaleString()}`);
+const pct1 = (v) => (v == null ? "—" : `${Number(v).toFixed(1)}%`);
+
+function RankingTable({ title, rows, periodLabel, selectedMarketplace, daysOfSupplyBySku, emptyText, mode }) {
+  const showMoney = mode && mode !== "units";
   return (
     <div style={{ minWidth: 0 }}>
       <h4 style={{ margin: "0 0 8px" }}>{title}</h4>
@@ -595,6 +628,16 @@ function RankingTable({ title, rows, periodLabel, selectedMarketplace, daysOfSup
                 <th style={tableCellStyle({ background: "#f4f4f4" })}>Group</th>
                 <th style={numberCellStyle({ background: "#f4f4f4" })} title={periodLabel}>Units</th>
                 <th style={numberCellStyle({ background: "#f4f4f4" })} title="Bal + OTW">Stock</th>
+                {showMoney && (
+                  <>
+                    <th style={numberCellStyle({ background: "#f4f4f4" })} title="Price paid after promotions, USD">Sales</th>
+                    <th style={numberCellStyle({ background: "#f4f4f4" })}>Ads</th>
+                    <th style={numberCellStyle({ background: "#f4f4f4" })} title="Net sales - Amazon fees - product cost - ads">Profit</th>
+                    <th style={numberCellStyle({ background: "#f4f4f4" })} title="Profit / sales without VAT">Margin</th>
+                    <th style={numberCellStyle({ background: "#f4f4f4" })} title="Ad spend / ad-attributed sales">ACOS</th>
+                    <th style={numberCellStyle({ background: "#f4f4f4" })} title="Ad spend / all sales">TACOS</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -635,6 +678,16 @@ function RankingTable({ title, rows, periodLabel, selectedMarketplace, daysOfSup
                             </div>
                           ))}
                     </td>
+                    {showMoney && (
+                      <>
+                        <td style={numberCellStyle({ fontSize: "12px" })}>{usd0(row.m?.sales)}</td>
+                        <td style={numberCellStyle({ fontSize: "12px" })}>{usd0(row.m?.ads)}</td>
+                        <td style={numberCellStyle({ fontSize: "12px", fontWeight: mode === "margin" ? 400 : 400, color: row.m?.profit < 0 ? GROWTH_RED : undefined })}>{usd0(row.m?.profit)}</td>
+                        <td style={numberCellStyle({ fontWeight: mode === "margin" ? 700 : 400, color: row.m?.margin < 0 ? GROWTH_RED : undefined })}>{pct1(row.m?.margin)}</td>
+                        <td style={numberCellStyle({ fontWeight: mode === "acos" ? 700 : 400 })}>{pct1(row.m?.acos)}</td>
+                        <td style={numberCellStyle({ fontWeight: mode === "tacos" ? 700 : 400 })}>{pct1(row.m?.tacos)}</td>
+                      </>
+                    )}
                   </tr>
                 );
               })}
@@ -686,6 +739,38 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
     }
   }
   const periodLabel = RANKING_PERIODS.find((p) => p.key === period)?.label || "";
+  const [mode, setMode] = useState("units");
+
+  // Profit / ACOS / TACOS per ASIN for the period (GetProductRanking, from
+  // order_items + daily ads), fetched only when one of those modes is picked.
+  const [metricResults, setMetricResults] = useState({}); // key -> {byAsin} | {error}
+  const metricRequested = useRef(new Set());
+  const [mStart, mEnd] = periodDateRange(period);
+  const metricKey = `${mStart}|${mEnd}|${(marketplaces || []).join(",")}`;
+  useEffect(() => {
+    if (!open || mode === "units" || metricRequested.current.has(metricKey)) return;
+    metricRequested.current.add(metricKey);
+    fetch(`${LOCAL_API_BASE}/GetProductRanking`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ start_date: mStart, end_date: mEnd, marketplaces }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) throw new Error(data.error);
+        setMetricResults((prev) => ({ ...prev, [metricKey]: { byAsin: data.byAsin || {} } }));
+      })
+      .catch((err) => {
+        metricRequested.current.delete(metricKey);
+        setMetricResults((prev) => ({ ...prev, [metricKey]: { error: err.message || "Failed to load" } }));
+      });
+  }, [open, mode, metricKey, mStart, mEnd, marketplaces]);
+  const metrics = {
+    byAsin: metricResults[metricKey]?.byAsin || null,
+    error: metricResults[metricKey]?.error || "",
+    loading: mode !== "units" && !metricResults[metricKey],
+  };
+  const metricsByAsin = metrics.byAsin;
 
   // "Last week" can't come from the monthly sku_sales data - it's fetched
   // from sku_sales_daily (GetSkuSalesByDateRange) only when picked, for the
@@ -732,18 +817,30 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
             group: group.group,
             units: unitsInPeriod(item, period, years, currentMonth, weekByAsin),
             stock: stockFor(item.mainSku, selectedMarketplace, daysOfSupplyBySku),
+            m: metricsByAsin?.[item.asin] || null,
           });
         }
       }
       // Per the user (2026-10-04): products with 0 sales are listed when they
       // have stock (Bal + OTW); 0 sales and no stock = retired, left out.
-      const pool = rows.filter((r) => r.units > 0 || r.stock.total > 0);
-      const sign = direction === "worst" ? 1 : -1;
-      const ranked = [...pool].sort((a, b) => sign * (a.units - b.units) || b.stock.total - a.stock.total).slice(0, topN);
+      let pool = rows.filter((r) => r.units > 0 || r.stock.total > 0);
+      const better = direction === "best" ? 1 : -1;
+      let cmp;
+      if (mode === "units") {
+        cmp = (a, b) => better * (b.units - a.units) || b.stock.total - a.stock.total;
+      } else {
+        // Margin: higher is better. ACOS / TACOS: lower is better. Products
+        // without the number (no cost known / no ads / no sales) are left out.
+        const key = mode;
+        pool = pool.filter((r) => r.m && r.m[key] != null);
+        const good = mode === "margin" ? -1 : 1;
+        cmp = (a, b) => better * good * (a.m[key] - b.m[key]) || (b.m.sales || 0) - (a.m.sales || 0);
+      }
+      const ranked = [...pool].sort(cmp).slice(0, topN);
       const zeroWithStock = pool.filter((r) => r.units === 0).length;
       return { family, ranked, total: pool.length, zeroWithStock };
     });
-  }, [groups, years, currentMonth, period, direction, weekByAsin, topN, selectedMarketplace, daysOfSupplyBySku]);
+  }, [groups, years, currentMonth, period, direction, weekByAsin, topN, selectedMarketplace, daysOfSupplyBySku, mode, metricsByAsin]);
 
   return (
     <div style={{ ...cardStyle(), marginBottom: "20px" }}>
@@ -754,7 +851,7 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
         <h3 style={{ margin: 0 }}>
           {open ? "▾" : "▸"} Best &amp; Worst Sellers
         </h3>
-        <div style={{ color: "#555", fontSize: "13px" }}>Pareo and Home Decor, ranked by units</div>
+        <div style={{ color: "#555", fontSize: "13px" }}>Pareo and Home Decor, ranked by units, margin after ads, ACOS or TACOS</div>
       </div>
 
       {open && (
@@ -764,6 +861,13 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
               {RANKING_PERIODS.map((p) => (
                 <option key={p.key} value={p.key}>
                   {p.label}
+                </option>
+              ))}
+            </select>
+            <select value={mode} onChange={(e) => setMode(e.target.value)} style={selectorStyle()} title="Rank by">
+              {RANKING_MODES.map((m) => (
+                <option key={m.key} value={m.key}>
+                  Rank by: {m.label}
                 </option>
               ))}
             </select>
@@ -783,6 +887,11 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
               />
               items
             </label>
+            {mode !== "units" && (
+              <span style={{ fontSize: "12px", color: metrics.error ? GROWTH_RED : "#555" }}>
+                {metrics.loading ? "Calculating profit / ads..." : metrics.error || `${mStart} to ${mEnd} · USD`}
+              </span>
+            )}
             {period === "lastweek" && (
               <span style={{ fontSize: "12px", color: week.error ? GROWTH_RED : "#555" }}>
                 {week.loading ? "Loading last week..." : week.error || `${weekStart} to ${weekEnd}`}
@@ -812,7 +921,8 @@ function BestWorstSellersCard({ groups, years, currentMonth, selectedMarketplace
                     periodLabel={periodLabel}
                     selectedMarketplace={selectedMarketplace}
                     daysOfSupplyBySku={daysOfSupplyBySku}
-                    emptyText="No products with sales or stock."
+                    mode={mode}
+                    emptyText={mode === "units" ? "No products with sales or stock." : metrics.loading ? "Loading..." : "No products with this number in the period."}
                   />
                 </div>
               </details>
