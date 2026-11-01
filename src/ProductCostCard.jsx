@@ -11,6 +11,99 @@ const money = (v, cur = "USD") => (v == null ? "—" : `${SYM[cur] || ""}${Numbe
 const pct = (v) => (v == null ? "—" : `${Number(v).toFixed(1)}%`);
 const profitColor = (v) => (v == null ? "#555" : v < 0 ? "#b03a2e" : v < 3 ? "#b9770e" : "#1e8449");
 
+function PeriodTotals({ sku, asin }) {
+  const [period, setPeriod] = useState("last_3m");
+  const [result, setResult] = useState({ period: null });
+
+  useEffect(() => {
+    if (!sku && !asin) return;
+    const q = sku ? `sku=${encodeURIComponent(sku)}` : `asin=${encodeURIComponent(asin)}`;
+    fetch(`${API_BASE}/GetProductCostPeriod?${q}&period=${period}`)
+      .then((r) => r.json())
+      .then((d) => setResult({ period, data: d.error ? null : d, error: d.error || "" }))
+      .catch((e) => setResult({ period, data: null, error: e.message }));
+  }, [sku, asin, period]);
+  const current = result.period === period;
+  const data = current ? result.data : null;
+  const error = current ? result.error : "";
+
+  const th = { padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap", background: "#f3f3f3" };
+  const td = { padding: "5px 8px", textAlign: "right", borderTop: "1px solid #eee", whiteSpace: "nowrap" };
+  const periods = data?.periods || { last_month: "Last month", last_3m: "Last 3 months", ytd: "This year", last_12m: "Last 12 months", last_year: "Last year" };
+  const cols = [
+    ["units", "Units", (v) => v],
+    ["refunded", "Refunded", (v) => v || "—"],
+    ["sales", "Sales", money],
+    ["vat", "VAT", money],
+    ["netSales", "Net sales", money],
+    ["fees", "Amazon fees", money],
+    ["productCost", "Product cost", money],
+    ["ads", "Ads", money],
+    ["tacos", "TACOS", pct],
+  ];
+  const row = (r, bold) => (
+    <tr key={r.mp} style={{ fontWeight: bold ? 700 : 400, background: bold ? "#fafafa" : undefined }}>
+      <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{r.mp}</td>
+      {cols.map(([k, , f]) => <td key={k} style={td}>{f(r[k])}</td>)}
+      <td style={{ ...td, fontWeight: 700, color: profitColor(r.profit) }}>{money(r.profit)}</td>
+      <td style={td}>{pct(r.margin)}</td>
+      <td style={td}>{money(r.profitPerUnit)}</td>
+      <td style={{ ...td, borderLeft: "2px solid #ddd" }}>{bold ? "" : pct(r.deptTacos)}</td>
+      <td style={{ ...td, color: profitColor(r.deptProfit) }}>{money(r.deptProfit)}</td>
+    </tr>
+  );
+
+  return (
+    <div style={{ marginTop: "18px" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", marginBottom: "8px" }}>
+        <h4 style={{ margin: 0, flex: "1 1 auto" }}>
+          Totals per period (USD){data?.months?.length ? ` · ${data.months[0]} – ${data.months.at(-1)}` : ""}
+        </h4>
+        {Object.entries(periods).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setPeriod(k)}
+            style={{
+              padding: "3px 10px", borderRadius: "12px", border: "1px solid #ccc", cursor: "pointer", fontSize: "12px",
+              background: period === k ? "#1f5fbf" : "#fff", color: period === k ? "#fff" : "#333",
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {error && <div style={{ color: "#b00020" }}>{error}</div>}
+      {!error && !data && <div style={{ color: "#777" }}>Loading...</div>}
+      {data && !data.rows.length && <div style={{ color: "#777" }}>No sales in this period.</div>}
+      {data?.rows?.length > 0 && (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "13px" }}>
+            <thead>
+              <tr>
+                <th style={{ ...th, textAlign: "left" }}></th>
+                {cols.map(([k, label]) => <th key={k} style={th}>{label}</th>)}
+                <th style={th}>Profit</th>
+                <th style={th}>Margin</th>
+                <th style={th}>Profit/unit</th>
+                <th style={{ ...th, borderLeft: "2px solid #ddd" }}>Dept TACOS</th>
+                <th style={th} title="Profit if ad spend were at the department TACOS">Profit at dept TACOS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.total && row(data.total, true)}
+              {data.rows.map((r) => row(r, false))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{ fontSize: "11px", color: "#888", marginTop: "4px" }}>
+        All amounts in USD at today&apos;s rate. Fees = today&apos;s referral % × sales + FBA fee × units (CA/MX use US fees, other EU use DE).
+        Product cost = units × landed cost. Ads = this product&apos;s real SP+SD spend. Refunded units shown but not subtracted.
+      </div>
+    </div>
+  );
+}
+
 export default function ProductCostCard({ sku, asin, cardStyle }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -151,8 +244,9 @@ export default function ProductCostCard({ sku, asin, cardStyle }) {
               </table>
             </div>
           )}
+          <PeriodTotals sku={sku} asin={asin} />
           <div style={{ fontSize: "11px", color: "#888", marginTop: "6px" }}>
-            Per unit at the current price. Profit = price without VAT − referral − FBA fee − landed cost − ad cost (TACOS × price).
+            Per-unit table above: at the current price. Profit = price without VAT − referral − FBA fee − landed cost − ad cost (TACOS × price).
             TACOS over {data.months?.[0]} – {data.months?.at(-1)}. Product TACOS has no SB spend (not split per product); the department
             TACOS includes it. Fees are Amazon&apos;s estimate. No returns, storage or coupon costs.
           </div>
