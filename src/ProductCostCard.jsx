@@ -107,6 +107,10 @@ function PeriodTotals({ sku, asin }) {
     ["productCost", "Product cost", money],
     ["ads", "Ads", money],
     ["tacos", "TACOS", pct],
+    ["returnedUnits", "Returned", (v) => v || "—"],
+    ["returns", "Returns cost", money],
+    ["storage", "FBA storage", money],
+    ["awd", "AWD", money],
   ];
   const row = (r, bold) => (
     <tr key={r.mp} style={{ fontWeight: bold ? 700 : 400, background: bold ? "#fafafa" : undefined }}>
@@ -165,7 +169,7 @@ function PeriodTotals({ sku, asin }) {
       )}
       <div style={{ fontSize: "11px", color: "#888", marginTop: "4px" }}>
         All amounts in USD at today&apos;s rate. Fees = today&apos;s referral % × sales + FBA fee × units (CA/MX use US fees, other EU use DE).
-        Product cost = units × landed cost. Ads = this product&apos;s real SP+SD spend. Refunded units shown but not subtracted.
+        Product cost = units × landed cost. Ads = this product&apos;s real SP+SD spend. Returns (by return date) = refund without VAT − 80% of the referral fee + returns processing fee − product cost if the unit came back sellable. FBA storage = Amazon&apos;s monthly fee per product; AWD (USA only) = monthly AWD fees split by units moved AWD→FBA × size. India→US/EU freight not included (in landed cost estimate).
       </div>
     </div>
   );
@@ -268,7 +272,8 @@ export default function ProductCostCard({ sku, asin, cardStyle }) {
                     <th style={th}>Referral</th>
                     <th style={th}>FBA fee</th>
                     <th style={th}>Landed cost</th>
-                    <th style={th} title="Net price - fees - landed cost">Profit before ads</th>
+                    <th style={th} title="Per unit sold, last 3 full months: returns (refund - 80% referral back + processing fee - product back if sellable) + FBA storage + AWD">Returns + storage</th>
+                    <th style={th} title="Net price - fees - landed cost - returns/storage/AWD">Profit before ads</th>
                     <th style={{ ...th, borderLeft: "2px solid #ddd" }} title="SP+SD ad spend on this product / its sales">Product TACOS</th>
                     <th style={th}>Ad cost</th>
                     <th style={th}>Profit</th>
@@ -301,6 +306,13 @@ export default function ProductCostCard({ sku, asin, cardStyle }) {
                         <td style={td} title={m.feesError || ""}>{m.feesError ? "?" : money(m.referral, cur)}</td>
                         <td style={td}>{m.feesError ? "?" : money(m.fba, cur)}</td>
                         <td style={td} title={cur !== "USD" ? `$${c.landed} at ${m.fx} ${cur}/USD` : ""}>{money(m.landed, cur)}</td>
+                        <td
+                          style={td}
+                          title={`Returns ${money(m.returnsPerUnit, cur)} (return rate ${pct(m.returnRate)}) · FBA storage ${money(m.storagePerUnit, cur)} · AWD ${money(m.awdPerUnit, cur)} per unit sold`}
+                        >
+                          {money(m.extraPerUnit, cur)}
+                          {m.returnRate ? <div style={{ fontSize: "11px", color: "#888" }}>{pct(m.returnRate)} returned</div> : null}
+                        </td>
                         <td style={{ ...td, fontWeight: 600, color: profitColor(m.profitBeforeAds) }}>{money(m.profitBeforeAds, cur)}</td>
                         <td style={{ ...td, borderLeft: "2px solid #ddd" }} title={`spend ${money(p.spend, cur)} / sales ${money(p.sales, cur)}`}>
                           {p.spend ? pct(p.pct) : "no ads"}
@@ -315,7 +327,7 @@ export default function ProductCostCard({ sku, asin, cardStyle }) {
                       </tr>
                       {openMp === m.mp && (
                         <tr>
-                          <td colSpan={15} style={{ padding: 0 }}>
+                          <td colSpan={16} style={{ padding: 0 }}>
                             <PriceScenarios sku={data.sku} mp={m.mp} />
                           </td>
                         </tr>
@@ -331,7 +343,7 @@ export default function ProductCostCard({ sku, asin, cardStyle }) {
           <div style={{ fontSize: "11px", color: "#888", marginTop: "6px" }}>
             Per-unit table above: at the current price. Profit = price without VAT − referral − FBA fee − landed cost − ad cost (TACOS × price).
             TACOS over {data.months?.[0]} – {data.months?.at(-1)}. Product TACOS has no SB spend (not split per product); the department
-            TACOS includes it. Fees are Amazon&apos;s estimate. No returns, storage or coupon costs.
+            TACOS includes it. Fees are Amazon&apos;s estimate. Returns + storage + AWD per unit are averaged over the same 3 months. Coupon discounts are in the period totals (real prices paid).
           </div>
         </>
       )}
