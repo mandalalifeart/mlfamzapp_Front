@@ -634,7 +634,7 @@ function sectionCardStyle() {
     borderRadius: "8px",
     padding: "16px",
     marginBottom: "20px",
-    overflow: "hidden",
+    overflowX: "auto",
   };
 }
 
@@ -1330,7 +1330,7 @@ export default function ReportViewPage() {
         backgroundColor: "#ffffff",
         color: "#222",
         boxSizing: "border-box",
-        overflowX: "hidden",
+        overflowX: "auto",
         width: "100%",
       }}
     >

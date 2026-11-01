@@ -19,7 +19,7 @@ function fmtUsd(v) {
   return v === null || v === undefined ? "–" : `$${Number(v).toFixed(2)}`;
 }
 
-const POOL_LABELS = { main: "Main list", option: "Bundle pool: option", ready: "Bundle pool: ready bundle" };
+const POOL_LABELS = { main: "Main list", option: "Bundle pool: option", addon: "Bundle pool: add-on", ready: "Bundle pool: ready bundle" };
 
 function StatusCell({ idea, statuses, onSaved }) {
   const [status, setStatus] = useState(idea.status);
@@ -115,7 +115,7 @@ export default function ProductResearchPage() {
     const sorted = (l) => l.sort((a, b) => val(b) - val(a));
     const all = data?.ideas || [];
     if (kind === "bundle") {
-      return { ready: sorted(all.filter((i) => i.pool === "ready")), option: sorted(all.filter((i) => i.pool === "option")) };
+      return { ready: sorted(all.filter((i) => i.pool === "ready")), option: sorted(all.filter((i) => i.pool === "option")), addon: sorted(all.filter((i) => i.pool === "addon")) };
     }
     return { main: sorted(all.filter((i) => i.pool === "main" && (kind === "all" || kindOf(i) === kind))) };
   }, [data, sortKey, kind]);
@@ -130,8 +130,8 @@ export default function ProductResearchPage() {
 
   function renderTable(list) {
     return (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+        <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: "1100px" }}>
             <thead>
               <tr>
                 <th style={head}>#</th>
@@ -229,7 +229,7 @@ export default function ProductResearchPage() {
   }
 
   return (
-    <div style={{ padding: "16px", maxWidth: "1400px", margin: "0 auto", fontFamily: "system-ui, sans-serif" }}>
+    <div style={{ padding: "16px 12px", maxWidth: "1400px", margin: "0 auto", fontFamily: "system-ui, sans-serif" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
         <Link to="/">← Home</Link>
         <h2 style={{ margin: 0 }}>New Products Research</h2>
@@ -270,6 +270,11 @@ export default function ProductResearchPage() {
             Products to combine into bundles. Move any product here with the "Move to" menu in its Status column.
           </p>
           {ideas.option.length ? renderTable(ideas.option) : <div style={{ color: "#888", fontSize: "13px" }}>Nothing here yet.</div>}
+          <h3 style={{ margin: "22px 0 6px" }}>Bundle add-ons ({ideas.addon.length})</h3>
+          <p style={{ fontSize: "12px", color: "#555", margin: "0 0 6px" }}>
+            Cheap extras added to another product's bundle (they don't sell at $20+ alone).
+          </p>
+          {ideas.addon.length ? renderTable(ideas.addon) : <div style={{ color: "#888", fontSize: "13px" }}>Nothing here yet.</div>}
         </>
       )}
     </div>
