@@ -466,7 +466,6 @@ export default function ProductDetailPage() {
           <>
             <StockCard stock={result.stock} sku={displaySku} recos={result.recos} onSave={saveStockField} />
             <ProductCostCard sku={displaySku} asin={asin} cardStyle={cardStyle()} />
-            <BsrCard sku={displaySku} asin={asin} cardStyle={cardStyle()} />
             {Object.entries(MARKETPLACE_LABELS).map(([code, label]) => (
               <MarketplaceTable
                 key={code}
@@ -477,6 +476,7 @@ export default function ProductDetailPage() {
                 currentMonth={result.currentMonth}
               />
             ))}
+            <BsrCard sku={displaySku} asin={asin} cardStyle={cardStyle()} />
           </>
         )}
 
