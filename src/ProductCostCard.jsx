@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 // Product cost + profit per unit (GetProductCost, per the user 2026-11-01):
 // landed cost from the latest Malani/Acacia invoice + $1 shipping + 10% import
@@ -10,6 +10,73 @@ const SYM = { USD: "$", EUR: "€", GBP: "£" };
 const money = (v, cur = "USD") => (v == null ? "—" : `${SYM[cur] || ""}${Number(v).toFixed(2)}`);
 const pct = (v) => (v == null ? "—" : `${Number(v).toFixed(1)}%`);
 const profitColor = (v) => (v == null ? "#555" : v < 0 ? "#b03a2e" : v < 3 ? "#b9770e" : "#1e8449");
+
+function PriceScenarios({ sku, mp }) {
+  const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/GetProductCostScenarios?sku=${encodeURIComponent(sku)}&mp=${mp}`)
+      .then((r) => r.json())
+      .then((d) => setResult(d))
+      .catch((e) => setResult({ error: e.message }));
+  }, [sku, mp]);
+
+  if (!result) return <div style={{ color: "#777", padding: "8px" }}>Asking Amazon for fees at each price...</div>;
+  if (result.error) return <div style={{ color: "#b00020", padding: "8px" }}>{result.error}</div>;
+  const cur = result.currency;
+  const th = { padding: "4px 8px", textAlign: "right", whiteSpace: "nowrap", background: "#eef3fb", fontSize: "12px" };
+  const td = { padding: "4px 8px", textAlign: "right", borderTop: "1px solid #e3e9f3", whiteSpace: "nowrap" };
+  return (
+    <div style={{ padding: "8px 8px 12px", background: "#f7f9fd" }}>
+      <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "13px" }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, textAlign: "left" }}>{mp} price</th>
+            <th style={th}>VAT</th>
+            <th style={th}>Referral</th>
+            <th style={th}>FBA fee</th>
+            <th style={th}>Landed cost</th>
+            <th style={th}>Profit before ads</th>
+            <th style={{ ...th, borderLeft: "2px solid #d5deec" }}>Ad cost ({pct(result.productTacosPct)} now)</th>
+            <th style={th}>Profit</th>
+            <th style={th}>Margin</th>
+            <th style={{ ...th, borderLeft: "2px solid #d5deec" }}>Dept ad cost ({pct(result.deptTacosPct)} now)</th>
+            <th style={th}>Profit</th>
+            <th style={th}>Margin</th>
+          </tr>
+        </thead>
+        <tbody>
+          {result.rows.map((r) => {
+            const now = r.step === 0;
+            const p = r.productTacos || {};
+            const d = r.deptTacos || {};
+            return (
+              <tr key={r.step} style={{ fontWeight: now ? 700 : 400, background: now ? "#e6eefb" : undefined }}>
+                <td style={{ ...td, textAlign: "left" }}>
+                  {money(r.price, cur)} <span style={{ color: "#777", fontWeight: 400 }}>{now ? "(current)" : `${r.step > 0 ? "+" : ""}${r.step}%`}</span>
+                </td>
+                <td style={td}>{r.vat ? money(r.vat, cur) : "—"}</td>
+                <td style={td} title={r.feesError || ""}>{r.feesError ? "?" : money(r.referral, cur)}</td>
+                <td style={td}>{r.feesError ? "?" : money(r.fba, cur)}</td>
+                <td style={td}>{money(result.landed, cur)}</td>
+                <td style={{ ...td, color: profitColor(r.profitBeforeAds) }}>{money(r.profitBeforeAds, cur)}</td>
+                <td style={{ ...td, borderLeft: "2px solid #d5deec" }}>{money(p.adCost, cur)}</td>
+                <td style={{ ...td, fontWeight: 700, color: profitColor(p.profit) }}>{money(p.profit, cur)}</td>
+                <td style={td}>{pct(p.margin)}</td>
+                <td style={{ ...td, borderLeft: "2px solid #d5deec" }}>{money(d.adCost, cur)}</td>
+                <td style={{ ...td, fontWeight: 700, color: profitColor(d.profit) }}>{money(d.profit, cur)}</td>
+                <td style={td}>{pct(d.margin)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div style={{ fontSize: "11px", color: "#888", marginTop: "4px" }}>
+        Fees re-estimated by Amazon at each price. Ad cost per unit is kept at today&apos;s level - how many units sell at another price isn&apos;t known.
+      </div>
+    </div>
+  );
+}
 
 function PeriodTotals({ sku, asin }) {
   const [period, setPeriod] = useState("last_3m");
@@ -108,6 +175,7 @@ export default function ProductCostCard({ sku, asin, cardStyle }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [showHistory, setShowHistory] = useState(false);
+  const [openMp, setOpenMp] = useState(null);
 
   useEffect(() => {
     if (!sku && !asin) return;
@@ -219,9 +287,16 @@ export default function ProductCostCard({ sku, asin, cardStyle }) {
                     const p = m.productTacos;
                     const d = m.deptTacos;
                     return (
-                      <tr key={m.mp}>
+                      <Fragment key={m.mp}>
+                      <tr style={{ background: openMp === m.mp ? "#e6eefb" : undefined }}>
                         <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{m.mp}</td>
-                        <td style={td}>{money(m.price, cur)}</td>
+                        <td
+                          style={{ ...td, cursor: "pointer", color: "#1f5fbf", textDecoration: "underline dotted" }}
+                          title="Show profit at -20% / -10% / +10% / +20%"
+                          onClick={() => setOpenMp((v) => (v === m.mp ? null : m.mp))}
+                        >
+                          {money(m.price, cur)} {openMp === m.mp ? "▴" : "▾"}
+                        </td>
                         <td style={td}>{m.vat ? money(m.vat, cur) : "—"}</td>
                         <td style={td} title={m.feesError || ""}>{m.feesError ? "?" : money(m.referral, cur)}</td>
                         <td style={td}>{m.feesError ? "?" : money(m.fba, cur)}</td>
@@ -238,6 +313,14 @@ export default function ProductCostCard({ sku, asin, cardStyle }) {
                         <td style={{ ...td, fontWeight: 700, color: profitColor(d.profit) }}>{money(d.profit, cur)}</td>
                         <td style={td}>{pct(d.margin)}</td>
                       </tr>
+                      {openMp === m.mp && (
+                        <tr>
+                          <td colSpan={15} style={{ padding: 0 }}>
+                            <PriceScenarios sku={data.sku} mp={m.mp} />
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     );
                   })}
                 </tbody>
