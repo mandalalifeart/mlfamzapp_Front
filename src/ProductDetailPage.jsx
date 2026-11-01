@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { MoveToGroupControl } from "./SalesPage";
 import { buttonStyle } from "./buttonStyle";
 import BsrCard from "./BsrCard";
+import ProductCostCard from "./ProductCostCard";
 
 // PocketBase-only functions run on the mini PC that already hosts
 // PocketBase, instead of GCP - see CLAUDE.md "AmzBot: local job runner".
@@ -464,6 +465,7 @@ export default function ProductDetailPage() {
         {!loading && result && (
           <>
             <StockCard stock={result.stock} sku={displaySku} recos={result.recos} onSave={saveStockField} />
+            <ProductCostCard sku={displaySku} asin={asin} cardStyle={cardStyle()} />
             <BsrCard sku={displaySku} asin={asin} cardStyle={cardStyle()} />
             {Object.entries(MARKETPLACE_LABELS).map(([code, label]) => (
               <MarketplaceTable
