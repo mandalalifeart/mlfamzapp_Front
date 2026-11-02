@@ -59,8 +59,9 @@ export const MENU = [
   },
 ];
 
-// One "☰ Menu" button at the bottom of the screen (per the user 2026-11-02:
-// "move the menu bar down, a single menu item, each item on its own line").
+// One "☰ Menu" button at the end of every page (per the user 2026-11-02: a
+// single menu item, each item on its own line, at the bottom of the page -
+// not floating on the screen). The list opens upward.
 export default function NavBar() {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -74,7 +75,8 @@ export default function NavBar() {
   }, []);
 
   return (
-    <div ref={ref} style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: "16px", zIndex: 1000, fontFamily: "Arial, sans-serif" }}>
+    <div style={{ display: "flex", justifyContent: "center", padding: "24px 0 32px", fontFamily: "Arial, sans-serif" }}>
+    <div ref={ref} style={{ position: "relative", zIndex: 1000 }}>
       {open && (
         <div
           style={{
@@ -115,6 +117,7 @@ export default function NavBar() {
       >
         {open ? "✕ Close" : "☰ Menu"}
       </button>
+    </div>
     </div>
   );
 }

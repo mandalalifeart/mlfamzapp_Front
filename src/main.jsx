@@ -35,7 +35,6 @@ import "./index.css";
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <BrowserRouter>
-      <NavBar />
       <Routes>
         <Route path="/" element={<App />} />
         <Route path="/response" element={<ResponsePage />} />
@@ -66,6 +65,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Route path="/shipments" element={<ImportShipmentsPage />} />
         <Route path="/ads-reviews" element={<AdsReviewsPage />} />
       </Routes>
+      <NavBar />
     </BrowserRouter>
   </React.StrictMode>
 );
