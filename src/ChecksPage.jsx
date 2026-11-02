@@ -43,6 +43,91 @@ function Line({ text }) {
   );
 }
 
+const PROPOSAL_KEY = import.meta.env.VITE_PROPOSAL_KEY || "";
+const STATUS_STYLE = {
+  proposed: ["", "#555"],
+  approved: ["approved", "#1f5fbf"],
+  applying: ["applying…", "#b9770e"],
+  applied: ["✅ applied", "#1e8449"],
+  failed: ["❌ failed", "#b03a2e"],
+  rejected: ["rejected", "#999"],
+};
+
+// Proposals with checkboxes (per the user 2026-11-02): ticking = approved.
+// Approved proposals with an action are applied by the server within ~10 min;
+// the others ("by Claude") are done in the chat.
+function Proposals({ report }) {
+  const [items, setItems] = useState(report.proposals || []);
+  const [busy, setBusy] = useState(null);
+  const [err, setErr] = useState("");
+  async function setStatus(p, status) {
+    setBusy(p.id);
+    setErr("");
+    try {
+      const r = await fetch(`${LOCAL_API_BASE}/SetCheckProposal?key=${encodeURIComponent(PROPOSAL_KEY)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportId: report.id, id: p.id, status }),
+      });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      setItems((xs) => xs.map((x) => (x.id === p.id ? { ...x, status } : x)));
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+  if (!items.length) return null;
+  const sections = [...new Set(items.map((p) => p.section || "Proposals"))];
+  const approved = items.filter((p) => p.status === "approved").length;
+  return (
+    <div style={{ marginTop: "14px", borderTop: "2px solid #e3e8f0", paddingTop: "10px" }}>
+      <div style={{ fontWeight: 700, marginBottom: "6px" }}>
+        Proposals ({items.length}) · tick to approve{approved ? ` · ${approved} approved, applied within ~10 min` : ""}
+      </div>
+      {err && <div style={{ color: "#b00020" }}>{err}</div>}
+      {sections.map((sec) => (
+        <div key={sec} style={{ marginBottom: "8px" }}>
+          <div style={{ fontSize: "12px", color: "#666", textTransform: "uppercase", margin: "6px 0 2px" }}>{sec}</div>
+          {items
+            .filter((p) => (p.section || "Proposals") === sec)
+            .map((p) => {
+              const [label, color] = STATUS_STYLE[p.status] || ["", "#555"];
+              const locked = ["applied", "applying"].includes(p.status);
+              return (
+                <div key={p.id} style={{ display: "flex", gap: "8px", alignItems: "flex-start", padding: "5px 4px", borderBottom: "1px solid #f0f0f0", opacity: p.status === "rejected" ? 0.5 : 1 }}>
+                  <input
+                    type="checkbox"
+                    style={{ marginTop: "3px", width: "16px", height: "16px" }}
+                    checked={["approved", "applying", "applied"].includes(p.status)}
+                    disabled={locked || busy === p.id}
+                    onChange={(e) => setStatus(p, e.target.checked ? "approved" : "proposed")}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div>
+                      <strong>#{p.id}</strong> {p.title}{" "}
+                      <span style={{ fontSize: "11px", color: "#888" }}>{p.hasAction ? "(applied automatically)" : "(done by Claude after approval)"}</span>{" "}
+                      {label && <span style={{ fontSize: "12px", color, fontWeight: 600 }}>{label}</span>}
+                    </div>
+                    {p.detail && <div style={{ fontSize: "12px", color: "#555" }}>{p.detail}</div>}
+                    {p.result && <div style={{ fontSize: "12px", color }}>{p.result}</div>}
+                  </div>
+                  {!locked && p.status !== "rejected" && (
+                    <button onClick={() => setStatus(p, "rejected")} style={{ fontSize: "11px", cursor: "pointer" }} title="Reject">✕</button>
+                  )}
+                  {p.status === "rejected" && (
+                    <button onClick={() => setStatus(p, "proposed")} style={{ fontSize: "11px", cursor: "pointer" }}>undo</button>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Section({ report, open, onToggle }) {
   const lines = (report.text || "").split("\n");
   const title = lines.find((l) => l.trim()) || "";
@@ -56,6 +141,11 @@ function Section({ report, open, onToggle }) {
         <span style={{ width: "14px" }}>{open ? "▾" : "▸"}</span>
         <strong style={{ flex: "0 0 auto" }}>{report.label}</strong>
         <span style={{ fontSize: "13px" }}>{flags.length ? flags.map(([m, n]) => `${m}${n}`).join(" ") : "✅"}</span>
+        {report.proposals?.length > 0 && (
+          <span style={{ fontSize: "12px", background: "#e8f0fe", color: "#1f5fbf", borderRadius: "10px", padding: "1px 8px" }}>
+            {report.proposals.filter((p) => p.status === "proposed").length} to decide
+          </span>
+        )}
         <span style={{ flex: "1 1 auto", fontSize: "12px", color: "#777", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {title}
         </span>
@@ -63,6 +153,7 @@ function Section({ report, open, onToggle }) {
       {open && (
         <div style={{ padding: "8px 14px 14px", fontSize: "13px", lineHeight: 1.45, borderTop: "1px solid #eee" }}>
           {lines.map((l, i) => (l.trim() ? <Line key={i} text={l} /> : <div key={i} style={{ height: "6px" }} />))}
+          <Proposals report={report} />
         </div>
       )}
     </div>
@@ -85,7 +176,7 @@ export default function ChecksPage() {
       .then((d) => {
         if (d.error) throw new Error(d.error);
         setData(d);
-        setOpen(Object.fromEntries((d.reports || []).map((r) => [r.job, Boolean(r.flags?.["🔴"] || r.flags?.["🚨"])])));
+        setOpen(Object.fromEntries((d.reports || []).map((r) => [r.job, Boolean(r.flags?.["🔴"] || r.flags?.["🚨"] || r.proposals?.some((p) => p.status === "proposed"))])));
       })
       .catch((e) => setError(e.message));
   }, [kind, period]);
