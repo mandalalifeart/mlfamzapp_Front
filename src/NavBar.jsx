@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
-// One menu bar on top of every page (per the user 2026-11-02: "the home page
-// links are a full mess"): 6 dropdown groups. Click a group to open it; a
-// click anywhere else or a page change closes it.
+// App-wide menu (per the user 2026-11-02: "the home page links are a full mess").
 export const MENU = [
   {
     label: "📈 Sales",
@@ -61,57 +59,42 @@ export const MENU = [
   },
 ];
 
+// One "☰ Menu" button at the bottom of the screen (per the user 2026-11-02:
+// "move the menu bar down, a single menu item, each item on its own line").
 export default function NavBar() {
-  const [open, setOpen] = useState(null);
+  const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const { pathname } = useLocation();
 
-  useEffect(() => setOpen(null), [pathname]);
+  useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
-    const close = (e) => ref.current && !ref.current.contains(e.target) && setOpen(null);
+    const close = (e) => ref.current && !ref.current.contains(e.target) && setOpen(false);
     document.addEventListener("click", close);
     return () => document.removeEventListener("click", close);
   }, []);
 
-  const activeGroup = MENU.findIndex((g) => g.items.some(([, to]) => to !== "/" && pathname.startsWith(to)));
-
   return (
-    <nav
-      ref={ref}
-      style={{
-        position: "sticky", top: 0, zIndex: 50, background: "#1f2d45", padding: "6px 12px",
-        display: "flex", flexWrap: "wrap", gap: "4px", alignItems: "center", fontFamily: "Arial, sans-serif",
-        boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
-      }}
-    >
-      <Link to="/" style={{ color: "#fff", fontWeight: 700, textDecoration: "none", marginRight: "10px", fontSize: "15px" }}>
-        🏠 AmzBot
-      </Link>
-      {MENU.map((g, i) => (
-        <div key={g.label} style={{ position: "relative" }}>
-          <button
-            onClick={() => setOpen(open === i ? null : i)}
-            style={{
-              background: open === i || activeGroup === i ? "#3b5683" : "transparent", color: "#fff", border: "none",
-              padding: "7px 10px", borderRadius: "6px", cursor: "pointer", fontSize: "14px", fontWeight: 600,
-            }}
-          >
-            {g.label} ▾
-          </button>
-          {open === i && (
-            <div
-              style={{
-                position: "absolute", top: "calc(100% + 4px)", left: 0, background: "#fff", border: "1px solid #ddd",
-                borderRadius: "8px", boxShadow: "0 6px 16px rgba(0,0,0,0.18)", padding: "6px", minWidth: "210px",
-                display: "flex", flexDirection: "column",
-              }}
-            >
-              {g.items.map(([label, to]) => (
+    <div ref={ref} style={{ position: "fixed", right: "16px", bottom: "16px", zIndex: 1000, fontFamily: "Arial, sans-serif" }}>
+      {open && (
+        <div
+          style={{
+            position: "absolute", right: 0, bottom: "calc(100% + 8px)", background: "#fff", border: "1px solid #ccd3df",
+            borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.22)", padding: "8px 6px", width: "250px",
+            maxHeight: "75vh", overflowY: "auto", textAlign: "left",
+          }}
+        >
+          <Link to="/" style={{ display: "block", padding: "7px 10px", fontWeight: 700, color: "#1f2d45", textDecoration: "none", borderRadius: "6px", background: pathname === "/" ? "#eef3fb" : undefined }}>
+            🏠 Home
+          </Link>
+          {MENU.map((g) => (
+            <div key={g.label} style={{ marginTop: "6px" }}>
+              <div style={{ padding: "4px 10px", fontSize: "12px", fontWeight: 700, color: "#6b7a90", textTransform: "uppercase" }}>{g.label}</div>
+              {g.items.filter(([, to]) => to !== "/").map(([label, to]) => (
                 <Link
                   key={to + label}
                   to={to}
                   style={{
-                    padding: "8px 10px", borderRadius: "6px", textDecoration: "none", fontSize: "14px",
+                    display: "block", padding: "6px 10px 6px 22px", borderRadius: "6px", textDecoration: "none", fontSize: "14px",
                     color: pathname === to ? "#1f5fbf" : "#222", fontWeight: pathname === to ? 700 : 400,
                     background: pathname === to ? "#eef3fb" : undefined,
                   }}
@@ -120,9 +103,18 @@ export default function NavBar() {
                 </Link>
               ))}
             </div>
-          )}
+          ))}
         </div>
-      ))}
-    </nav>
+      )}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          background: "#1f2d45", color: "#fff", border: "none", borderRadius: "24px", padding: "11px 18px",
+          fontSize: "15px", fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
+        }}
+      >
+        {open ? "✕ Close" : "☰ Menu"}
+      </button>
+    </div>
   );
 }
