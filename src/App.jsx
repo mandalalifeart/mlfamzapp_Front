@@ -625,15 +625,6 @@ export default function App() {
         )}
 
       </div>
-      {/* Shortcut tiles (2026-11-02, per the user) - at the bottom, above the ☰ Menu button. */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", justifyContent: "center", margin: "28px 0 8px", maxWidth: "720px" }}>
-        {[["📈", "Sales", "/sales"], ["📦", "Next order", "/next-order"], ["📣", "Ads campaigns", "/ads-campaigns"], ["✅", "Checks", "/checks"]].map(([icon, label, to]) => (
-          <Link key={to} to={to} style={{ flex: "1 1 140px", maxWidth: "170px", padding: "18px 10px", background: "#fff", border: "1px solid #d6dde8", borderRadius: "12px", textAlign: "center", textDecoration: "none", color: "#1f2d45", fontWeight: 700, fontSize: "15px", boxShadow: "0 2px 6px rgba(0,0,0,0.06)" }}>
-            <div style={{ fontSize: "28px", marginBottom: "6px" }}>{icon}</div>
-            {label}
-          </Link>
-        ))}
-      </div>
     </div>
   );
 }
