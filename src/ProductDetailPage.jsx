@@ -483,6 +483,9 @@ export default function ProductDetailPage() {
         )}
 
         <div style={{ display: "flex", justifyContent: "center", gap: "10px", paddingBottom: "16px" }}>
+          <Link style={blueButtonStyle()} to="/fba-fees">
+            FBA fees
+          </Link>
           <Link style={blueButtonStyle()} to="/sales">
             Back to Sales
           </Link>

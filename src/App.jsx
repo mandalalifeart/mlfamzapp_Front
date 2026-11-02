@@ -691,6 +691,9 @@ export default function App() {
                 <Link style={navButtonStyle()} to="/fba-shipments" onClick={() => setMoreMenuOpen(false)}>
                   FBA Shipments
                 </Link>
+                <Link style={navButtonStyle()} to="/fba-fees" onClick={() => setMoreMenuOpen(false)}>
+                  FBA Fees
+                </Link>
                 <Link style={navButtonStyle()} to="/shipments" onClick={() => setMoreMenuOpen(false)}>
                   Import Shipments
                 </Link>

@@ -26,6 +26,7 @@ import AsinAnalyticsPage from "./AsinAnalyticsPage";
 import ArcherPage from "./ArcherPage";
 import ProductResearchPage from "./ProductResearchPage";
 import FbaShipmentsPage from "./FbaShipmentsPage";
+import FbaFeesPage from "./FbaFeesPage";
 import ImportShipmentsPage from "./ImportShipmentsPage";
 import AdsReviewsPage from "./AdsReviewsPage";
 import "./index.css";
@@ -59,6 +60,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Route path="/archer" element={<ArcherPage />} />
         <Route path="/product-research" element={<ProductResearchPage />} />
         <Route path="/fba-shipments" element={<FbaShipmentsPage />} />
+        <Route path="/fba-fees" element={<FbaFeesPage />} />
         <Route path="/shipments" element={<ImportShipmentsPage />} />
         <Route path="/ads-reviews" element={<AdsReviewsPage />} />
       </Routes>
