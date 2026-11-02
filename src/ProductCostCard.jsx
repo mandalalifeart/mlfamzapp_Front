@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 
 // Product cost + profit per unit (GetProductCost, per the user 2026-11-01):
-// landed cost from the latest Malani/Acacia invoice + $1 shipping + 10% import
+// landed cost from the latest Malani/Acacia invoice + duty + freight per region (USA 15% + $1.20, EU 9% + $0.80, UK 10% + $1.90; import
 // tax on both; per marketplace Amazon fees and ad cost from the product's own
 // TACOS and from its department's (pareo vs home decor) TACOS.
 const API_BASE = "https://amzapi.mandalalifeart.com";
@@ -170,7 +170,7 @@ function PeriodTotals({ sku, asin }) {
       )}
       <div style={{ fontSize: "11px", color: "#888", marginTop: "4px" }}>
         All amounts in USD at today&apos;s rate. Fees = today&apos;s referral % × sales + FBA fee × units (CA/MX use US fees, other EU use DE).
-        Product cost = units × landed cost. Ads = this product&apos;s real SP+SD spend. SB share = SB spend of its section (home decor / pareo) in that marketplace and month ÷ all units the section sold × this product&apos;s units (SB data from Jan 2026). Returns (by return date) = refund without VAT − 80% of the referral fee + returns processing fee − product cost if the unit came back sellable. FBA storage = Amazon&apos;s monthly fee per product; AWD (USA only) = monthly AWD fees split by units moved AWD→FBA × size. India→US/EU freight not included (in landed cost estimate).
+        Product cost = units × landed cost. Ads = this product&apos;s real SP+SD spend. SB share = SB spend of its section (home decor / pareo) in that marketplace and month ÷ all units the section sold × this product&apos;s units (SB data from Jan 2026). Returns (by return date) = refund without VAT − 80% of the referral fee + returns processing fee − product cost if the unit came back sellable. FBA storage = Amazon&apos;s monthly fee per product; AWD (USA only) = monthly AWD fees split by units moved AWD→FBA × size. Product cost = landed cost of the destination region (purchase + duty + freight, from the real 2026 shipments).
       </div>
     </div>
   );
@@ -217,20 +217,21 @@ export default function ProductCostCard({ sku, asin, cardStyle }) {
                     </td>
                     <td style={{ textAlign: "right" }}>{money(c.purchase)}</td>
                   </tr>
-                  <tr>
-                    <td style={{ padding: "3px 12px 3px 0" }}>Shipping <span style={{ color: "#777", fontSize: "12px" }}>(assumed)</span></td>
-                    <td style={{ textAlign: "right" }}>{money(c.shipping)}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "3px 12px 3px 0" }}>
-                      Import tax <span style={{ color: "#777", fontSize: "12px" }}>({data.assumptions.importTaxPct}% of purchase + shipping)</span>
-                    </td>
-                    <td style={{ textAlign: "right" }}>{money(c.importTax)}</td>
-                  </tr>
-                  <tr style={{ fontWeight: 700, borderTop: "2px solid #ccc" }}>
-                    <td style={{ padding: "5px 12px 3px 0" }}>Landed cost per unit</td>
-                    <td style={{ textAlign: "right", paddingTop: "5px" }}>{money(c.landed)}</td>
-                  </tr>
+                  {[["usa", "USA / CA / MX"], ["eu", "EU (DE, FR, IT, ES…)"], ["uk", "UK"]].map(([k, label]) => {
+                    const r = c.regions?.[k];
+                    if (!r) return null;
+                    return (
+                      <tr key={k} style={{ borderTop: "1px solid #eee" }}>
+                        <td style={{ padding: "3px 12px 3px 0" }}>
+                          Landed {label}{" "}
+                          <span style={{ color: "#777", fontSize: "12px" }}>
+                            (+ duty {r.dutyPct}% {money(r.duty)} + freight {money(r.freight)})
+                          </span>
+                        </td>
+                        <td style={{ textAlign: "right", fontWeight: 700 }}>{money(r.landed)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               <div style={{ fontSize: "13px", color: "#555" }}>
