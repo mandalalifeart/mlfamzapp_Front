@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { buttonStyle } from "./buttonStyle";
+import ReturnsAnalysisSection from "./ReturnsAnalysisSection";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE ||
@@ -96,6 +97,8 @@ export default function ReturnsPage() {
         </button>
       </div>
       {refreshNote && <p style={{ textAlign: "center", fontSize: "13px", color: "#555" }}>{refreshNote}</p>}
+
+      <ReturnsAnalysisSection />
 
       {error && <div style={{ margin: "0 16px 16px", color: "#b00020", textAlign: "center" }}>{error}</div>}
       {loading && <p style={{ textAlign: "center" }}>Loading...</p>}
