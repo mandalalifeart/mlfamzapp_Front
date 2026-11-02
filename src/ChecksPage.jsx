@@ -173,10 +173,10 @@ function Proposals({ report }) {
                     {p.result && <div style={{ fontSize: "12px", color }}>{p.result}</div>}
                   </div>
                   {!locked && p.status !== "rejected" && (
-                    <button onClick={() => setStatus(p, "rejected")} style={{ fontSize: "11px", cursor: "pointer" }} title="Reject">✕</button>
+                    <button onClick={() => setStatus(p, "rejected")} style={{ fontSize: "12px", cursor: "pointer", padding: "3px 8px", width: "auto", minWidth: 0, height: "auto", background: "#fff", color: "#b03a2e", border: "1px solid #e0b4ae", borderRadius: "6px", flex: "0 0 auto", fontWeight: 600 }} title="Reject - nothing will be done">✕ reject</button>
                   )}
                   {p.status === "rejected" && (
-                    <button onClick={() => setStatus(p, "proposed")} style={{ fontSize: "11px", cursor: "pointer" }}>undo</button>
+                    <button onClick={() => setStatus(p, "proposed")} style={{ fontSize: "12px", cursor: "pointer", padding: "3px 8px", width: "auto", minWidth: 0, height: "auto", background: "#fff", color: "#1f5fbf", border: "1px solid #b8c8e6", borderRadius: "6px", flex: "0 0 auto", fontWeight: 600 }}>undo</button>
                   )}
                 </div>
               );
