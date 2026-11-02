@@ -74,11 +74,11 @@ export default function NavBar() {
   }, []);
 
   return (
-    <div ref={ref} style={{ position: "fixed", right: "16px", bottom: "16px", zIndex: 1000, fontFamily: "Arial, sans-serif" }}>
+    <div ref={ref} style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: "16px", zIndex: 1000, fontFamily: "Arial, sans-serif" }}>
       {open && (
         <div
           style={{
-            position: "absolute", right: 0, bottom: "calc(100% + 8px)", background: "#fff", border: "1px solid #ccd3df",
+            position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: "calc(100% + 8px)", background: "#fff", border: "1px solid #ccd3df",
             borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.22)", padding: "8px 6px", width: "250px",
             maxHeight: "75vh", overflowY: "auto", textAlign: "left",
           }}
