@@ -8,7 +8,65 @@ import { buttonStyle } from "./buttonStyle";
 const LOCAL_API_BASE = "https://amzapi.mandalalifeart.com";
 const URL_RE = /(https?:\/\/[^\s)]+)/g;
 
-function Line({ text }) {
+// "Reply" (per the user 2026-11-02): opens the Telegram chat with Claude
+// (@baba_777_bot) with the topic pre-filled - the answer comes in Telegram.
+const CLAUDE_BOT = "baba_777_bot";
+function replyHref(ctx, topic) {
+  const t = `[${ctx}]${topic ? `\n"${topic.slice(0, 300)}"` : ""}\n`;
+  return `https://t.me/${CLAUDE_BOT}?text=${encodeURIComponent(t)}`;
+}
+function ReplyLink({ ctx, topic, label = "💬" }) {
+  return (
+    <a
+      href={replyHref(ctx, topic)}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      title="Ask Claude about this - the answer comes in Telegram"
+      style={{ textDecoration: "none", fontSize: "13px", marginLeft: "6px", opacity: 0.75, whiteSpace: "nowrap" }}
+    >
+      {label}
+    </a>
+  );
+}
+
+function Table({ table, ctx }) {
+  return (
+    <div style={{ overflowX: "auto", margin: "6px 0 14px" }}>
+      <div style={{ fontWeight: 700, margin: "4px 0" }}>{table.title}</div>
+      <table style={{ borderCollapse: "collapse", fontSize: "13px", minWidth: "60%" }}>
+        <thead>
+          <tr>
+            {table.columns.map((c, i) => (
+              <th key={i} style={{ background: "#f3f5f9", border: "1px solid #dde3ec", padding: "5px 8px", textAlign: i ? "right" : "left", whiteSpace: "nowrap" }}>{c}</th>
+            ))}
+            <th style={{ background: "#f3f5f9", border: "1px solid #dde3ec" }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((r, ri) => {
+            const red = String(r[0]).includes("🔴");
+            const total = String(r[0]).startsWith("ALL");
+            return (
+              <tr key={ri} style={{ background: red ? "#fdecea" : total ? "#f7f9fc" : undefined, fontWeight: total ? 700 : 400 }}>
+                {r.map((v, i) => (
+                  <td key={i} style={{ border: "1px solid #e6eaf0", padding: "4px 8px", textAlign: i && typeof v === "number" ? "right" : "left", whiteSpace: i < 3 ? "nowrap" : "normal" }}>
+                    {typeof v === "number" ? v.toLocaleString("en-US") : v}
+                  </td>
+                ))}
+                <td style={{ border: "1px solid #e6eaf0", padding: "2px 4px" }}>
+                  <ReplyLink ctx={`${ctx} › ${table.title}`} topic={table.columns.map((c, i) => `${c}: ${r[i]}`).filter((x) => !x.endsWith(": ")).join(", ")} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Line({ text, ctx }) {
   const t = text.trimStart();
   const indent = text.length - t.length;
   const red = /^(🔴|🚨|❌|🚩)/.test(t);
@@ -39,6 +97,7 @@ function Line({ text }) {
           <span key={i}>{p}</span>
         )
       )}
+      {ctx && t.length > 3 && <ReplyLink ctx={ctx} topic={t} />}
     </div>
   );
 }
@@ -128,8 +187,9 @@ function Proposals({ report }) {
   );
 }
 
-function Section({ report, open, onToggle }) {
+function Section({ report, open, onToggle, period }) {
   const lines = (report.text || "").split("\n");
+  const ctx = `Checks ${period} › ${report.label}`;
   const title = lines.find((l) => l.trim()) || "";
   const flags = Object.entries(report.flags || {});
   return (
@@ -149,10 +209,19 @@ function Section({ report, open, onToggle }) {
         <span style={{ flex: "1 1 auto", fontSize: "12px", color: "#777", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {title}
         </span>
+        <ReplyLink ctx={ctx} label="💬 Reply" />
       </div>
       {open && (
         <div style={{ padding: "8px 14px 14px", fontSize: "13px", lineHeight: 1.45, borderTop: "1px solid #eee" }}>
-          {lines.map((l, i) => (l.trim() ? <Line key={i} text={l} /> : <div key={i} style={{ height: "6px" }} />))}
+          {report.tables?.length > 0 && report.tables.map((t, i) => <Table key={i} table={t} ctx={ctx} />)}
+          {report.tables?.length > 0 ? (
+            <details>
+              <summary style={{ cursor: "pointer", color: "#555", margin: "6px 0" }}>Full text</summary>
+              {lines.map((l, i) => (l.trim() ? <Line key={i} text={l} ctx={ctx} /> : <div key={i} style={{ height: "6px" }} />))}
+            </details>
+          ) : (
+            lines.map((l, i) => (l.trim() ? <Line key={i} text={l} ctx={ctx} /> : <div key={i} style={{ height: "6px" }} />))
+          )}
           <Proposals report={report} />
         </div>
       )}
@@ -227,7 +296,7 @@ export default function ChecksPage() {
         </p>
       )}
       {data?.reports?.map((r) => (
-        <Section key={r.job} report={r} open={!!open[r.job]} onToggle={() => setOpen((o) => ({ ...o, [r.job]: !o[r.job] }))} />
+        <Section key={r.job} report={r} period={data.period} open={!!open[r.job]} onToggle={() => setOpen((o) => ({ ...o, [r.job]: !o[r.job] }))} />
       ))}
 
       <div style={{ display: "flex", justifyContent: "center", gap: "10px", padding: "16px 0" }}>
