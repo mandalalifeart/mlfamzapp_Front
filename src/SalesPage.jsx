@@ -631,12 +631,12 @@ function RankingTable({ title, rows, periodLabel, selectedMarketplace, daysOfSup
                 {showMoney && (
                   <>
                     <th style={numberCellStyle({ background: "#f4f4f4" })} title="Price paid after promotions, USD">Sales</th>
-                    <th style={numberCellStyle({ background: "#f4f4f4" })}>Ads</th>
+                    <th style={numberCellStyle({ background: "#f4f4f4" })} title="SP+SD spend on this product + its SB share (section SB spend / section units sold × its units)">Ads</th>
                     <th style={numberCellStyle({ background: "#f4f4f4" })} title="Returned units / units sold (by return date)">Returns</th>
-                    <th style={numberCellStyle({ background: "#f4f4f4" })} title="Net sales - Amazon fees - product cost - ads - returns - FBA storage - AWD">Profit</th>
+                    <th style={numberCellStyle({ background: "#f4f4f4" })} title="Net sales - Amazon fees - product cost - SP+SD ads - SB share - returns - FBA storage - AWD">Profit</th>
                     <th style={numberCellStyle({ background: "#f4f4f4" })} title="Profit / sales without VAT">Margin</th>
-                    <th style={numberCellStyle({ background: "#f4f4f4" })} title="Ad spend / ad-attributed sales">ACOS</th>
-                    <th style={numberCellStyle({ background: "#f4f4f4" })} title="Ad spend / all sales">TACOS</th>
+                    <th style={numberCellStyle({ background: "#f4f4f4" })} title="SP+SD spend / ad-attributed sales (SB sales aren't reported per product)">ACOS</th>
+                    <th style={numberCellStyle({ background: "#f4f4f4" })} title="(SP+SD spend + SB share) / all sales">TACOS</th>
                   </>
                 )}
               </tr>
@@ -682,7 +682,12 @@ function RankingTable({ title, rows, periodLabel, selectedMarketplace, daysOfSup
                     {showMoney && (
                       <>
                         <td style={numberCellStyle({ fontSize: "12px" })}>{usd0(row.m?.sales)}</td>
-                        <td style={numberCellStyle({ fontSize: "12px" })}>{usd0(row.m?.ads)}</td>
+                        <td
+                          style={numberCellStyle({ fontSize: "12px" })}
+                          title={row.m ? `SP+SD ${usd0(row.m.ads)} + SB share ${usd0(row.m.sbAds)}` : ""}
+                        >
+                          {row.m ? usd0((row.m.ads || 0) + (row.m.sbAds || 0)) : usd0(null)}
+                        </td>
                         <td
                           style={numberCellStyle({ fontSize: "12px" })}
                           title={row.m ? `${row.m.returnedUnits || 0} returned · returns cost ${usd0(row.m.returns)} · FBA storage ${usd0(row.m.storage)} · AWD ${usd0(row.m.awd)}` : ""}
@@ -691,7 +696,7 @@ function RankingTable({ title, rows, periodLabel, selectedMarketplace, daysOfSup
                         </td>
                         <td
                           style={numberCellStyle({ fontSize: "12px", color: row.m?.profit < 0 ? GROWTH_RED : undefined })}
-                          title={row.m ? `Net sales ${usd0(row.m.netSales)} − fees ${usd0(row.m.fees)} − product ${usd0(row.m.productCost)} − ads ${usd0(row.m.ads)} − returns ${usd0(row.m.returns)} − storage ${usd0(row.m.storage)} − AWD ${usd0(row.m.awd)}` : ""}
+                          title={row.m ? `Net sales ${usd0(row.m.netSales)} − fees ${usd0(row.m.fees)} − product ${usd0(row.m.productCost)} − SP+SD ads ${usd0(row.m.ads)} − SB share ${usd0(row.m.sbAds)} − returns ${usd0(row.m.returns)} − storage ${usd0(row.m.storage)} − AWD ${usd0(row.m.awd)}` : ""}
                         >
                           {usd0(row.m?.profit)}
                         </td>
