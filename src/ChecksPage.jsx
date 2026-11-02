@@ -30,7 +30,59 @@ function ReplyLink({ ctx, topic, label = "💬" }) {
   );
 }
 
+// Cells: number, text, or {v, pct} = an earlier value + % change to now
+// (green up / red down). Rows: an array, or {cells, children} = a group row
+// that expands on click (e.g. EU -> countries, per the user 2026-11-02).
+const cellText = (v) => (v && typeof v === "object" ? `${v.v}${v.pct != null ? ` (${v.pct > 0 ? "+" : ""}${v.pct}%)` : ""}` : v);
+
+function Cell({ v, col }) {
+  if (v && typeof v === "object") {
+    const c = v.pct == null ? "#6b7a90" : v.pct > 0 ? "#1e7a3c" : v.pct < 0 ? "#c0392b" : "#6b7a90";
+    return (
+      <span>
+        {Number(v.v).toLocaleString("en-US")}
+        {v.pct != null && (
+          <span style={{ marginLeft: "6px", fontSize: "12px", fontWeight: 700, color: c, background: v.pct > 0 ? "#e8f6ee" : v.pct < 0 ? "#fdecea" : undefined, borderRadius: "4px", padding: "1px 4px" }}>
+            {v.pct > 0 ? "▲" : v.pct < 0 ? "▼" : ""}{Math.abs(v.pct)}%
+          </span>
+        )}
+      </span>
+    );
+  }
+  if (typeof v === "number") {
+    const money = /profit|^net$/i.test(col || "");
+    return <span style={{ color: money ? (v < 0 ? "#c0392b" : v > 0 ? "#1e7a3c" : undefined) : undefined, fontWeight: money ? 700 : undefined }}>{v.toLocaleString("en-US")}</span>;
+  }
+  if (/^margin$/i.test(col || "") && typeof v === "string" && v.endsWith("%")) {
+    return <span style={{ color: parseFloat(v) < 0 ? "#c0392b" : undefined }}>{v}</span>;
+  }
+  return v;
+}
+
 function Table({ table, ctx }) {
+  const [open, setOpen] = useState({});
+  const renderRow = (r, key, { child = false, group = null } = {}) => {
+    const cells = Array.isArray(r) ? r : r.cells;
+    const red = String(cells[0]).includes("🔴");
+    const total = String(cells[0]).startsWith("ALL");
+    return (
+      <tr
+        key={key}
+        onClick={group ? () => setOpen((o) => ({ ...o, [group]: !o[group] })) : undefined}
+        style={{ background: red ? "#fdecea" : total ? "#f7f9fc" : child ? "#fafbfd" : undefined, fontWeight: total ? 700 : 400, cursor: group ? "pointer" : undefined, fontSize: child ? "12px" : undefined }}
+      >
+        {cells.map((v, i) => (
+          <td key={i} style={{ border: "1px solid #e6eaf0", padding: "4px 8px", paddingLeft: i === 0 && child ? "22px" : "8px", textAlign: i && (typeof v === "number" || (v && typeof v === "object")) ? "right" : "left", whiteSpace: i < 3 || (v && typeof v === "object") ? "nowrap" : "normal" }}>
+            {i === 0 && group ? <span style={{ color: "#1f5fbf" }}>{open[group] ? "▾ " : "▸ "}</span> : null}
+            <Cell v={v} col={table.columns[i]} />
+          </td>
+        ))}
+        <td style={{ border: "1px solid #e6eaf0", padding: "2px 4px" }}>
+          <ReplyLink ctx={`${ctx} › ${table.title}`} topic={table.columns.map((c, i) => `${c}: ${cellText(cells[i])}`).filter((x) => !x.endsWith(": ")).join(", ")} />
+        </td>
+      </tr>
+    );
+  };
   return (
     <div style={{ overflowX: "auto", margin: "6px 0 14px" }}>
       <div style={{ fontWeight: 700, margin: "4px 0" }}>{table.title}</div>
@@ -44,22 +96,11 @@ function Table({ table, ctx }) {
           </tr>
         </thead>
         <tbody>
-          {table.rows.map((r, ri) => {
-            const red = String(r[0]).includes("🔴");
-            const total = String(r[0]).startsWith("ALL");
-            return (
-              <tr key={ri} style={{ background: red ? "#fdecea" : total ? "#f7f9fc" : undefined, fontWeight: total ? 700 : 400 }}>
-                {r.map((v, i) => (
-                  <td key={i} style={{ border: "1px solid #e6eaf0", padding: "4px 8px", textAlign: i && typeof v === "number" ? "right" : "left", whiteSpace: i < 3 ? "nowrap" : "normal" }}>
-                    {typeof v === "number" ? v.toLocaleString("en-US") : v}
-                  </td>
-                ))}
-                <td style={{ border: "1px solid #e6eaf0", padding: "2px 4px" }}>
-                  <ReplyLink ctx={`${ctx} › ${table.title}`} topic={table.columns.map((c, i) => `${c}: ${r[i]}`).filter((x) => !x.endsWith(": ")).join(", ")} />
-                </td>
-              </tr>
-            );
-          })}
+          {table.rows.flatMap((r, ri) =>
+            !Array.isArray(r) && r.children
+              ? [renderRow(r, ri, { group: ri }), ...(open[ri] ? r.children.map((c, ci) => renderRow(c, `${ri}-${ci}`, { child: true })) : [])]
+              : [renderRow(r, ri)]
+          )}
         </tbody>
       </table>
     </div>
