@@ -80,25 +80,27 @@ export default function NavBar() {
   return (
     <footer
       style={{
-        display: "flex", justifyContent: "center", alignItems: "center", gap: "10px", padding: "20px 12px 28px",
+        display: "flex", justifyContent: "center", alignItems: "center", gap: "8px", padding: "16px 8px 24px",
         fontFamily: "Arial, sans-serif", borderTop: "1px solid #e3e8f0", marginTop: "24px", flexWrap: "nowrap",
+        maxWidth: "460px", marginLeft: "auto", marginRight: "auto", boxSizing: "border-box", width: "100%",
       }}
     >
     {SHORTCUTS.map(([icon, label, to]) => (
       <Link
         key={to}
         to={to}
+        title={label}
+        aria-label={label}
         style={{
-          display: "flex", alignItems: "center", gap: "6px", padding: "10px 14px", background: pathname === to ? "#eef3fb" : "#fff",
-          border: "1px solid #d6dde8", borderRadius: "12px", textDecoration: "none", color: "#1f2d45", fontWeight: 700,
-          fontSize: "14px", whiteSpace: "nowrap", boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+          flex: "1 1 0", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "10px 0",
+          background: pathname === to ? "#eef3fb" : "#fff", border: "1px solid #d6dde8", borderRadius: "12px",
+          textDecoration: "none", fontSize: "22px", lineHeight: 1, boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
         }}
       >
-        <span style={{ fontSize: "20px" }}>{icon}</span>
-        {label}
+        {icon}
       </Link>
     ))}
-    <div ref={ref} style={{ position: "relative", zIndex: 1000 }}>
+    <div ref={ref} style={{ position: "relative", zIndex: 1000, flex: "1 1 0", minWidth: 0, display: "flex" }}>
       {open && (
         <div
           style={{
@@ -132,12 +134,14 @@ export default function NavBar() {
       )}
       <button
         onClick={() => setOpen((v) => !v)}
+        title="Menu"
+        aria-label="Menu"
         style={{
-          background: "#1f2d45", color: "#fff", border: "none", borderRadius: "12px", padding: "12px 18px", whiteSpace: "nowrap",
-          fontSize: "15px", fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
+          flex: 1, background: "#1f2d45", color: "#fff", border: "none", borderRadius: "12px", padding: "10px 0",
+          fontSize: "22px", lineHeight: 1, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
         }}
       >
-        {open ? "✕ Close" : "☰ Menu"}
+        {open ? "✕" : "☰"}
       </button>
     </div>
     </footer>
