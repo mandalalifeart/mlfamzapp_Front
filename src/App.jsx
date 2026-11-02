@@ -418,7 +418,6 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialUrlConfig.urlError || "");
   const [errorDetails, setErrorDetails] = useState([]);
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const autoSubmitStartedRef = useRef(false);
 
   const resolvedDates = useMemo(() => {
@@ -556,6 +555,15 @@ export default function App() {
 
   return (
     <div className="app" style={{ flexDirection: "column", alignItems: "center" }}>
+      {/* Shortcut tiles (2026-11-02, per the user); everything else is in the menu bar on top. */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", justifyContent: "center", margin: "8px 0 20px", maxWidth: "720px" }}>
+        {[["📈", "Sales", "/sales"], ["📦", "Next order", "/next-order"], ["📣", "Ads campaigns", "/ads-campaigns"], ["✅", "Checks", "/checks"]].map(([icon, label, to]) => (
+          <Link key={to} to={to} style={{ flex: "1 1 140px", maxWidth: "170px", padding: "18px 10px", background: "#fff", border: "1px solid #d6dde8", borderRadius: "12px", textAlign: "center", textDecoration: "none", color: "#1f2d45", fontWeight: 700, fontSize: "15px", boxShadow: "0 2px 6px rgba(0,0,0,0.06)" }}>
+            <div style={{ fontSize: "28px", marginBottom: "6px" }}>{icon}</div>
+            {label}
+          </Link>
+        ))}
+      </div>
       <div className="card">
         <form onSubmit={handleSubmit}>
           <div className="radio-list">
@@ -625,85 +633,6 @@ export default function App() {
           </div>
         )}
 
-        <div style={{ ...bottomNavStyle(), position: "relative" }}>
-          <Link style={navButtonStyle()} to="/sales">
-            Sales
-          </Link>
-          <Link style={navButtonStyle()} to="/asin-analytics">
-            Product Analytics
-          </Link>
-          <Link style={navButtonStyle()} to="/ads-campaigns">
-            Ads
-          </Link>
-          <Link style={navButtonStyle()} to="/next-order">
-            Next Order
-          </Link>
-          <div style={{ position: "relative" }}>
-            <button style={navButtonStyle()} onClick={() => setMoreMenuOpen((open) => !open)}>
-              More
-            </button>
-            {moreMenuOpen && (
-              <div
-                style={{
-                  position: "absolute",
-                  bottom: "calc(100% + 6px)",
-                  left: "50%",
-                  transform: "translateX(-50%)",
-                  background: "#fff",
-                  border: "1px solid #ddd",
-                  borderRadius: "8px",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "6px",
-                  padding: "8px",
-                  zIndex: 10,
-                  minWidth: "140px",
-                }}
-              >
-                <Link style={navButtonStyle()} to="/batch-update" onClick={() => setMoreMenuOpen(false)}>
-                  Batch Update
-                </Link>
-                <Link style={navButtonStyle()} to="/etsy" onClick={() => setMoreMenuOpen(false)}>
-                  Etsy
-                </Link>
-                <Link style={navButtonStyle()} to="/ops" onClick={() => setMoreMenuOpen(false)}>
-                  Ops
-                </Link>
-                <Link style={navButtonStyle()} to="/payments" onClick={() => setMoreMenuOpen(false)}>
-                  Payments
-                </Link>
-                <Link style={navButtonStyle()} to="/wise" onClick={() => setMoreMenuOpen(false)}>
-                  Wise
-                </Link>
-                <Link style={navButtonStyle()} to="/vat" onClick={() => setMoreMenuOpen(false)}>
-                  VAT
-                </Link>
-                <Link style={navButtonStyle()} to="/returns" onClick={() => setMoreMenuOpen(false)}>
-                  Returns
-                </Link>
-                <Link style={navButtonStyle()} to="/archer" onClick={() => setMoreMenuOpen(false)}>
-                  Archer
-                </Link>
-                <Link style={navButtonStyle()} to="/product-research" onClick={() => setMoreMenuOpen(false)}>
-                  Product Research
-                </Link>
-                <Link style={navButtonStyle()} to="/fba-shipments" onClick={() => setMoreMenuOpen(false)}>
-                  FBA Shipments
-                </Link>
-                <Link style={navButtonStyle()} to="/fba-fees" onClick={() => setMoreMenuOpen(false)}>
-                  FBA Fees
-                </Link>
-                <Link style={navButtonStyle()} to="/checks" onClick={() => setMoreMenuOpen(false)}>
-                  Checks
-                </Link>
-                <Link style={navButtonStyle()} to="/shipments" onClick={() => setMoreMenuOpen(false)}>
-                  Import Shipments
-                </Link>
-              </div>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );
