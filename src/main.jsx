@@ -27,6 +27,7 @@ import ProductResearchPage from "./ProductResearchPage";
 import FbaShipmentsPage from "./FbaShipmentsPage";
 import FbaFeesPage from "./FbaFeesPage";
 import ChecksPage from "./ChecksPage";
+import TodoPage from "./TodoPage";
 import ImportShipmentsPage from "./ImportShipmentsPage";
 import AdsReviewsPage from "./AdsReviewsPage";
 import NavBar from "./NavBar";
@@ -62,6 +63,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Route path="/fba-shipments" element={<FbaShipmentsPage />} />
         <Route path="/fba-fees" element={<FbaFeesPage />} />
         <Route path="/checks" element={<ChecksPage />} />
+        <Route path="/todo" element={<TodoPage />} />
         <Route path="/shipments" element={<ImportShipmentsPage />} />
         <Route path="/ads-reviews" element={<AdsReviewsPage />} />
       </Routes>
