@@ -184,7 +184,9 @@ const RULE_LABELS = {
   noSaleSpend: ["Ad spend with too few units → cut", "own currency"],
   noSaleCut: ["That cut", "%"],
   skipChangedDays: ["Don't touch bids changed in the last", "days"],
-  sbProfitPct: ["SB profit wanted (SB ACOS limit)", "%"],
+  sbAcos: ["SB ACOS limit (all SB keywords)", "%"],
+  sbAcosOverrides: ["SB ACOS exceptions", "market dept %, …"],
+  sbProfitPct: ["Show SB ACOS at this profit", "%"],
   kwMinClicks: ["Keyword with at least", "clicks: own ACOS above the limit → lower instead of raise"],
   historyDays: ["History before a pause", "days"],
   historyOrders: ["Orders in that history → pause is temporary", "orders"],
@@ -228,12 +230,12 @@ function RulesCard() {
             Target TACOS = (profit before ads − profit% × sales without VAT − overheads% × sales) ÷ sales, per marketplace × department, last 12 months.
             Keyword ACOS limit (used by bid raises, harvest, bid optimizer) = target TACOS ÷ the share of sales that comes through ads.
             Monthly bid rule (SP): new bid = bid × target ÷ item TACOS (SP+SD spend only), capped by units sold.
-            SB keywords are judged on their own: SB ACOS limit = the ACOS that leaves the SB profit % (SB sales count as independent, ACOS = TACOS).
+            SB keywords are judged on their own ACOS against the SB ACOS limit (20%, exceptions per market); "SB ACOS @ profit%" = the ACOS that would leave that profit on SB sales (SB sales count as independent, ACOS = TACOS).
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ borderCollapse: "collapse", marginBottom: "10px" }}>
               <thead>
-                <tr>{["Market", "Dept", "Sales 12m", "Before ads", "Target TACOS", "TACOS 12m", "Ad share", "ACOS limit", "SB ACOS limit", "Source"].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
+                <tr>{["Market", "Dept", "Sales 12m", "Before ads", "Target TACOS", "TACOS 12m", "Ad share", "ACOS limit", "SB ACOS limit", "SB ACOS @ profit%", "Source"].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {rows.map(([k, t]) => {
@@ -248,7 +250,8 @@ function RulesCard() {
                       <td style={{ ...num, color: tacosColor(t.tacos, t.targetTacos) }}>{t.tacos}%</td>
                       <td style={num}>{t.adShare == null ? "–" : `${t.adShare}%`}</td>
                       <td style={num}>{t.acosLimit == null ? "–" : `${t.acosLimit}%`}</td>
-                      <td style={num}>{t.sbAcos == null ? "–" : `${t.sbAcos}%`}</td>
+                      <td style={{ ...num, fontWeight: 700 }}>{t.sbAcos == null ? "–" : `${t.sbAcos}%`}</td>
+                      <td style={num}>{t.sbAcosCalc == null ? "–" : `${t.sbAcosCalc}%`}</td>
                       <td style={td}>{t.source === "own" ? "own" : `${t.source} value`}</td>
                     </tr>
                   );
@@ -262,7 +265,7 @@ function RulesCard() {
                 <label key={k} style={{ fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
                   <span style={{ flex: 1 }}>{label}</span>
                   <input value={draft[k] ?? ""} onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
-                    style={{ width: k === "pareoSeasonRestart" ? "100px" : "60px", padding: "3px", textAlign: "right", background: "#fff", color: "#222", border: "1px solid #bbb", borderRadius: "4px" }} />
+                    style={{ width: k === "sbAcosOverrides" ? "200px" : k === "pareoSeasonRestart" ? "100px" : "60px", padding: "3px", textAlign: "right", background: "#fff", color: "#222", border: "1px solid #bbb", borderRadius: "4px" }} />
                   <span style={{ ...muted, width: "120px" }}>{unit}</span>
                 </label>
               ))}
