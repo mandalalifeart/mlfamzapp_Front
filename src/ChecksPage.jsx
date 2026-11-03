@@ -270,17 +270,16 @@ function Section({ report, open, onToggle, period }) {
   );
 }
 
-export default function ChecksPage() {
-  const [params, setParams] = useSearchParams();
-  const kind = params.get("kind") || "weekly";
-  const period = params.get("period") || "";
+// The check list itself - also used on /ads-reviews with area="ads" (per the
+// user 2026-11-03: ads checks live with the ads reviews, business checks here).
+export function ChecksView({ area, kind, period, onKind, onPeriod }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [open, setOpen] = useState({});
 
   useEffect(() => {
     setData(null);
-    const q = new URLSearchParams({ kind, ...(period ? { period } : {}) });
+    const q = new URLSearchParams({ kind, ...(period ? { period } : {}), ...(area ? { area } : {}) });
     fetch(`${LOCAL_API_BASE}/GetCheckReports?${q}`)
       .then((r) => r.json())
       .then((d) => {
@@ -289,12 +288,12 @@ export default function ChecksPage() {
         setOpen(Object.fromEntries((d.reports || []).map((r) => [r.job, Boolean(r.flags?.["🔴"] || r.flags?.["🚨"] || r.proposals?.some((p) => p.status === "proposed"))])));
       })
       .catch((e) => setError(e.message));
-  }, [kind, period]);
+  }, [kind, period, area]);
 
   const periods = data?.periods?.[kind] || [];
   const tab = (k, label) => (
     <button
-      onClick={() => setParams({ kind: k })}
+      onClick={() => onKind(k)}
       style={{
         padding: "6px 14px", borderRadius: "14px", border: "1px solid #ccc", cursor: "pointer",
         background: kind === k ? "#1f5fbf" : "#fff", color: kind === k ? "#fff" : "#333",
@@ -305,15 +304,14 @@ export default function ChecksPage() {
   );
 
   return (
-    <div style={{ padding: "20px 16px", fontFamily: "Arial, sans-serif", background: "#fafafa", minHeight: "100vh", color: "#222", textAlign: "left", maxWidth: "1100px", margin: "0 auto" }}>
-      <h2 style={{ textAlign: "center", marginBottom: "8px" }}>Checks</h2>
+    <>
       <div style={{ display: "flex", gap: "8px", justifyContent: "center", flexWrap: "wrap", marginBottom: "12px" }}>
         {tab("weekly", "Weekly (Monday)")}
         {tab("monthly", "Monthly")}
         <select
           value={data?.period || ""}
-          onChange={(e) => setParams({ kind, period: e.target.value })}
-          style={{ padding: "5px 8px" }}
+          onChange={(e) => onPeriod(e.target.value)}
+          style={{ padding: "5px 8px", background: "#fff", color: "#222" }}
         >
           {periods.length === 0 && <option value="">nothing stored yet</option>}
           {periods.map((p) => (
@@ -324,22 +322,34 @@ export default function ChecksPage() {
       <div style={{ display: "flex", gap: "8px", justifyContent: "center", marginBottom: "12px", fontSize: "13px" }}>
         <button style={{ cursor: "pointer" }} onClick={() => setOpen(Object.fromEntries((data?.reports || []).map((r) => [r.job, true])))}>Open all</button>
         <button style={{ cursor: "pointer" }} onClick={() => setOpen({})}>Close all</button>
-        <Link to={`/ads-reviews#${kind === "monthly" ? "monthly" : "weekly"}`} style={{ color: "#1f5fbf", alignSelf: "center" }}>
-          ✅ {kind === "monthly" ? "Monthly" : "Weekly"} ads checklist
-        </Link>
       </div>
 
       {error && <div style={{ color: "#b00020", textAlign: "center" }}>{error}</div>}
       {!error && !data && <p style={{ textAlign: "center" }}>Loading...</p>}
       {data && data.reports.length === 0 && (
         <p style={{ textAlign: "center", color: "#777" }}>
-          {kind === "monthly" ? "Monthly checks run on the 3rd-6th of each month; the first ones will appear here then." : "No checks stored for this week."}
+          {kind === "monthly" ? "Monthly checks run on the 2nd of each month; they will appear here then." : "No checks stored for this week."}
         </p>
       )}
       {data?.reports?.map((r) => (
         <Section key={r.job} report={r} period={data.period} open={!!open[r.job]} onToggle={() => setOpen((o) => ({ ...o, [r.job]: !o[r.job] }))} />
       ))}
+    </>
+  );
+}
 
+export default function ChecksPage() {
+  const [params, setParams] = useSearchParams();
+  const kind = params.get("kind") || "weekly";
+  const period = params.get("period") || "";
+  return (
+    <div style={{ padding: "20px 16px", fontFamily: "Arial, sans-serif", background: "#fafafa", minHeight: "100vh", color: "#222", textAlign: "left", maxWidth: "1100px", margin: "0 auto" }}>
+      <h2 style={{ textAlign: "center", marginBottom: "4px" }}>Checks</h2>
+      <p style={{ textAlign: "center", fontSize: "13px", color: "#666", marginTop: 0 }}>
+        Business checks. The ads checks (reviews, bid rules, harvest, TACOS) are on <Link to="/ads-reviews" style={{ color: "#1f5fbf" }}>Ads reviews</Link>.
+      </p>
+      <ChecksView area="business" kind={kind} period={period}
+        onKind={(k) => setParams({ kind: k })} onPeriod={(p) => setParams({ kind, period: p })} />
       <div style={{ display: "flex", justifyContent: "center", gap: "10px", padding: "16px 0" }}>
         <Link style={buttonStyle()} to="/">Home</Link>
         <Link style={buttonStyle()} to="/ads-reviews">Ads reviews</Link>

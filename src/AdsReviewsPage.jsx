@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { buttonStyle } from "./buttonStyle";
 import AdsChecklist from "./AdsChecklist";
+import { ChecksView } from "./ChecksPage";
 
 // Ads reviews (2026-10-18, per the user: "update the reviews to dedicated
 // page"). Every Monday review (weekly changes review with TACOS + home decor
@@ -28,7 +29,7 @@ const money = (v) => Number(v || 0).toLocaleString(undefined, { maximumFractionD
 
 function tacosColor(v, target) {
   if (v === null || v === undefined) return "#222";
-  if (v > target * 1.25) return "#b3261e";
+  if (v > target + 3) return "#b3261e";
   if (v > target) return "#b26a00";
   return "#1e7b34";
 }
@@ -38,7 +39,7 @@ function TacosTable({ rows }) {
   return (
     <div style={card}>
       <h3 style={{ marginTop: 0 }}>TACOS per marketplace</h3>
-      <div style={muted}>Ad spend / all sales (own currency). Green = on target, orange = above, red = more than 25% above.</div>
+      <div style={muted}>Ad spend / all sales (own currency). Target = 10% profit (marketplace departments weighted by sales). Green = on target, orange = up to 3 points above, red = more.</div>
       <table style={{ borderCollapse: "collapse", marginTop: "8px" }}>
         <thead>
           <tr>
@@ -65,7 +66,7 @@ function TacosTable({ rows }) {
 
 function SegmentTable({ rows, tacosRows }) {
   if (!rows?.length) return null;
-  const target = (m) => (tacosRows || []).find((t) => t.market === (m === "USA" ? "USA" : m))?.target ?? (["USA", "DE"].includes(m) ? 20 : 25);
+  const target = (m, r) => r?.target ?? (tacosRows || []).find((t) => t.market === m)?.target ?? 20;
   return (
     <div style={card}>
       <h3 style={{ marginTop: 0 }}>Home decor vs pareo</h3>
@@ -78,6 +79,7 @@ function SegmentTable({ rows, tacosRows }) {
             <tr>
               <th style={{ ...th, textAlign: "left" }} rowSpan={2}>Market</th>
               <th style={{ ...th, textAlign: "left" }} rowSpan={2}>Segment</th>
+              <th style={th} rowSpan={2}>Target TACOS</th>
               <th style={{ ...th, textAlign: "center" }} colSpan={4}>Last month</th>
               <th style={{ ...th, textAlign: "center" }} colSpan={4}>This month to date</th>
             </tr>
@@ -91,12 +93,13 @@ function SegmentTable({ rows, tacosRows }) {
             {rows.map((r) => (
               <tr key={`${r.market}-${r.segment}`} style={{ background: r.segment === "pareo" ? "#fafbfc" : "#fff" }}>
                 <td style={td}>{r.market}</td>
-                <td style={td}>{r.segment}</td>
+                <td style={td}>{r.status ? `${r.status} ` : ""}{r.segment}</td>
+                <td style={num}>{r.target == null ? "–" : `${r.target}%`}</td>
                 {["prev", "cur"].map((k) => [
                   <td key={`${k}s`} style={num}>{money(r[k].spend)}</td>,
                   <td key={`${k}t`} style={num}>{money(r[k].sales)}</td>,
                   <td key={`${k}a`} style={num}>{pct(r[k].acos)}</td>,
-                  <td key={`${k}c`} style={{ ...num, color: tacosColor(r[k].tacos, target(r.market)), fontWeight: 600 }}>{pct(r[k].tacos)}</td>,
+                  <td key={`${k}c`} style={{ ...num, color: tacosColor(r[k].tacos, target(r.market, r)), fontWeight: 600 }}>{pct(r[k].tacos)}</td>,
                 ])}
               </tr>
             ))}
@@ -166,6 +169,123 @@ function TextCard({ title, text, open = false }) {
   );
 }
 
+
+const PROPOSAL_KEY = import.meta.env.VITE_PROPOSAL_KEY || "";
+// Every number of the TACOS framework (per the user 2026-11-03: "lets make all
+// the numbers configurable") + the TACOS targets it produces.
+const RULE_LABELS = {
+  profitPct: ["Profit wanted after everything", "% of sales without VAT"],
+  gapPct: ["Overheads + real costs beyond the model", "% of sales"],
+  smallSales: ["Small market: under", "USD sales in 12 months → uses the EU/US target"],
+  minUnits: ["Units sold in the month for a raise / cut", "units"],
+  capAtMinUnits: ["Max bid change at that many units", "%"],
+  fullUnits: ["Units for the full cap", "units"],
+  capAtFullUnits: ["Max bid change at full units", "%"],
+  noSaleSpend: ["Ad spend with too few units → cut", "own currency"],
+  noSaleCut: ["That cut", "%"],
+  skipChangedDays: ["Don't touch bids changed in the last", "days"],
+  historyDays: ["History before a pause", "days"],
+  historyOrders: ["Orders in that history → pause is temporary", "orders"],
+  orangeBand: ["Orange up to target +", "points (above = red, only cuts)"],
+  growBand: ["Room to grow at target −", "points"],
+  pareoSeasonRestart: ["No pareo raises before", "date"],
+};
+
+function RulesCard() {
+  const [cfg, setCfg] = useState(null);
+  const [draft, setDraft] = useState({});
+  const [targets, setTargets] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [open, setOpen] = useState(false);
+  const load = () => {
+    fetch(`${API_BASE}/GetAdsRulesConfig`).then((r) => r.json()).then((d) => { setCfg(d.config); setDraft(d.config); });
+    fetch(`${API_BASE}/GetTacosTargets`).then((r) => r.json()).then((d) => !d.error && setTargets(d));
+  };
+  useEffect(load, []);
+  async function save() {
+    setMsg("Saving…");
+    const r = await fetch(`${API_BASE}/SetAdsRulesConfig?key=${encodeURIComponent(PROPOSAL_KEY)}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(draft),
+    });
+    const d = await r.json();
+    if (d.error) return setMsg(d.error);
+    setCfg(d.config);
+    setMsg("Saved. Recalculating the targets (about 5 minutes) – reload the page after that.");
+    fetch(`${API_BASE}/UpdateTacosTargets`).catch(() => {});
+  }
+  const rows = Object.entries(targets?.targets || {}).sort(([a], [b]) => a.localeCompare(b));
+  return (
+    <div style={card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setOpen((o) => !o)}>
+        <h3 style={{ margin: 0 }}>{open ? "▾" : "▸"} ⚙️ Rules & TACOS targets</h3>
+        {targets && <span style={muted}>targets from {targets.from} – {targets.to} · {targets.profitPct}% profit</span>}
+      </div>
+      {open && (
+        <>
+          <div style={{ ...muted, margin: "8px 0" }}>
+            Target TACOS = (profit before ads − profit% × sales without VAT − overheads% × sales) ÷ sales, per marketplace × department, last 12 months.
+            Keyword ACOS limit (used by bid raises, harvest, bid optimizer) = target TACOS ÷ the share of sales that comes through ads.
+            Monthly bid rule: new bid = bid × target ÷ item TACOS, capped by units sold.
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ borderCollapse: "collapse", marginBottom: "10px" }}>
+              <thead>
+                <tr>{["Market", "Dept", "Sales 12m", "Before ads", "Target TACOS", "TACOS 12m", "Ad share", "ACOS limit", "Source"].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map(([k, t]) => {
+                  const [mkt, dept] = k.split("|");
+                  return (
+                    <tr key={k}>
+                      <td style={td}>{mkt}</td>
+                      <td style={td}>{dept === "home" ? "home decor" : dept}</td>
+                      <td style={num}>${money(t.sales)}</td>
+                      <td style={num}>{pct(t.beforeAdsPct)}</td>
+                      <td style={{ ...num, fontWeight: 700 }}>{t.targetTacos}%</td>
+                      <td style={{ ...num, color: tacosColor(t.tacos, t.targetTacos) }}>{t.tacos}%</td>
+                      <td style={num}>{t.adShare == null ? "–" : `${t.adShare}%`}</td>
+                      <td style={num}>{t.acosLimit == null ? "–" : `${t.acosLimit}%`}</td>
+                      <td style={td}>{t.source === "own" ? "own" : `${t.source} value`}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {cfg && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "6px 16px" }}>
+              {Object.entries(RULE_LABELS).map(([k, [label, unit]]) => (
+                <label key={k} style={{ fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ flex: 1 }}>{label}</span>
+                  <input value={draft[k] ?? ""} onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
+                    style={{ width: k === "pareoSeasonRestart" ? "100px" : "60px", padding: "3px", textAlign: "right", background: "#fff", color: "#222", border: "1px solid #bbb", borderRadius: "4px" }} />
+                  <span style={{ ...muted, width: "120px" }}>{unit}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <div style={{ marginTop: "10px", display: "flex", gap: "10px", alignItems: "center" }}>
+            <button style={buttonStyle()} onClick={save}>Save & recalculate</button>
+            <span style={muted}>{msg}</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function AdsChecks() {
+  const [kind, setKind] = useState("monthly");
+  const [period, setPeriod] = useState("");
+  return (
+    <div style={card}>
+      <h3 style={{ marginTop: 0 }}>Ads checks & proposals</h3>
+      <div style={muted}>Weekly and monthly ads checks with their proposals – tick to approve, applied within 10 minutes.</div>
+      <ChecksView area="ads" kind={kind} period={period} onKind={(k) => { setKind(k); setPeriod(""); }} onPeriod={setPeriod} />
+    </div>
+  );
+}
+
 export default function AdsReviewsPage() {
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -217,6 +337,8 @@ export default function AdsReviewsPage() {
         <Link to="/" style={{ color: "#1a4fa0" }}>Home</Link> · <Link to="/ads-campaigns" style={{ color: "#1a4fa0" }}>Ads</Link>
       </div>
       <h2 style={{ marginTop: 0 }}>Ads reviews</h2>
+      <RulesCard />
+      <AdsChecks />
       <AdsChecklist />
       <div style={{ ...card, display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
         <label>
