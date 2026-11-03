@@ -605,19 +605,6 @@ function bottomNavStyle() {
   };
 }
 
-// Also used on a <Link> for the Home nav button (real <a>, so right-click
-// "open in new tab" works) - spelled out explicitly since Link doesn't pick
-// up App.css's generic `button` rule the way a real <button> does.
-const smallButtonStyle = buttonStyle;
-
-function updateButtonStyle() {
-  return {
-    padding: "6px 14px",
-    fontSize: "13px",
-    cursor: "pointer",
-    borderRadius: "8px",
-  };
-}
 
 function selectorStyle() {
   return {
@@ -1014,21 +1001,6 @@ export default function ReportViewPage() {
       });
   }, [mergedMpCounts]);
 
-  // Per the user: Sales and Update open in a new tab rather than navigating
-  // away from this report-view page. window.open (not <Link target="_blank">
-  // or navigate()) is used because a genuinely new tab has no react-router
-  // history of its own, so react-router's navigate(path, {state}) can't
-  // carry data into it - Update's report IDs/dates are passed as URL query
-  // params instead (UpdatePage reads either source, see its own comment).
-  // Sales needs no data at all (doesn't read location.state).
-  function goToSales() {
-    window.open("/sales", "_blank", "noopener,noreferrer");
-  }
-
-  function goToUpdate() {
-    const params = new URLSearchParams({ usaReportId, deReportId, startDate, endDate });
-    window.open(`/update?${params.toString()}`, "_blank", "noopener,noreferrer");
-  }
 
   useEffect(() => {
     function handleResize() {
@@ -1336,9 +1308,6 @@ export default function ReportViewPage() {
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "12px", marginBottom: "4px", flexWrap: "wrap" }}>
         <h2 style={{ margin: 0, color: "#1976d2" }}>Report View</h2>
-        <Link style={smallButtonStyle()} to="/">
-          Home
-        </Link>
       </div>
 
       <div
@@ -1537,12 +1506,6 @@ export default function ReportViewPage() {
       </div>
 
       <div style={bottomNavStyle()}>
-        <Link style={smallButtonStyle()} to="/">
-          Home
-        </Link>
-        <button style={smallButtonStyle()} onClick={goToSales}>
-          Sales
-        </button>
 
         <select
           value={selectedMarketplace}
@@ -1560,9 +1523,6 @@ export default function ReportViewPage() {
           ))}
         </select>
 
-        <button style={updateButtonStyle()} onClick={goToUpdate}>
-          Update
-        </button>
       </div>
     </div>
   );
