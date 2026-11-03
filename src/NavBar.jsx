@@ -12,6 +12,7 @@ export const MENU = [
       ["Sales overview", "/sales"],
       ["Product analytics", "/asin-analytics"],
       ["Returns", "/returns"],
+      ["Profit simulation", "/price-simulation"],
       ["Monthly sales report", "/"],
     ],
   },
