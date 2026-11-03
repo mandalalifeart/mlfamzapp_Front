@@ -1284,6 +1284,130 @@ function SupplierBalances({ onUploaded, onDelete, year }) {
   );
 }
 
+// Stock value at a date for the accounts (per the user 2026-11-03: the
+// year-end stock in the annual report was never counted). Backend:
+// StockValuation.py, one saved valuation per date (stock_valuations).
+function StockValuation() {
+  const [list, setList] = useState(null);
+  const [asOf, setAsOf] = useState("");
+  const [snap, setSnap] = useState(null);
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState(false);
+  const [section, setSection] = useState("all");
+
+  useEffect(() => {
+    fetch(`${API_BASE}/GetStockValuations`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) throw new Error(d.error);
+        setList(d.snapshots || []);
+        if (d.snapshots?.length) setAsOf(d.snapshots[0].asOf);
+      })
+      .catch((e) => setError(e.message));
+  }, []);
+
+  useEffect(() => {
+    if (!asOf) return;
+    setSnap(null);
+    fetch(`${API_BASE}/GetStockValuations?as_of=${asOf}`)
+      .then((r) => r.json())
+      .then((d) => (d.error ? setError(d.error) : setSnap(d)))
+      .catch((e) => setError(e.message));
+  }, [asOf]);
+
+  const rows = (snap?.rows || []).filter((r) => section === "all" || r.section === section);
+  const t = snap?.totals || {};
+
+  function downloadCsv() {
+    const head = ["SKU", "ASIN", "Group", "Section", "Units", "Units now", "Sold since", "Invoiced since", "FBA US", "FBA EU", "FBA UK",
+      "Price USD", "Price source", "Value USD", "Value EUR", "With duty+freight USD", "With duty+freight EUR"];
+    const lines = [head, ...rows.map((r) => [r.sku, r.asin, r.group, r.section, r.units, r.unitsNow, r.soldSince, r.invoicedSince,
+      r.fbaUS, r.fbaEU, r.fbaUK, r.price, r.priceSource, r.valueUsd, r.valueEur, r.landedUsd, r.landedEur])];
+    const csv = lines.map((l) => l.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `stock-value-${asOf}.csv`;
+    a.click();
+  }
+
+  return (
+    <div style={cardStyle({ marginTop: "16px" })}>
+      <h3 style={{ marginTop: 0 }}>📦 Stock value (for the accounts)</h3>
+      {error && <div style={{ color: "#c0392b" }}>{error}</div>}
+      {list && !list.length && <div>No stock valuation yet.</div>}
+      {list && list.length > 0 && (
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", marginBottom: "10px", fontSize: "14px" }}>
+          <label>Date{" "}
+            <select value={asOf} onChange={(e) => setAsOf(e.target.value)} style={{ padding: "4px" }}>
+              {list.map((s) => <option key={s.asOf + s.method} value={s.asOf}>{s.asOf} ({s.method === "backcalc" ? "worked back" : "snapshot"})</option>)}
+            </select>
+          </label>
+          {snap && <button onClick={downloadCsv} style={{ ...buttonStyle(), padding: "4px 10px", fontSize: "13px", width: "auto", margin: 0 }}>Download CSV</button>}
+        </div>
+      )}
+      {asOf && !snap && !error && <div>Loading…</div>}
+      {snap && (
+        <>
+          <div style={{ display: "flex", gap: "18px", flexWrap: "wrap", fontSize: "14px", marginBottom: "8px" }}>
+            <div>Units: <b>{Math.round(t.units).toLocaleString()}</b></div>
+            <div>At invoice price: <b>{formatMoney(t.valueEur, "EUR")}</b> <span style={{ color: "#777" }}>({formatMoney(t.valueUsd, "USD")})</span></div>
+            <div>With import duty + freight: <b>{formatMoney(t.landedEur, "EUR")}</b></div>
+            {Object.entries(t.bySection || {}).map(([k, v]) => (
+              <div key={k}>{k === "home" ? "Home decor" : k === "pareo" ? "Pareo" : k}: {Math.round(v.units).toLocaleString()} units, {formatMoney(v.valueEur, "EUR")}</div>
+            ))}
+          </div>
+          <div style={{ fontSize: "12px", color: "#666", lineHeight: 1.5, marginBottom: "8px" }}>
+            {snap.method === "backcalc"
+              ? <>Units on {snap.asOf} = units today (FBA + AWD + Lagerpark + on the way, all regions) + units sold after that date − units on supplier invoices dated after it.</>
+              : <>Units on {snap.asOf} = stock in every location that day (FBA + AWD + Lagerpark + on the way).</>}
+            {" "}Value = units × purchase price on the last Malani/Acacia invoice dated on or before {snap.asOf}; EUR at the ECB rate of that day
+            ({snap.eurPerUsd ? `1 USD = ${snap.eurPerUsd.toFixed(4)} EUR` : "–"}). Amazon's own ledger for that day shows FBA units
+            US {t.fbaUS ?? 0} · EU {t.fbaEU ?? 0} · UK {t.fbaUK ?? 0} (FBA warehouses only). Stock still at Malani (not invoiced) is not counted.
+            {t.medianPriced > 0 && ` ${Math.round(t.medianPriced)} units have no invoice price and use the median price of their section.`}
+          </div>
+          <button onClick={() => setOpen((o) => !o)} style={{ ...buttonStyle(), padding: "4px 10px", fontSize: "13px", width: "auto", margin: "0 8px 8px 0" }}>
+            {open ? "Hide products" : `Show ${snap.rows.length} products`}
+          </button>
+          {open && (
+            <>
+              <select value={section} onChange={(e) => setSection(e.target.value)} style={{ padding: "4px", marginBottom: "8px" }}>
+                <option value="all">All</option>
+                <option value="home">Home decor</option>
+                <option value="pareo">Pareo</option>
+              </select>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                  <thead>
+                    <tr>
+                      {["SKU", "Units", "Now / sold since / invoiced since", "FBA US/EU/UK", "Price", "Invoice", "Value €", "With duty+freight €"].map((h) => (
+                        <th key={h} style={tableCellStyle({ background: "#f6f8fb", fontSize: "12px" })}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.asin}>
+                        <td style={tableCellStyle()}>{r.sku}{r.endOfLife && <span style={{ color: "#b03a2e", fontSize: "10px", marginLeft: "4px" }}>EOL</span>}<div style={{ fontSize: "11px", color: "#888" }}>{r.group}</div></td>
+                        <td style={numberCellStyle({ fontWeight: 600 })}>{r.units}{r.clipped && <span title="Calculation went below 0 - set to 0" style={{ color: "#c0392b" }}> ⚠</span>}</td>
+                        <td style={numberCellStyle({ color: "#666" })}>{r.unitsNow} / {r.soldSince} / {r.invoicedSince}</td>
+                        <td style={numberCellStyle({ color: "#666" })}>{r.fbaUS} / {r.fbaEU} / {r.fbaUK}</td>
+                        <td style={numberCellStyle()}>{formatMoney(r.price, "USD")}</td>
+                        <td style={tableCellStyle({ fontSize: "12px", color: "#666" })}>{r.priceSource}</td>
+                        <td style={numberCellStyle()}>{formatMoney(r.valueEur, "EUR")}</td>
+                        <td style={numberCellStyle({ color: "#666" })}>{formatMoney(r.landedEur, "EUR")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function VatSummary({ rows, notRead, periodLabel }) {
   const kinds = [...new Set(rows.map((r) => r.kind))];
   return (
@@ -1801,6 +1925,7 @@ export default function WisePage() {
                 )}
                 <VatSummary rows={data.vatSummary || []} notRead={data.invoicesNotRead || 0} periodLabel={periodLabel} />
                 <SupplierBalances onDelete={deleteDocument} year={year} />
+                <StockValuation />
               </div>
               <p style={{ fontSize: "11px", color: "#999", marginTop: "12px" }}>
                 Each transaction is converted to EUR at the ECB reference rate on its own date (weekends use the
