@@ -1358,7 +1358,7 @@ function StockValuation() {
           </div>
           <div style={{ fontSize: "12px", color: "#666", lineHeight: 1.5, marginBottom: "8px" }}>
             {snap.method === "backcalc"
-              ? <>Units on {snap.asOf} = units today (FBA + AWD + Lagerpark + on the way, all regions) + units sold after that date − units on supplier invoices dated after it.</>
+              ? <>Units on {snap.asOf} = units today (FBA + AWD + Lagerpark + on the way, all regions) + units sold after that date − units on supplier invoices booked after it (goods that arrived later, e.g. MI/198, belong to the later period).</>
               : <>Units on {snap.asOf} = stock in every location that day (FBA + AWD + Lagerpark + on the way).</>}
             {" "}Value = units × purchase price on the last Malani/Acacia invoice dated on or before {snap.asOf}; EUR at the ECB rate of that day
             ({snap.eurPerUsd ? `1 USD = ${snap.eurPerUsd.toFixed(4)} EUR` : "–"}). Amazon's own ledger for that day shows FBA units
