@@ -153,9 +153,42 @@ const STATUS_STYLE = {
   rejected: ["rejected", "#999"],
 };
 
-// Proposals with checkboxes (per the user 2026-11-02): ticking = approved.
+// Proposals (per the user 2026-11-02, redesigned 2026-11-03: "too much
+// information and unreadable ... I want it inline with the recommendation"):
+// one card per recommendation with Approve / Reject right next to it, the
+// "why" in grey, the item list short (first 4, "+N more" opens the rest).
 // Approved proposals with an action are applied by the server within ~10 min;
 // the others ("by Claude") are done in the chat.
+const smallBtn = (bg, color, border) => ({
+  fontSize: "12px", cursor: "pointer", padding: "4px 10px", width: "auto", minWidth: 0, height: "auto",
+  background: bg, color, border: `1px solid ${border}`, borderRadius: "6px", flex: "0 0 auto", fontWeight: 600,
+});
+
+function splitTitle(t) {
+  // "US pareo: lower 307 bid(s), pause 17 – TACOS 26% vs target 17.0%" -> [what, why]
+  const m = String(t || "").split(/\s+[–-]\s+(?=[A-Z0-9])/);
+  return m.length > 1 ? [m[0], m.slice(1).join(" – ")] : [t, ""];
+}
+
+function DetailList({ text }) {
+  const [all, setAll] = useState(false);
+  const parts = String(text || "").replace(/\s*…$/, "").split(/;\s+/).filter(Boolean);
+  if (parts.length <= 1) return text ? <div style={{ fontSize: "12px", color: "#555", marginTop: "2px" }}>{text}</div> : null;
+  const shown = all ? parts : parts.slice(0, 4);
+  return (
+    <div style={{ fontSize: "12px", color: "#555", marginTop: "3px", display: "flex", flexWrap: "wrap", gap: "4px" }}>
+      {shown.map((x, i) => (
+        <span key={i} style={{ background: "#f3f5f9", borderRadius: "4px", padding: "1px 6px" }}>{x}</span>
+      ))}
+      {parts.length > 4 && (
+        <a href="#" onClick={(e) => { e.preventDefault(); setAll(!all); }} style={{ color: "#1f5fbf" }}>
+          {all ? "less" : `+${parts.length - 4} more`}
+        </a>
+      )}
+    </div>
+  );
+}
+
 function Proposals({ report }) {
   const [items, setItems] = useState(report.proposals || []);
   const [busy, setBusy] = useState(null);
@@ -178,52 +211,74 @@ function Proposals({ report }) {
       setBusy(null);
     }
   }
+  async function setMany(list, status) {
+    for (const p of list) await setStatus(p, status);
+  }
   if (!items.length) return null;
   const sections = [...new Set(items.map((p) => p.section || "Proposals"))];
-  const approved = items.filter((p) => p.status === "approved").length;
+  const open = items.filter((p) => p.status === "proposed").length;
   return (
-    <div style={{ marginTop: "14px", borderTop: "2px solid #e3e8f0", paddingTop: "10px" }}>
-      <div style={{ fontWeight: 700, marginBottom: "6px" }}>
-        Proposals ({items.length}) · tick to approve{approved ? ` · ${approved} approved, applied within ~10 min` : ""}
+    <div>
+      <div style={{ fontSize: "13px", color: "#555", margin: "2px 0 8px" }}>
+        {open} to decide · Approve = done automatically within ~10 min (or by Claude where marked)
       </div>
       {err && <div style={{ color: "#b00020" }}>{err}</div>}
-      {sections.map((sec) => (
-        <div key={sec} style={{ marginBottom: "8px" }}>
-          <div style={{ fontSize: "12px", color: "#666", textTransform: "uppercase", margin: "6px 0 2px" }}>{sec}</div>
-          {items
-            .filter((p) => (p.section || "Proposals") === sec)
-            .map((p) => {
+      {sections.map((sec) => {
+        const list = items.filter((p) => (p.section || "Proposals") === sec);
+        const pending = list.filter((p) => p.status === "proposed");
+        return (
+          <div key={sec} style={{ marginBottom: "14px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", margin: "8px 0 4px" }}>
+              <span style={{ fontWeight: 700, fontSize: "14px" }}>{sec}</span>
+              <span style={{ fontSize: "12px", color: "#888" }}>{list.length}</span>
+              {pending.length > 1 && (
+                <button style={smallBtn("#fff", "#1e8449", "#b5dcc3")} disabled={busy != null} onClick={() => setMany(pending, "approved")}>
+                  ✓ approve all {pending.length}
+                </button>
+              )}
+            </div>
+            {list.map((p) => {
               const [label, color] = STATUS_STYLE[p.status] || ["", "#555"];
               const locked = ["applied", "applying"].includes(p.status);
+              const [what, why] = splitTitle(p.title);
+              const decided = p.status !== "proposed";
               return (
-                <div key={p.id} style={{ display: "flex", gap: "8px", alignItems: "flex-start", padding: "5px 4px", borderBottom: "1px solid #f0f0f0", opacity: p.status === "rejected" ? 0.5 : 1 }}>
-                  <input
-                    type="checkbox"
-                    style={{ marginTop: "3px", width: "16px", height: "16px" }}
-                    checked={["approved", "applying", "applied"].includes(p.status)}
-                    disabled={locked || busy === p.id}
-                    onChange={(e) => setStatus(p, e.target.checked ? "approved" : "proposed")}
-                  />
-                  <div style={{ flex: 1 }}>
-                    <div>
-                      <strong>#{p.id}</strong> {p.title}{" "}
-                      <span style={{ fontSize: "11px", color: "#888" }}>{p.hasAction ? "(applied automatically)" : "(done by Claude after approval)"}</span>{" "}
-                      {label && <span style={{ fontSize: "12px", color, fontWeight: 600 }}>{label}</span>}
+                <div
+                  key={p.id}
+                  style={{
+                    display: "flex", gap: "10px", alignItems: "flex-start", padding: "8px 10px", marginBottom: "6px",
+                    border: "1px solid #e6eaf0", borderRadius: "8px",
+                    background: p.status === "approved" || p.status === "applied" ? "#f2faf5" : p.status === "rejected" ? "#fafafa" : "#fff",
+                    opacity: p.status === "rejected" ? 0.55 : 1,
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600 }}>
+                      {what}
+                      {!p.hasAction && <span style={{ fontSize: "11px", color: "#888", fontWeight: 400 }}> · by Claude</span>}
                     </div>
-                    {p.detail && <div style={{ fontSize: "12px", color: "#555" }}>{p.detail}</div>}
-                    {p.result && <div style={{ fontSize: "12px", color }}>{p.result}</div>}
+                    {why && <div style={{ fontSize: "12px", color: "#777" }}>{why}</div>}
+                    <DetailList text={p.detail} />
+                    {p.result && <div style={{ fontSize: "12px", color, marginTop: "3px" }}>{p.result}</div>}
                   </div>
-                  {!locked && p.status !== "rejected" && (
-                    <button onClick={() => setStatus(p, "rejected")} style={{ fontSize: "12px", cursor: "pointer", padding: "3px 8px", width: "auto", minWidth: 0, height: "auto", background: "#fff", color: "#b03a2e", border: "1px solid #e0b4ae", borderRadius: "6px", flex: "0 0 auto", fontWeight: 600 }} title="Reject - nothing will be done">✕ reject</button>
-                  )}
-                  {p.status === "rejected" && (
-                    <button onClick={() => setStatus(p, "proposed")} style={{ fontSize: "12px", cursor: "pointer", padding: "3px 8px", width: "auto", minWidth: 0, height: "auto", background: "#fff", color: "#1f5fbf", border: "1px solid #b8c8e6", borderRadius: "6px", flex: "0 0 auto", fontWeight: 600 }}>undo</button>
-                  )}
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center", flex: "0 0 auto" }}>
+                    {decided && label && <span style={{ fontSize: "12px", color, fontWeight: 700 }}>{label}</span>}
+                    {!decided && (
+                      <>
+                        <button style={smallBtn("#1e8449", "#fff", "#1e8449")} disabled={busy === p.id} onClick={() => setStatus(p, "approved")}>✓ Approve</button>
+                        <button style={smallBtn("#fff", "#b03a2e", "#e0b4ae")} disabled={busy === p.id} onClick={() => setStatus(p, "rejected")}>✕</button>
+                      </>
+                    )}
+                    {decided && !locked && (
+                      <button style={smallBtn("#fff", "#1f5fbf", "#b8c8e6")} disabled={busy === p.id} onClick={() => setStatus(p, "proposed")}>undo</button>
+                    )}
+                  </div>
                 </div>
               );
             })}
-        </div>
-      ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -252,7 +307,20 @@ function Section({ report, open, onToggle, period }) {
         </span>
         <ReplyLink ctx={ctx} label="💬 Reply" />
       </div>
-      {open && (
+      {open && report.proposals?.length > 0 && (
+        <div style={{ padding: "8px 14px 14px", fontSize: "13px", lineHeight: 1.45, borderTop: "1px solid #eee" }}>
+          {/* Recommendations first, the report itself behind "Full report"
+              (per the user 2026-11-03). Only the red/orange headline lines show. */}
+          {lines.filter((l) => /^\s*(🔴|🚨|❌|🚩)/.test(l)).slice(0, 6).map((l, i) => <Line key={i} text={l} ctx={ctx} />)}
+          <Proposals report={report} />
+          <details style={{ marginTop: "10px" }}>
+            <summary style={{ cursor: "pointer", color: "#555" }}>Full report</summary>
+            {report.tables?.length > 0 && report.tables.map((t, i) => <Table key={i} table={t} ctx={ctx} />)}
+            {lines.map((l, i) => (l.trim() ? <Line key={i} text={l} ctx={ctx} /> : <div key={i} style={{ height: "6px" }} />))}
+          </details>
+        </div>
+      )}
+      {open && !report.proposals?.length && (
         <div style={{ padding: "8px 14px 14px", fontSize: "13px", lineHeight: 1.45, borderTop: "1px solid #eee" }}>
           {report.tables?.length > 0 && report.tables.map((t, i) => <Table key={i} table={t} ctx={ctx} />)}
           {report.tables?.length > 0 ? (
@@ -263,7 +331,6 @@ function Section({ report, open, onToggle, period }) {
           ) : (
             lines.map((l, i) => (l.trim() ? <Line key={i} text={l} ctx={ctx} /> : <div key={i} style={{ height: "6px" }} />))
           )}
-          <Proposals report={report} />
         </div>
       )}
     </div>
