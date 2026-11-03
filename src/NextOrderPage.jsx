@@ -515,6 +515,7 @@ function ItemRow({ item, showAsin, onSave, focusRegion, onAddToMalani }) {
         <Link to={productLink(item)} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "none" }}>
           {item.sku}
         </Link>
+        {item.end_of_life && <span title="End of life - shown because a Next field is positive" style={{ marginLeft: "4px", fontSize: "9px", color: "#b03a2e", fontWeight: 700 }}>EOL</span>}
       </td>
       {showAsin && (
         <td style={tableCellStyle({ fontFamily: "monospace", fontSize: "10px" })}>{item.asin}</td>
@@ -746,7 +747,7 @@ function RecoExplanation({ nextShipmentDate, exampleItem }) {
 // GENERAL only the general columns. Both start with the product columns.
 const XLSX_PRODUCT_COLUMNS = [
   { header: "Group", key: "group", width: 16, value: (item, group) => group },
-  { header: "SKU", key: "sku", width: 26, value: (item) => item.sku },
+  { header: "SKU", key: "sku", width: 26, value: (item) => (item.end_of_life ? `${item.sku} (EOL)` : item.sku) },
   { header: "UPC", key: "upc", width: 16, value: (item) => item.upc || "" },
   { header: "Supplier SKU", key: "supplierSku", width: 16, value: (item) => item.supplier_sku || "" },
 ];
