@@ -184,6 +184,7 @@ const RULE_LABELS = {
   noSaleSpend: ["Ad spend with too few units → cut", "own currency"],
   noSaleCut: ["That cut", "%"],
   skipChangedDays: ["Don't touch bids changed in the last", "days"],
+  kwMinClicks: ["Keyword with at least", "clicks: own ACOS above the limit → lower instead of raise"],
   historyDays: ["History before a pause", "days"],
   historyOrders: ["Orders in that history → pause is temporary", "orders"],
   orangeBand: ["Orange up to target +", "points (above = red, only cuts)"],
