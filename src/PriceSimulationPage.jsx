@@ -8,6 +8,8 @@ import { Link } from "react-router-dom";
 // profit/unit = P/(1+VAT) - referral% x P - FBA fee - landed - ads/unit - other/unit
 // (ads + returns/storage per unit kept at the period's level).
 const LOCAL_API_BASE = "https://amzapi.mandalalifeart.com";
+const KEY = import.meta.env.VITE_PROPOSAL_KEY || "";
+const PAGE = "price-simulation";
 const MPS = ["US", "UK", "DE", "FR", "IT", "ES"];
 const SYM = { USD: "$", EUR: "€", GBP: "£" };
 
@@ -31,6 +33,26 @@ function priceForMargin(r, m, vat, opt) {
   return k > 0 ? costs / k : null;
 }
 
+// Notes the user leaves for themself (per the user 2026-11-03), stored in
+// PocketBase page_notes: "general" + one per product and marketplace.
+function NoteBox({ value, onSave, rows = 2, placeholder }) {
+  const [text, setText] = useState(value || "");
+  const [state, setState] = useState("");
+  useEffect(() => setText(value || ""), [value]);
+  const save = () => {
+    if (text.trim() === (value || "").trim()) return;
+    setState("saving…");
+    onSave(text).then(() => setState("saved ✓")).catch((e) => setState("not saved: " + e.message));
+  };
+  return (
+    <div>
+      <textarea value={text} rows={rows} placeholder={placeholder} onChange={(e) => setText(e.target.value)} onBlur={save}
+        style={{ width: "100%", boxSizing: "border-box", fontSize: "13px", padding: "6px", border: "1px solid #ccd3df", borderRadius: "6px", fontFamily: "inherit", background: "#fffdf3", color: "#222" }} />
+      {state && <div style={{ fontSize: "11px", color: "#7a8699" }}>{state}</div>}
+    </div>
+  );
+}
+
 const col = (v) => (v == null ? "#999" : v < 0 ? "#c0392b" : "#1e8449");
 
 export default function PriceSimulationPage() {
@@ -44,6 +66,23 @@ export default function PriceSimulationPage() {
   const [tierPrice, setTierPrice] = useState({});
   const [rowPrice, setRowPrice] = useState({});
   const [open, setOpen] = useState({});
+  const [notes, setNotes] = useState({});
+  const [noteOpen, setNoteOpen] = useState({});
+
+  useEffect(() => {
+    fetch(`${LOCAL_API_BASE}/GetPageNotes?page=${PAGE}`)
+      .then((r) => r.json())
+      .then((d) => d.notes && setNotes(Object.fromEntries(Object.entries(d.notes).map(([k, v]) => [k, v.text]))))
+      .catch(() => {});
+  }, []);
+
+  const saveNote = (noteKey, text) =>
+    fetch(`${LOCAL_API_BASE}/SetPageNote?key=${encodeURIComponent(KEY)}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ page: PAGE, noteKey, text }),
+    }).then((r) => r.json()).then((d) => {
+      if (d.error) throw new Error(d.error);
+      setNotes((n) => ({ ...n, [noteKey]: text.trim() }));
+    });
 
   useEffect(() => {
     setData(null);
@@ -98,7 +137,15 @@ export default function PriceSimulationPage() {
       <div style={{ fontSize: "13px", color: "#5a6780", marginBottom: "12px", lineHeight: 1.5 }}>
         Profit / unit = price w/o VAT − referral fee − FBA fee − landed cost − ads per unit − returns/storage per unit.
         Ads and returns per unit are the real ones of the period, kept the same at the new price; units are kept the same too
-        (a higher price may sell less). Type a price for a whole tier or per product.
+        (a higher price may sell less).
+        <br /><b>Prices:</b> the <span style={{ background: "#dbe7fb", padding: "0 4px", borderRadius: "3px" }}>blue box</span> in a
+        tier line sets the price for every product in that tier; it fills each product's box below (white, grey text = the price now
+        when empty). Typing in a product's box makes it <span style={{ background: "#fff3c4", padding: "0 4px", borderRadius: "3px" }}>yellow</span>:
+        that product keeps its own price even when the tier price changes. "Reset prices" clears everything. Nothing is sent to Amazon.
+      </div>
+      <div style={{ marginBottom: "12px" }}>
+        <div style={{ fontSize: "12px", fontWeight: 700, color: "#4a5870", marginBottom: "3px" }}>📝 My notes</div>
+        <NoteBox value={notes.general} rows={3} placeholder="Notes for yourself – saved when you click outside the box" onSave={(t) => saveNote("general", t)} />
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center", marginBottom: "12px", fontSize: "14px" }}>
@@ -165,7 +212,7 @@ export default function PriceSimulationPage() {
                         <td style={{ ...td, fontWeight: 700, color: col(c.mNow) }}>{c.mNow == null ? "–" : `${c.mNow.toFixed(0)}%`}</td>
                         <td style={td}>
                           {t.landed != null && (
-                            <input style={inp} placeholder="tier" value={tierPrice[t.key] ?? ""} onChange={(e) => setTierPrice((p) => ({ ...p, [t.key]: e.target.value }))} />
+                            <input style={{ ...inp, background: "#dbe7fb", color: "#1f2d45" }} placeholder="tier" value={tierPrice[t.key] ?? ""} onChange={(e) => setTierPrice((p) => ({ ...p, [t.key]: e.target.value }))} />
                           )}
                         </td>
                         <td style={td}></td>
@@ -182,11 +229,15 @@ export default function PriceSimulationPage() {
                         const fees = r.referralPct * r.price + r.fba;
                         const pt = priceForMargin(r, target, vat, opt);
                         const be = priceForMargin(r, 0, vat, opt);
+                        const nk = `${mp}|${r.asin}`;
                         return (
-                          <tr key={r.asin}>
+                          <Fragment key={r.asin}>
+                          <tr>
                             <td style={{ ...td, textAlign: "left", paddingLeft: "22px" }}>
                               <Link to={`/product?sku=${encodeURIComponent(r.sku)}`} target="_blank" rel="noopener noreferrer" style={{ color: "#1f2d45", textDecoration: "none" }}>{r.sku}</Link>
                               {r.endOfLife && <span style={{ marginLeft: "4px", fontSize: "9px", color: "#b03a2e", fontWeight: 700 }}>EOL</span>}
+                              <span onClick={() => setNoteOpen((o) => ({ ...o, [nk]: !o[nk] }))} title={notes[nk] || "Add a note"}
+                                style={{ marginLeft: "6px", cursor: "pointer", fontSize: "12px", opacity: notes[nk] ? 1 : 0.35 }}>💬</span>
                               {r.purchase != null && <span style={{ marginLeft: "6px", fontSize: "11px", color: "#7a8699" }} title={`Invoice ${r.invoice || ""}`}>buy ${r.purchase}</span>}
                             </td>
                             <td style={td}>{r.units}</td>
@@ -197,7 +248,7 @@ export default function PriceSimulationPage() {
                             <td style={{ ...td, color: col(a?.profit) }}>{fmt(a?.profit)}</td>
                             <td style={{ ...td, color: col(a?.margin) }}>{a?.margin == null ? "–" : `${a.margin.toFixed(0)}%`}</td>
                             <td style={td}>
-                              <input style={{ ...inp, background: rowPrice[r.asin] != null ? "#fff8e1" : "#fff" }} value={rowPrice[r.asin] ?? (tierPrice[t.key] || "")} placeholder={r.price.toFixed(2)}
+                              <input style={{ ...inp, background: rowPrice[r.asin] != null ? "#fff3c4" : "#fff", color: "#222" }} value={rowPrice[r.asin] ?? (tierPrice[t.key] || "")} placeholder={r.price.toFixed(2)}
                                 onChange={(e) => setRowPrice((p) => ({ ...p, [r.asin]: e.target.value }))} />
                             </td>
                             <td style={{ ...td, color: col(b?.profit), fontWeight: 600 }}>{fmt(b?.profit)}</td>
@@ -208,6 +259,16 @@ export default function PriceSimulationPage() {
                             <td style={td}>{fmt(pt)}</td>
                             <td style={td}>{fmt(be)}</td>
                           </tr>
+                          {(noteOpen[nk] || notes[nk]) && (
+                            <tr>
+                              <td colSpan={14} style={{ ...td, textAlign: "left", paddingLeft: "22px", whiteSpace: "normal" }}>
+                                {noteOpen[nk]
+                                  ? <NoteBox value={notes[nk]} placeholder={`Note for ${r.sku} (${mp})`} onSave={(t) => saveNote(nk, t)} />
+                                  : <span onClick={() => setNoteOpen((o) => ({ ...o, [nk]: true }))} style={{ cursor: "pointer", fontSize: "12px", color: "#6b5a1e", whiteSpace: "pre-wrap" }}>💬 {notes[nk]}</span>}
+                              </td>
+                            </tr>
+                          )}
+                          </Fragment>
                         );
                       })}
                     </Fragment>
