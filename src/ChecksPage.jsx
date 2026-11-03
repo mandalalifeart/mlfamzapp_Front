@@ -189,6 +189,48 @@ function DetailList({ text }) {
   );
 }
 
+// Per-keyword numbers inside a card (per the user 2026-11-03 "give more info
+// on bid raises"): first 8 rows, "+N more" shows the rest.
+function MiniTable({ columns, rows }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? rows : rows.slice(0, 8);
+  const num = (v) => typeof v === "number";
+  return (
+    <div style={{ overflowX: "auto", marginTop: "6px" }}>
+      <table style={{ borderCollapse: "collapse", fontSize: "12px", width: "100%" }}>
+        <thead>
+          <tr>
+            {columns.map((c, i) => (
+              <th key={i} style={{ background: "#f3f5f9", borderBottom: "1px solid #dde3ec", padding: "3px 6px", textAlign: i ? "right" : "left", whiteSpace: "nowrap", fontWeight: 600 }}>{c}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((r, ri) => (
+            <tr key={ri}>
+              {r.map((v, i) => {
+                const col = columns[i] || "";
+                const bold = /^(New bid|Change|Raise)$/.test(col);
+                const color = /^(Change|Raise)$/.test(col) ? (String(v).startsWith("-") ? "#b03a2e" : "#1e8449") : String(v).startsWith("pause") ? "#b03a2e" : undefined;
+                return (
+                  <td key={i} style={{ borderBottom: "1px solid #f0f2f5", padding: "3px 6px", textAlign: i && (num(v) || /%$/.test(String(v))) ? "right" : i ? "right" : "left", whiteSpace: /Products/.test(col) ? "normal" : "nowrap", fontWeight: bold ? 700 : 400, color, maxWidth: /Products/.test(col) ? "260px" : undefined }}>
+                    {v == null ? "-" : num(v) ? v.toLocaleString("en-US") : v}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length > 8 && (
+        <a href="#" onClick={(e) => { e.preventDefault(); setAll(!all); }} style={{ color: "#1f5fbf", fontSize: "12px" }}>
+          {all ? "show less" : `+${rows.length - 8} more`}
+        </a>
+      )}
+    </div>
+  );
+}
+
 function Proposals({ report }) {
   const [items, setItems] = useState(report.proposals || []);
   const [busy, setBusy] = useState(null);
@@ -258,7 +300,8 @@ function Proposals({ report }) {
                       {!p.hasAction && <span style={{ fontSize: "11px", color: "#888", fontWeight: 400 }}> · by Claude</span>}
                     </div>
                     {why && <div style={{ fontSize: "12px", color: "#777" }}>{why}</div>}
-                    <DetailList text={p.detail} />
+                    {p.why && <div style={{ fontSize: "11px", color: "#999" }}>{p.why}</div>}
+                    {p.rows?.length ? <MiniTable columns={p.columns || []} rows={p.rows} /> : <DetailList text={p.detail} />}
                     {p.result && <div style={{ fontSize: "12px", color, marginTop: "3px" }}>{p.result}</div>}
                   </div>
                   <div style={{ display: "flex", gap: "6px", alignItems: "center", flex: "0 0 auto" }}>
