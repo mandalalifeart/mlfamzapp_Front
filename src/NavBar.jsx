@@ -41,6 +41,7 @@ export const MENU = [
   {
     label: "✅ Reviews",
     items: [
+      ["📈 Sales & profit growth", "/growth"],
       ["Checks (weekly + monthly)", "/checks"],
       ["To-do list", "/todo"],
       ["Ads reviews + checklists", "/ads-reviews"],

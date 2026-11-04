@@ -28,6 +28,7 @@ import FbaShipmentsPage from "./FbaShipmentsPage";
 import FbaFeesPage from "./FbaFeesPage";
 import ChecksPage from "./ChecksPage";
 import TodoPage from "./TodoPage";
+import GrowthPage from "./GrowthPage";
 import PriceSimulationPage from "./PriceSimulationPage";
 import ImportShipmentsPage from "./ImportShipmentsPage";
 import AdsReviewsPage from "./AdsReviewsPage";
@@ -65,6 +66,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Route path="/fba-fees" element={<FbaFeesPage />} />
         <Route path="/checks" element={<ChecksPage />} />
         <Route path="/todo" element={<TodoPage />} />
+        <Route path="/growth" element={<GrowthPage />} />
         <Route path="/price-simulation" element={<PriceSimulationPage />} />
         <Route path="/shipments" element={<ImportShipmentsPage />} />
         <Route path="/ads-reviews" element={<AdsReviewsPage />} />
