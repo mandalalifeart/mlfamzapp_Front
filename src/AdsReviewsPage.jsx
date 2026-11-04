@@ -195,7 +195,11 @@ const RULE_LABELS = {
   historyOrders: ["Orders in that history → pause is temporary", "orders"],
   orangeBand: ["Orange up to target +", "points (above = red, only cuts)"],
   growBand: ["Room to grow at target −", "points"],
-  pareoSeasonRestart: ["No pareo raises before", "date"],
+  pareoSeasonStart: ["Pareo season starts", "MM-DD"],
+  pareoWinterStart: ["Pareo winter starts", "MM-DD"],
+  pareoWinterAcosPct: ["Pareo winter: targets at", "% of summer"],
+  pareoWinterMaxRaise: ["Pareo winter: max raise per step", "%"],
+  pareoWinterMinOrders: ["Pareo winter: raise only with at least", "orders"],
 };
 
 function RulesCard() {
@@ -234,6 +238,7 @@ function RulesCard() {
             Keyword ACOS limit (used by bid raises, harvest, bid optimizer) = break-even on the ad sale itself: profit before ads − gap% (SP keywords; the organic lift is the profit). Was target TACOS ÷ ad share until 2026-11-04.
             Monthly bid rule (SP): new bid = bid × target ÷ item TACOS (SP+SD spend only), capped by units sold.
             SB keywords are judged on their own ACOS against the SB ACOS limit (20%, exceptions per market); "SB ACOS @ profit%" = the ACOS that would leave that profit on SB sales (SB sales count as independent, ACOS = TACOS).
+            {targets?.pareoWinter?.active && <b> ❄️ Pareo winter until {targets.pareoWinter.until}: pareo targets and limits below are {targets.pareoWinter.pct}% of summer (summer value in the tooltip).</b>}
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ borderCollapse: "collapse", marginBottom: "10px" }}>
@@ -244,8 +249,8 @@ function RulesCard() {
                 {rows.map(([k, t]) => {
                   const [mkt, dept] = k.split("|");
                   return (
-                    <tr key={k}>
-                      <td style={td}>{mkt}</td>
+                    <tr key={k} title={t.winter ? `summer: target TACOS ${t.summerTargetTacos}%, SP limit ${t.summerAcosLimit ?? "–"}%, SB limit ${t.summerSbAcos ?? "–"}%` : undefined}>
+                      <td style={td}>{mkt}{t.winter ? " ❄️" : ""}</td>
                       <td style={td}>{dept === "home" ? "home decor" : dept}</td>
                       <td style={num}>${money(t.sales)}</td>
                       <td style={num}>{pct(t.beforeAdsPct)}</td>
@@ -268,7 +273,7 @@ function RulesCard() {
                 <label key={k} style={{ fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
                   <span style={{ flex: 1 }}>{label}</span>
                   <input value={draft[k] ?? ""} onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
-                    style={{ width: k === "sbAcosOverrides" ? "200px" : k === "pareoSeasonRestart" ? "100px" : "60px", padding: "3px", textAlign: "right", background: "#fff", color: "#222", border: "1px solid #bbb", borderRadius: "4px" }} />
+                    style={{ width: k === "sbAcosOverrides" ? "200px" : /^pareo(Season|Winter)Start$/.test(k) ? "70px" : "60px", padding: "3px", textAlign: "right", background: "#fff", color: "#222", border: "1px solid #bbb", borderRadius: "4px" }} />
                   <span style={{ ...muted, width: "120px" }}>{unit}</span>
                 </label>
               ))}
