@@ -61,6 +61,11 @@ function Cell({ v, col }) {
 
 function Table({ table, ctx }) {
   const [open, setOpen] = useState({});
+  const [onlyOpen, setOnlyOpen] = useState(() => { try { return localStorage.getItem("proposalsOnlyOpen") === "1"; } catch { return false; } });
+  function toggleOnlyOpen(v) {
+    setOnlyOpen(v);
+    try { localStorage.setItem("proposalsOnlyOpen", v ? "1" : "0"); } catch { /* ignore */ }
+  }
   const renderRow = (r, key, { child = false, group = null } = {}) => {
     const cells = Array.isArray(r) ? r : r.cells;
     const red = String(cells[0]).includes("🔴");
@@ -260,15 +265,10 @@ function MiniTable({ columns, rows, rowIds, onEdit }) {
   );
 }
 
-function Proposals({ report }) {
+function Proposals({ report, onlyOpen }) {
   const [items, setItems] = useState(report.proposals || []);
   const [busy, setBusy] = useState(null);
   const [err, setErr] = useState("");
-  const [onlyOpen, setOnlyOpen] = useState(() => { try { return localStorage.getItem("proposalsOnlyOpen") === "1"; } catch { return false; } });
-  function toggleOnlyOpen(v) {
-    setOnlyOpen(v);
-    try { localStorage.setItem("proposalsOnlyOpen", v ? "1" : "0"); } catch { /* ignore */ }
-  }
   async function setStatus(p, status) {
     setBusy(p.id);
     setErr("");
@@ -314,9 +314,6 @@ function Proposals({ report }) {
     <div>
       <div style={{ fontSize: "13px", color: "#555", margin: "2px 0 8px" }}>
         {open} to decide · Approve = done automatically within ~10 min (or by Claude where marked)
-        <label style={{ marginLeft: "12px", cursor: "pointer" }}>
-          <input type="checkbox" checked={onlyOpen} onChange={(e) => toggleOnlyOpen(e.target.checked)} /> only items to approve
-        </label>
       </div>
       {err && <div style={{ color: "#b00020" }}>{err}</div>}
       {sections.map((sec) => {
@@ -383,7 +380,7 @@ function Proposals({ report }) {
   );
 }
 
-function Section({ report, open, onToggle, period }) {
+function Section({ report, open, onToggle, period, onlyOpen }) {
   const lines = (report.text || "").split("\n");
   const ctx = `Checks ${period} › ${report.label}`;
   const title = lines.find((l) => l.trim()) || "";
@@ -412,7 +409,7 @@ function Section({ report, open, onToggle, period }) {
           {/* Recommendations first, the report itself behind "Full report"
               (per the user 2026-11-03). Only the red/orange headline lines show. */}
           {lines.filter((l) => /^\s*(🔴|🚨|❌|🚩)/.test(l)).slice(0, 6).map((l, i) => <Line key={i} text={l} ctx={ctx} />)}
-          <Proposals report={report} />
+          <Proposals report={report} onlyOpen={onlyOpen} />
           <details style={{ marginTop: "10px" }}>
             <summary style={{ cursor: "pointer", color: "#555" }}>Full report</summary>
             {report.tables?.length > 0 && report.tables.map((t, i) => <Table key={i} table={t} ctx={ctx} />)}
@@ -489,6 +486,9 @@ export function ChecksView({ area, kind, period, onKind, onPeriod }) {
       <div style={{ display: "flex", gap: "8px", justifyContent: "center", marginBottom: "12px", fontSize: "13px" }}>
         <button style={{ cursor: "pointer" }} onClick={() => setOpen(Object.fromEntries((data?.reports || []).map((r) => [r.job, true])))}>Open all</button>
         <button style={{ cursor: "pointer" }} onClick={() => setOpen({})}>Close all</button>
+        <label style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}>
+          <input type="checkbox" checked={onlyOpen} onChange={(e) => toggleOnlyOpen(e.target.checked)} /> only items to approve
+        </label>
       </div>
 
       {error && <div style={{ color: "#b00020", textAlign: "center" }}>{error}</div>}
@@ -498,8 +498,8 @@ export function ChecksView({ area, kind, period, onKind, onPeriod }) {
           {kind === "monthly" ? "Monthly checks run on the 2nd of each month; they will appear here then." : "No checks stored for this week."}
         </p>
       )}
-      {data?.reports?.map((r) => (
-        <Section key={r.job} report={r} period={data.period} open={!!open[r.job]} onToggle={() => setOpen((o) => ({ ...o, [r.job]: !o[r.job] }))} />
+      {data?.reports?.filter((r) => !onlyOpen || r.proposals?.some((p) => p.status === "proposed")).map((r) => (
+        <Section key={r.job} report={r} period={data.period} onlyOpen={onlyOpen} open={!!open[r.job]} onToggle={() => setOpen((o) => ({ ...o, [r.job]: !o[r.job] }))} />
       ))}
     </>
   );
