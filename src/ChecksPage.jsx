@@ -264,6 +264,11 @@ function Proposals({ report }) {
   const [items, setItems] = useState(report.proposals || []);
   const [busy, setBusy] = useState(null);
   const [err, setErr] = useState("");
+  const [onlyOpen, setOnlyOpen] = useState(() => { try { return localStorage.getItem("proposalsOnlyOpen") === "1"; } catch { return false; } });
+  function toggleOnlyOpen(v) {
+    setOnlyOpen(v);
+    try { localStorage.setItem("proposalsOnlyOpen", v ? "1" : "0"); } catch { /* ignore */ }
+  }
   async function setStatus(p, status) {
     setBusy(p.id);
     setErr("");
@@ -309,11 +314,16 @@ function Proposals({ report }) {
     <div>
       <div style={{ fontSize: "13px", color: "#555", margin: "2px 0 8px" }}>
         {open} to decide · Approve = done automatically within ~10 min (or by Claude where marked)
+        <label style={{ marginLeft: "12px", cursor: "pointer" }}>
+          <input type="checkbox" checked={onlyOpen} onChange={(e) => toggleOnlyOpen(e.target.checked)} /> only items to approve
+        </label>
       </div>
       {err && <div style={{ color: "#b00020" }}>{err}</div>}
       {sections.map((sec) => {
-        const list = items.filter((p) => (p.section || "Proposals") === sec);
-        const pending = list.filter((p) => p.status === "proposed");
+        const all = items.filter((p) => (p.section || "Proposals") === sec);
+        const pending = all.filter((p) => p.status === "proposed");
+        const list = onlyOpen ? pending : all;
+        if (!list.length) return null;
         return (
           <div key={sec} style={{ marginBottom: "14px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", margin: "8px 0 4px" }}>
