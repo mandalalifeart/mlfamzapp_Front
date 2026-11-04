@@ -303,6 +303,7 @@ export default function AdsReviewsPage() {
   const [date, setDate] = useState("");
   const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
+  const [showReview, setShowReview] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -351,6 +352,10 @@ export default function AdsReviewsPage() {
       <AdsChecks />
       <AdsChecklist />
       <div style={{ ...card, display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
+        <strong style={{ cursor: "pointer" }} onClick={() => setShowReview(!showReview)}>
+          {showReview ? "▾" : "▸"} Weekly review
+        </strong>
+        {showReview && <>
         <label>
           Review of{" "}
           <select
@@ -366,7 +371,9 @@ export default function AdsReviewsPage() {
           {previewing ? "Building…" : "Preview now"}
         </button>
         <span style={muted}>Saved every Monday after the Telegram review is sent. Preview builds today's review without sending it (about a minute).</span>
+        </>}
       </div>
+      {showReview && <>
       {loading && <div style={card}>Loading…</div>}
       {error && <div style={{ ...card, color: "#b3261e" }}>{error}</div>}
       {!loading && !changes && !bids && !error && <div style={card}>No saved reviews yet - the first one is saved on Monday, or use Preview now.</div>}
@@ -380,6 +387,7 @@ export default function AdsReviewsPage() {
       <LostExposureTable rows={changes?.data?.lostExposure} />
       <TextCard title={JOBS["weekly-changes-review"]} text={changes?.text} open />
       <TextCard title={JOBS["weekly-bid-change-summary"]} text={bids?.text} />
+      </>}
     </div>
   );
 }

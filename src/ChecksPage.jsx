@@ -206,7 +206,7 @@ function PctInput({ value, onSave }) {
       <input
         value={v} disabled={saving} onChange={(e) => setV(e.target.value)} onBlur={save}
         onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-        style={{ width: "46px", textAlign: "right", fontSize: "12px", fontWeight: 700, padding: "1px 3px", border: "1px solid #b8c8e6", borderRadius: "4px", color: Number(v) < 0 ? "#b03a2e" : "#1e8449" }}
+        style={{ width: "46px", textAlign: "right", fontSize: "12px", fontWeight: 700, padding: "1px 3px", border: "1px solid #b8c8e6", borderRadius: "4px", background: "#fff", color: Number(v) < 0 ? "#b03a2e" : "#1e8449" }}
       />%
     </span>
   );
