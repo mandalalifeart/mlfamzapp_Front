@@ -191,7 +191,28 @@ function DetailList({ text }) {
 
 // Per-keyword numbers inside a card (per the user 2026-11-03 "give more info
 // on bid raises"): first 8 rows, "+N more" shows the rest.
-function MiniTable({ columns, rows }) {
+function PctInput({ value, onSave }) {
+  const start = String(value ?? "").replace(/[+%]/g, "").replace(/^pause.*/, "");
+  const [v, setV] = useState(start);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setV(start), [start]);
+  async function save() {
+    if (v === start || v === "" || isNaN(Number(v))) { setV(start); return; }
+    setSaving(true);
+    try { await onSave(Number(v)); } catch { setV(start); } finally { setSaving(false); }
+  }
+  return (
+    <span style={{ whiteSpace: "nowrap" }}>
+      <input
+        value={v} disabled={saving} onChange={(e) => setV(e.target.value)} onBlur={save}
+        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+        style={{ width: "46px", textAlign: "right", fontSize: "12px", fontWeight: 700, padding: "1px 3px", border: "1px solid #b8c8e6", borderRadius: "4px", color: Number(v) < 0 ? "#b03a2e" : "#1e8449" }}
+      />%
+    </span>
+  );
+}
+
+function MiniTable({ columns, rows, rowIds, onEdit }) {
   const [all, setAll] = useState(false);
   const shown = all ? rows : rows.slice(0, 8);
   const num = (v) => typeof v === "number";
@@ -212,6 +233,14 @@ function MiniTable({ columns, rows }) {
                 const col = columns[i] || "";
                 const bold = /^(New bid|Change|Raise)$/.test(col);
                 const color = /^(Change|Raise)$/.test(col) ? (String(v).startsWith("-") ? "#b03a2e" : "#1e8449") : String(v).startsWith("pause") ? "#b03a2e" : undefined;
+                const rid = rowIds?.[ri];
+                if (onEdit && rid && /^(Change|Raise)$/.test(col)) {
+                  return (
+                    <td key={i} style={{ borderBottom: "1px solid #f0f2f5", padding: "2px 6px", textAlign: "right" }}>
+                      <PctInput value={v} onSave={(pct) => onEdit(rid, pct)} />
+                    </td>
+                  );
+                }
                 return (
                   <td key={i} style={{ borderBottom: "1px solid #f0f2f5", padding: "3px 6px", textAlign: i && (num(v) || /%$/.test(String(v))) ? "right" : i ? "right" : "left", whiteSpace: /Products/.test(col) ? "normal" : "nowrap", fontWeight: bold ? 700 : 400, color, maxWidth: /Products/.test(col) ? "260px" : undefined }}>
                     {v == null ? "-" : num(v) ? v.toLocaleString("en-US") : v}
@@ -251,6 +280,23 @@ function Proposals({ report }) {
       setErr(e.message);
     } finally {
       setBusy(null);
+    }
+  }
+  async function editRow(p, rowId, pct) {
+    setErr("");
+    try {
+      const r = await fetch(`${LOCAL_API_BASE}/SetCheckProposal?key=${encodeURIComponent(PROPOSAL_KEY)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportId: report.id, id: p.id, edit: { rowId, pct } }),
+      });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      const idx = (p.rowIds || []).indexOf(rowId);
+      setItems((xs) => xs.map((x) => (x.id === p.id ? { ...x, rows: x.rows.map((row, i) => (i === idx ? d.row : row)) } : x)));
+    } catch (e) {
+      setErr(e.message);
+      throw e;
     }
   }
   async function setMany(list, status) {
@@ -301,7 +347,8 @@ function Proposals({ report }) {
                     </div>
                     {why && <div style={{ fontSize: "12px", color: "#777" }}>{why}</div>}
                     {p.why && <div style={{ fontSize: "11px", color: "#999" }}>{p.why}</div>}
-                    {p.rows?.length ? <MiniTable columns={p.columns || []} rows={p.rows} /> : <DetailList text={p.detail} />}
+                    {p.rows?.length ? <MiniTable columns={p.columns || []} rows={p.rows} rowIds={p.rowIds}
+                      onEdit={!decided && p.hasAction && p.rowIds ? (rid, pct) => editRow(p, rid, pct) : null} /> : <DetailList text={p.detail} />}
                     {p.result && <div style={{ fontSize: "12px", color, marginTop: "3px" }}>{p.result}</div>}
                   </div>
                   <div style={{ display: "flex", gap: "6px", alignItems: "center", flex: "0 0 auto" }}>

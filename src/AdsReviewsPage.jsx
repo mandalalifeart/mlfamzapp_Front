@@ -231,14 +231,14 @@ function RulesCard() {
         <>
           <div style={{ ...muted, margin: "8px 0" }}>
             Target TACOS = (profit before ads − profit% × sales without VAT − overheads% × sales) ÷ sales, per marketplace × department, last 12 months.
-            Keyword ACOS limit (used by bid raises, harvest, bid optimizer) = target TACOS ÷ the share of sales that comes through ads.
+            Keyword ACOS limit (used by bid raises, harvest, bid optimizer) = break-even on the ad sale itself: profit before ads − gap% (SP keywords; the organic lift is the profit). Was target TACOS ÷ ad share until 2026-11-04.
             Monthly bid rule (SP): new bid = bid × target ÷ item TACOS (SP+SD spend only), capped by units sold.
             SB keywords are judged on their own ACOS against the SB ACOS limit (20%, exceptions per market); "SB ACOS @ profit%" = the ACOS that would leave that profit on SB sales (SB sales count as independent, ACOS = TACOS).
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ borderCollapse: "collapse", marginBottom: "10px" }}>
               <thead>
-                <tr>{["Market", "Dept", "Sales 12m", "Before ads", "Target TACOS", "TACOS 12m", "Ad share", "ACOS limit", "SB ACOS limit", "SB ACOS @ profit%", "Source"].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
+                <tr>{["Market", "Dept", "Sales 12m", "Before ads", "Target TACOS", "TACOS 12m", "Ad share", "SP ACOS limit (break-even)", "SB ACOS limit", "SB ACOS @ profit%", "Source"].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {rows.map(([k, t]) => {
