@@ -69,9 +69,10 @@ function monthTotal(monthData, mps, dept) {
   return t;
 }
 
-// Before productAdsFrom (2026-01) there is no ad data per product: use the
-// marketplaces' total ad spend (country_sales) when all products are shown;
-// with one department picked those months are profit BEFORE ads.
+// "All products" uses the marketplaces' total ad spend (country_sales) in every
+// month, so both years are measured the same way. Per department the product
+// ad cost is used; before productAdsFrom (2026-01) there is none, so those
+// months are profit BEFORE ads.
 let PPC = {}, ADS_FROM = "2026-01";
 
 function sumMonths(months, keys, mps, dept) {
@@ -79,8 +80,8 @@ function sumMonths(months, keys, mps, dept) {
   let beforeAds = false;
   for (const k of keys) {
     const m = monthTotal(months[k], mps, dept);
-    if (k < ADS_FROM && months[k]) {
-      if (dept === "all") {
+    if (months[k] && (dept === "all" || k < ADS_FROM)) {
+      if (dept === "all" && PPC[k]) {
         m.ads = Object.entries(PPC[k] || {}).reduce((s, [mp, v]) => (mps && !mps.includes(mp) ? s : s + v), 0);
         m.sbAds = 0;
       } else beforeAds = true;
@@ -327,8 +328,8 @@ export default function GrowthPage() {
             the same formula as the product page and the monthly profit on /checks. Data starts January 2025, so growth % starts in 2026.
             * = current month, not finished (left out of the year totals). FBA storage for a month arrives on the 10th of the next month.
             {view.noCost > 0 && ` ${Math.round(view.noCost)} units this year have no product cost (not mapped / no supplier invoice), so their profit is too high.`}
-            {" "}Before 2026 there is no ad cost per product: with "All products" the marketplace's total ad spend is used;
-            with one department picked, 2025 profit is before ads (marked †, no growth % shown).
+            {" "}Ads: with "All products" the marketplaces' total ad spend per month (all ad types) is used, the same way in both years;
+            per department the product ad cost (SP/SD + SB share) is used, which only exists from 2026 - so 2025 department profit is before ads (marked †, no growth % shown).
             {" "}Etsy and new platforms are not in here yet.
           </div>
         </>
