@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 
 // App-wide menu (per the user 2026-11-02: "the home page links are a full mess").
 // Footer shortcuts on every page, in one line with the Menu button (per the user 2026-11-02).
-const SHORTCUTS = [["📈", "Sales", "/sales"], ["📦", "Next order", "/next-order"], ["📣", "Ads campaigns", "/ads-campaigns"], ["✅", "Checks", "/checks"]];
+const SHORTCUTS = [["🏠", "Home", "/"], ["📈", "Sales", "/sales"], ["📦", "Next order", "/next-order"], ["📣", "Ads campaigns", "/ads-campaigns"]];
 
 export const MENU = [
   {
