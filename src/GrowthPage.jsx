@@ -84,7 +84,7 @@ function sumMonths(months, keys, mps, dept) {
       if (dept === "all" && PPC[k]) {
         m.ads = Object.entries(PPC[k] || {}).reduce((s, [mp, v]) => (mps && !mps.includes(mp) ? s : s + v), 0);
         m.sbAds = 0;
-      } else beforeAds = true;
+      } else if (k < ADS_FROM) beforeAds = true;
     }
     add(t, m);
   }
