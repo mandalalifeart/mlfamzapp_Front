@@ -61,11 +61,6 @@ function Cell({ v, col }) {
 
 function Table({ table, ctx }) {
   const [open, setOpen] = useState({});
-  const [onlyOpen, setOnlyOpen] = useState(() => { try { return localStorage.getItem("proposalsOnlyOpen") === "1"; } catch { return false; } });
-  function toggleOnlyOpen(v) {
-    setOnlyOpen(v);
-    try { localStorage.setItem("proposalsOnlyOpen", v ? "1" : "0"); } catch { /* ignore */ }
-  }
   const renderRow = (r, key, { child = false, group = null } = {}) => {
     const cells = Array.isArray(r) ? r : r.cells;
     const red = String(cells[0]).includes("🔴");
@@ -440,6 +435,11 @@ export function ChecksView({ area, kind, period, onKind, onPeriod }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [open, setOpen] = useState({});
+  const [onlyOpen, setOnlyOpen] = useState(() => { try { return localStorage.getItem("proposalsOnlyOpen") === "1"; } catch { return false; } });
+  function toggleOnlyOpen(v) {
+    setOnlyOpen(v);
+    try { localStorage.setItem("proposalsOnlyOpen", v ? "1" : "0"); } catch { /* ignore */ }
+  }
 
   useEffect(() => {
     setData(null);
