@@ -104,6 +104,11 @@ function PricePlan({ data, days, mp, notes, saveNote, fmt }) {
   return (
     <div style={{ border: "1px solid #d6dde8", borderRadius: "8px", padding: "10px 12px", marginBottom: "14px", background: "#fff" }}>
       <div style={{ fontWeight: 700, fontSize: "15px", marginBottom: "4px" }}>📋 Price plan · {mp} · last {days} days</div>
+      {["DE", "FR", "IT", "ES"].includes(mp) && (
+        <div style={{ fontSize: "12px", background: "#fff4dc", color: "#6b4a00", padding: "6px 8px", borderRadius: "5px", marginBottom: "6px" }}>
+          ⚠️ {mp} prices come from Build International Listings (BIL), copied from Germany. Claude never changes them by API. A new price is set by you in Seller Central on the <b>DE</b> listing, and BIL copies it to FR/IT/ES/NL/BE. FR/IT/ES must stay equal to DE.
+        </div>
+      )}
       <div style={{ fontSize: "12px", color: "#5a6780", lineHeight: 1.5, marginBottom: "8px" }}>
         <b>B</b> ads per unit above 28% of the price (w/o VAT) → fix ads, keep the price ·
         <b> C</b> ads under 12%, margin after ads above 30%, 3+ sold a month → test +7% for 4 weeks (keep it if units drop less than 10%) ·
