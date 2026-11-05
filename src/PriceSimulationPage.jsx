@@ -53,6 +53,116 @@ function NoteBox({ value, onSave, rows = 2, placeholder }) {
   );
 }
 
+// Price plan (per the user 2026-11-05, rules A-E agreed in chat). Thresholds are
+// relative to the price without VAT so they work in every currency
+// (US $69.99 → ads > ~$20/unit = B, ads < ~$8/unit = C).
+//   B fix ads first   ads/unit > 28% of net price → keep the price, cut ads (TACOS rule)
+//   C test +7%        ads/unit < 12% of net, margin after ads > 30%, >= 3 units/month → price x1.07 (x.99), 4 weeks
+//   D coupon 10%      < 5 units/month and >= 15 in stock → 10% coupon for a month (no price cut)
+//   E wait            price changed in the last 14 days → no new change yet
+//   A keep            everything else
+const PLAN_INFO = {
+  B: { label: "Fix ads first", color: "#c0392b", bg: "#fdecea" },
+  C: { label: "Test higher price", color: "#1e8449", bg: "#e8f6ee" },
+  D: { label: "10% coupon, 1 month", color: "#8a5a00", bg: "#fff4dc" },
+  E: { label: "Wait (price just changed)", color: "#5a6780", bg: "#eef1f5" },
+  A: { label: "Keep price", color: "#5a6780", bg: "#f6f8fb" },
+};
+
+const up99 = (x) => Math.ceil(x) - 0.01;
+
+function planFor(r, vat, days) {
+  if (r.landed == null || !r.price) return null;
+  const net = r.price / (1 + vat);
+  const perMonth = (r.units || 0) / (days / 30);
+  const p = profitAt(r, r.price, vat, { ads: true, other: true });
+  const changedDays = r.priceSince ? (Date.now() - new Date(r.priceSince)) / 86400000 : 999;
+  if (r.units && r.adsPerUnit > 0.28 * net) return { action: "B", why: `ads ${r.adsPerUnit.toFixed(2)}/unit = ${(r.adsPerUnit / net * 100).toFixed(0)}% of the price w/o VAT`, target: r.price };
+  if (changedDays < 14) return { action: "E", why: `price changed ${r.priceSince}`, target: r.price };
+  if (perMonth >= 3 && r.adsPerUnit < 0.12 * net && p && p.margin > 30)
+    return { action: "C", why: `margin ${p.margin.toFixed(0)}%, ads only ${(r.adsPerUnit / net * 100).toFixed(0)}% of price, ${perMonth.toFixed(1)}/month`, target: up99(r.price * 1.07) };
+  if (perMonth < 5 && (r.stock || 0) >= 15 && !r.endOfLife)
+    return { action: "D", why: `${perMonth.toFixed(1)} sold/month, ${r.stock} in stock`, target: +(r.price * 0.9).toFixed(2) };
+  return { action: "A", why: p ? `margin ${p.margin.toFixed(0)}%` : "", target: r.price };
+}
+
+function PricePlan({ data, days, mp, notes, saveNote, fmt }) {
+  const [show, setShow] = useState({ A: false, E: false });
+  const [edit, setEdit] = useState({});
+  const rows = data.rows.map((r) => ({ r, plan: planFor(r, data.vat || 0, days) })).filter((x) => x.plan);
+  const groups = ["B", "C", "D", "E", "A"].map((a) => ({ a, items: rows.filter((x) => x.plan.action === a) }));
+  const keyOf = (r) => `plan|${mp}|${r.asin}`;
+  const approved = (r) => (notes[keyOf(r)] || "").startsWith("approved");
+  const toggle = (r, plan) => {
+    const target = parseFloat(edit[r.asin] ?? plan.target);
+    saveNote(keyOf(r), approved(r) ? "" : `approved|${plan.action}|${target.toFixed(2)}|${new Date().toISOString().slice(0, 10)}`);
+  };
+  const nApproved = rows.filter((x) => approved(x.r)).length;
+  return (
+    <div style={{ border: "1px solid #d6dde8", borderRadius: "8px", padding: "10px 12px", marginBottom: "14px", background: "#fff" }}>
+      <div style={{ fontWeight: 700, fontSize: "15px", marginBottom: "4px" }}>📋 Price plan · {mp} · last {days} days</div>
+      <div style={{ fontSize: "12px", color: "#5a6780", lineHeight: 1.5, marginBottom: "8px" }}>
+        <b>B</b> ads per unit above 28% of the price (w/o VAT) → fix ads, keep the price ·
+        <b> C</b> ads under 12%, margin after ads above 30%, 3+ sold a month → test +7% for 4 weeks (keep it if units drop less than 10%) ·
+        <b> D</b> under 5 a month with 15+ in stock → 10% coupon for a month, not a price cut ·
+        <b> E</b> price changed in the last 14 days → wait · <b>A</b> keep. Never change price and bids of one product in the same 2 weeks.
+        Tick ✓ the ones to do; Claude applies them when you say "do the price plan" ({nApproved} ticked).
+      </div>
+      {groups.map(({ a, items }) => {
+        if (!items.length) return null;
+        const info = PLAN_INFO[a];
+        const collapsed = (a === "A" || a === "E") && !show[a];
+        return (
+          <div key={a} style={{ marginBottom: "8px" }}>
+            <div onClick={() => setShow((s) => ({ ...s, [a]: !s[a] }))} style={{ cursor: "pointer", fontWeight: 700, fontSize: "13px", color: info.color, background: info.bg, padding: "4px 8px", borderRadius: "5px" }}>
+              {a} · {info.label} ({items.length}){(a === "A" || a === "E") ? (collapsed ? " ▸" : " ▾") : ""}
+            </div>
+            {!collapsed && (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                  <tbody>
+                    {items.sort((x, y) => (y.r.units || 0) - (x.r.units || 0)).map(({ r, plan }) => {
+                      const now = profitAt(r, r.price, data.vat || 0, { ads: true, other: true });
+                      const before = profitAt(r, r.price, data.vat || 0, { ads: false, other: true });
+                      const ok = approved(r);
+                      return (
+                        <tr key={r.asin} style={{ background: ok ? "#eaf7ee" : undefined }}>
+                          <td style={{ ...td, textAlign: "left" }}>
+                            <Link to={`/product?sku=${encodeURIComponent(r.sku)}`} target="_blank" rel="noopener noreferrer" style={{ color: "#1f2d45", textDecoration: "none" }}>{r.sku}</Link>
+                            <div style={{ fontSize: "11px", color: "#7a8699" }}>{plan.why}</div>
+                          </td>
+                          <td style={td} title="units in the period">{r.units} sold</td>
+                          <td style={td}>{fmt(r.price)}</td>
+                          <td style={td} title="profit per unit before ads">before ads <b style={{ color: col(before?.profit) }}>{fmt(before?.profit)}</b></td>
+                          <td style={td} title="ads per unit">ads {fmt(r.adsPerUnit)}</td>
+                          <td style={td} title="profit per unit after ads">after <b style={{ color: col(now?.profit) }}>{fmt(now?.profit)}</b></td>
+                          <td style={td}>
+                            {(a === "C" || a === "D") ? (
+                              <>{a === "D" ? "coupon → " : "→ "}<input style={{ ...inp, background: "#fff", color: "#222" }} disabled={ok}
+                                value={edit[r.asin] ?? plan.target.toFixed(2)} onChange={(e) => setEdit((s) => ({ ...s, [r.asin]: e.target.value }))} /></>
+                            ) : "–"}
+                          </td>
+                          <td style={td}>
+                            {(a === "B" || a === "C" || a === "D") && (
+                              <label style={{ cursor: "pointer", fontSize: "12px" }}>
+                                <input type="checkbox" checked={ok} onChange={() => toggle(r, plan)} /> {ok ? "approved" : "approve"}
+                              </label>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 const col = (v) => (v == null ? "#999" : v < 0 ? "#c0392b" : "#1e8449");
 
 export default function PriceSimulationPage() {
@@ -172,6 +282,7 @@ export default function PriceSimulationPage() {
 
       {data && (
         <>
+          <PricePlan data={data} days={days} mp={mp} notes={notes} saveNote={saveNote} fmt={fmt} />
           <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", marginBottom: "10px", fontSize: "14px" }}>
             <div>Period {data.start} → {data.end}</div>
             <div>Total profit now: <b style={{ color: col(gNow) }}>{fmt(gNow, 0)}</b></div>
