@@ -93,10 +93,13 @@ function PricePlan({ data, days, mp, notes, saveNote, fmt }) {
   const groups = ["B", "C", "D", "E", "A"].map((a) => ({ a, items: rows.filter((x) => x.plan.action === a) }));
   const keyOf = (r) => `plan|${mp}|${r.asin}`;
   const approved = (r) => (notes[keyOf(r)] || "").startsWith("approved");
-  const toggle = (r, plan) => {
-    const target = parseFloat(edit[r.asin] ?? plan.target);
-    saveNote(keyOf(r), approved(r) ? "" : `approved|${plan.action}|${target.toFixed(2)}|${new Date().toISOString().slice(0, 10)}`);
-  };
+  // The suggested target can be overridden (per the user 2026-11-05): the typed
+  // value is what gets approved; editing an approved row re-saves it on blur.
+  const storedTarget = (r) => { const p = (notes[keyOf(r)] || "").split("|"); return p[0] === "approved" && p[2] ? p[2] : null; };
+  const targetOf = (r, plan) => { const v = parseFloat(edit[r.asin] ?? storedTarget(r) ?? plan.target); return v > 0 ? v : plan.target; };
+  const approveText = (r, plan) => `approved|${plan.action}|${targetOf(r, plan).toFixed(2)}|${new Date().toISOString().slice(0, 10)}`;
+  const toggle = (r, plan) => saveNote(keyOf(r), approved(r) ? "" : approveText(r, plan));
+  const resave = (r, plan) => { if (approved(r) && edit[r.asin] != null && storedTarget(r) !== targetOf(r, plan).toFixed(2)) saveNote(keyOf(r), approveText(r, plan)); };
   const nApproved = rows.filter((x) => approved(x.r)).length;
   return (
     <div style={{ border: "1px solid #d6dde8", borderRadius: "8px", padding: "10px 12px", marginBottom: "14px", background: "#fff" }}>
@@ -106,7 +109,7 @@ function PricePlan({ data, days, mp, notes, saveNote, fmt }) {
         <b> C</b> ads under 12%, margin after ads above 30%, 3+ sold a month → test +7% for 4 weeks (keep it if units drop less than 10%) ·
         <b> D</b> under 5 a month with 15+ in stock → 10% coupon for a month, not a price cut ·
         <b> E</b> price changed in the last 14 days → wait · <b>A</b> keep. Never change price and bids of one product in the same 2 weeks.
-        Tick ✓ the ones to do; Claude applies them when you say "do the price plan" ({nApproved} ticked).
+        For C and D you can type your own price instead of the suggested one (yellow = changed; it is saved with the tick, and re-saved if you change it after ticking). Tick ✓ the ones to do; Claude applies them when you say "do the price plan" ({nApproved} ticked).
       </div>
       {groups.map(({ a, items }) => {
         if (!items.length) return null;
@@ -138,8 +141,11 @@ function PricePlan({ data, days, mp, notes, saveNote, fmt }) {
                           <td style={td} title="profit per unit after ads">after <b style={{ color: col(now?.profit) }}>{fmt(now?.profit)}</b></td>
                           <td style={td}>
                             {(a === "C" || a === "D") ? (
-                              <>{a === "D" ? "coupon → " : "→ "}<input style={{ ...inp, background: "#fff", color: "#222" }} disabled={ok}
-                                value={edit[r.asin] ?? plan.target.toFixed(2)} onChange={(e) => setEdit((s) => ({ ...s, [r.asin]: e.target.value }))} /></>
+                              <>{a === "D" ? "coupon → " : "→ "}<input title={`Suggested ${plan.target.toFixed(2)} – type your own price`}
+                                style={{ ...inp, background: (edit[r.asin] ?? storedTarget(r)) != null && parseFloat(edit[r.asin] ?? storedTarget(r)) !== plan.target ? "#fff3c4" : "#fff", color: "#222" }}
+                                value={edit[r.asin] ?? storedTarget(r) ?? plan.target.toFixed(2)} onChange={(e) => setEdit((s) => ({ ...s, [r.asin]: e.target.value }))} onBlur={() => resave(r, plan)} />
+                                {a === "C" && (() => { const t = profitAt(r, targetOf(r, plan), data.vat || 0, { ads: true, other: true }); return t ? <span style={{ marginLeft: "6px", fontSize: "12px", color: col(t.profit) }} title="profit per unit after ads at this price">{fmt(t.profit)}</span> : null; })()}
+                                {parseFloat(edit[r.asin] ?? storedTarget(r) ?? plan.target) !== plan.target && <span style={{ marginLeft: "4px", fontSize: "11px", color: "#7a8699" }}>(suggested {plan.target.toFixed(2)})</span>}</>
                             ) : "–"}
                           </td>
                           <td style={td}>
