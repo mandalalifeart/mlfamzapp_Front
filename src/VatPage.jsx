@@ -94,6 +94,32 @@ const UK_BOXES = [
   ["9", "NI acquisitions from EU, excl. VAT"],
 ];
 
+// Exact HMRC box texts, as in the box CSV the UK VAT software exports
+// (~/accounting/vat/submitted/UK_MM_MM_MM_YY.csv) - the download uses this format.
+const HMRC_BOX_TEXT = {
+  1: "VAT due on sales and other outputs",
+  2: "VAT due on intra-community acquisitions of goods made in Northern Ireland from EU Member States",
+  3: "Total VAT due",
+  4: "VAT reclaimed on purchases and other inputs",
+  5: "Net VAT to be paid to Customs or reclaimed by you",
+  6: "Total value of sales and all other outputs excluding any VAT",
+  7: "Total value of purchases and all other inputs excluding any VAT",
+  8: "Total value of intra-community dispatches of goods and related costs, excluding any VAT, from Northern Ireland to EU Member States",
+  9: "Total value of intra-community acquisitions of goods and related costs, excluding any VAT, made in Northern Ireland from EU Member States",
+};
+
+function downloadBoxCsv(fileName, boxes) {
+  const q = (t) => (/[",]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t);
+  const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+  const text = Object.keys(HMRC_BOX_TEXT).map((b) => `BOX ${b},${q(HMRC_BOX_TEXT[b])},${r2(boxes[b])}`).join("\r\n") + "\r\n";
+  const url = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function UkVatBoxes({ allRates, deductible, year, submitted, manual }) {
   const quarters = [[2, 3, 4], [5, 6, 7], [8, 9, 10], [11, 12, 13]].map((ms) =>
     ms.map((m) => (m > 12 ? `${Number(year) + 1}-${String(m - 12).padStart(2, "0")}` : `${year}-${String(m).padStart(2, "0")}`))
@@ -110,6 +136,20 @@ function UkVatBoxes({ allRates, deductible, year, submitted, manual }) {
     return { 1: b1, 2: 0, 3: b1, 4: b4, 5: b1 - b4, 6: sumRates(q, "net"), 7: importValue || null, 8: 0, 9: 0 };
   };
   const filed = (q) => (submitted || []).find((x) => x.months.join() === q.join());
+  // Box values as shown in the table (filed Box 4/7 trusted), with 3 = 1 + 2
+  // and 5 = 3 - 4 so the file adds up.
+  const shown = (q) => {
+    const c = computed(q);
+    const f = filed(q)?.boxes || {};
+    const v = { ...c, 7: c[7] || 0 };
+    if (f["4"] !== undefined) v[4] = f["4"];
+    if (f["7"] !== undefined) v[7] = f["7"];
+    v[3] = v[1] + v[2];
+    v[5] = v[3] - v[4];
+    return v;
+  };
+  const fileName = (q) => `UK_${q.map((p) => p.slice(5)).join("_")}_${q[0].slice(2, 4)}.csv`;
+  const link = { background: "none", border: "none", padding: 0, color: "#1a5fb4", cursor: "pointer", fontSize: "10px", textDecoration: "underline" };
   return (
     <div style={{ overflowX: "auto", marginBottom: "12px" }}>
       <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "4px" }}>
@@ -123,6 +163,15 @@ function UkVatBoxes({ allRates, deductible, year, submitted, manual }) {
               <th key={q[0]} style={head({ textAlign: "right" })}>
                 {label(q)}
                 <div style={{ fontWeight: 400, fontSize: "10px" }}>{filed(q) ? `submitted: ${filed(q).file}` : "not submitted / no file"}</div>
+                <div style={{ fontWeight: 400 }}>
+                  <button style={link} title="Box CSV with the computed values shown below" onClick={() => downloadBoxCsv(fileName(q), shown(q))}>⬇ computed</button>
+                  {filed(q) && (
+                    <>
+                      {" · "}
+                      <button style={link} title="The return as submitted" onClick={() => downloadBoxCsv(filed(q).file, filed(q).boxes)}>⬇ submitted</button>
+                    </>
+                  )}
+                </div>
               </th>
             ))}
           </tr>
