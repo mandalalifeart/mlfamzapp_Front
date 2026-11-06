@@ -504,7 +504,17 @@ function CountryReturn({ data, year, deductible: wiseDeductible, deductibleInvoi
                   const rs = rates.filter((r) => r.currency === cur);
                   const ded = (p) => deductible?.[p]?.[cur] || 0;
                   const vat = (p) => rs.reduce((s, r) => s + (r.months[p]?.vat || 0), 0);
+                  const wded = (p) => wiseDeductible?.[p]?.[cur] || 0;
                   return [
+                    hasImportVat && (
+                      <tr key={`wded-${cur}`}>
+                        <td style={cell()} colSpan={2}>Input VAT {cur} from /wise invoices</td>
+                        {months.map((p) => (
+                          <td key={p} style={num()}>{fmt(wded(p))}</td>
+                        ))}
+                        <td style={num({ fontWeight: 700 })}>{fmt(months.reduce((s, p) => s + wded(p), 0))}</td>
+                      </tr>
+                    ),
                     <tr key={`ded-${cur}`} style={{ background: "#f2fbf4" }}>
                       <td style={cell({ fontWeight: 600 })} colSpan={2}>
                         Deductible VAT {cur}
