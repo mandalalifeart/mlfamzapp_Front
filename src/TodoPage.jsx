@@ -45,7 +45,7 @@ function Item({ it, reload }) {
             {it.title}
           </div>
           <div style={{ fontSize: "12px", color: "#7a8699", marginTop: "2px" }}>
-            added {String(it.created || "").slice(0, 10)}{done && it.done_at ? ` · done ${it.done_at.slice(0, 10)}` : ""}
+            {it.created_by === "user" ? "👤" : "🤖"} added {String(it.created || "").slice(0, 10)}{done && it.done_at ? ` · done ${it.done_at.slice(0, 10)}` : ""}
           </div>
           {open && (
             <div style={{ marginTop: "8px" }}>
@@ -53,6 +53,9 @@ function Item({ it, reload }) {
               <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Notes…" rows={3} style={{ width: "100%", boxSizing: "border-box", fontSize: "14px", padding: "6px", borderRadius: "6px", border: "1px solid #ccd3df" }} />
               <div style={{ display: "flex", gap: "8px", marginTop: "6px", flexWrap: "wrap" }}>
                 <button style={small} disabled={busy} onClick={() => act({ note })}>Save note</button>
+                <button style={small} disabled={busy} onClick={() => act({ created_by: it.created_by === "user" ? "claude" : "user" })}>
+                  Move to {it.created_by === "user" ? "Claude's" : "my"} list
+                </button>
                 <button style={{ ...small, color: "#c0392b" }} disabled={busy} onClick={() => window.confirm("Delete this item?") && act({ delete: true })}>Delete</button>
               </div>
             </div>
@@ -98,6 +101,8 @@ export default function TodoPage() {
   };
 
   const open = (items || []).filter((i) => i.status !== "done");
+  const mine = open.filter((i) => i.created_by === "user");
+  const claudes = open.filter((i) => i.created_by !== "user");
   const done = (items || []).filter((i) => i.status === "done").sort((a, b) => String(b.done_at).localeCompare(String(a.done_at)));
 
   return (
@@ -112,8 +117,10 @@ export default function TodoPage() {
       {!items && !error && <div>Loading…</div>}
       {items && (
         <>
-          <div style={{ fontWeight: 700, margin: "6px 0" }}>Open ({open.length})</div>
-          {open.length ? open.map((it) => <Item key={it.id} it={it} reload={load} />) : <div style={{ color: "#7a8699" }}>Nothing open 🎉</div>}
+          <div style={{ fontWeight: 700, margin: "6px 0" }}>👤 Added by me ({mine.length})</div>
+          {mine.length ? mine.map((it) => <Item key={it.id} it={it} reload={load} />) : <div style={{ color: "#7a8699" }}>Nothing open 🎉</div>}
+          <div style={{ fontWeight: 700, margin: "16px 0 6px" }}>🤖 Added by Claude ({claudes.length})</div>
+          {claudes.length ? claudes.map((it) => <Item key={it.id} it={it} reload={load} />) : <div style={{ color: "#7a8699" }}>Nothing open 🎉</div>}
           <div onClick={() => setShowDone((v) => !v)} style={{ fontWeight: 700, margin: "16px 0 6px", cursor: "pointer", color: "#1f5fbf" }}>
             {showDone ? "▾" : "▸"} Done ({done.length})
           </div>

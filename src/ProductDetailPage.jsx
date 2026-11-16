@@ -25,6 +25,8 @@ function cardStyle() {
     border: "1px solid #ddd",
     borderRadius: "8px",
     padding: "16px",
+    minWidth: 0,
+    overflowX: "auto",
   };
 }
 
@@ -396,6 +398,12 @@ export default function ProductDetailPage() {
   }
 
   useEffect(() => {
+    const root = document.getElementById("root");
+    root?.classList.add("full-bleed");
+    return () => root?.classList.remove("full-bleed");
+  }, []);
+
+  useEffect(() => {
     if (skuFromUrl || asinFromUrl) loadDetail();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skuFromUrl, asinFromUrl]);
@@ -429,7 +437,7 @@ export default function ProductDetailPage() {
     <div style={{ padding: "10px", fontFamily: "Arial, sans-serif", minHeight: "100vh", background: "#fafafa" }}>
       <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Product Detail</h2>
 
-      <div style={{ maxWidth: "1100px", marginInline: "auto", display: "grid", gap: "18px" }}>
+      <div style={{ maxWidth: "1500px", width: "100%", marginInline: "auto", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "18px" }}>
         {displaySku && (
           <div style={{ ...cardStyle(), display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
             <img

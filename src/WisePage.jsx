@@ -35,6 +35,8 @@ function numberCellStyle(extra = {}) {
 }
 
 const ALL_TAB = "ALL";
+// "All" tab (per the user 2026-11-08): transactions of every currency, filtered by classification.
+const TX_TAB = "TX";
 
 function tabStyle(active) {
   return {
@@ -290,10 +292,11 @@ function LedgerTable({ title, rows: unsortedRows, currency, direction, classes, 
               <td style={tableCellStyle({ whiteSpace: "nowrap" })}>
                 <select
                   value={row.classification}
-                  disabled={!row.counterparty || savingKey === `${row.direction}|${row.counterparty}`}
-                  title={`Applies to every ${row.direction === "in" ? "payment from" : "payment to"} "${row.counterparty}"`}
+                  disabled={savingKey === row.key}
+                  title="Changes only this transaction"
                   onChange={(e) =>
-                    onClassify(row.direction, row.counterparty, e.target.value, row.classificationSource === "row" ? row.key : "")
+                    // Only this row (per the user 2026-11-08) - never every payment to the same payee.
+                    onClassify(row.direction, row.counterparty, e.target.value, row.key)
                   }
                   style={{
                     padding: "2px 4px",
@@ -400,7 +403,7 @@ function verifyGroupDoc(b, cur, m, doc) {
   return { status: ok ? (Math.abs(diff) < 0.01 ? "ok" : "fx") : "mismatch", expected, diff, others, converted, accepted: !!doc.differenceAccepted };
 }
 
-function CurrencySummaryTable({ title, rows, direction, currencies, feesClass, onSetCoverage }) {
+function CurrencySummaryTable({ title, rows, direction, currencies, feesClass, onSetCoverage, receipts = {} }) {
   // One row per classification, one column per currency (native amounts),
   // plus a € total (each transaction converted at its own date's ECB rate).
   const { list, totals } = useMemo(() => {
@@ -536,6 +539,24 @@ function CurrencySummaryTable({ title, rows, direction, currencies, feesClass, o
               <td style={numberCellStyle({ color: b.missing || b.mismatches ? "#b00020" : "#1b7f3b", fontWeight: b.missing || b.mismatches ? 700 : 400 })}>
                 {b.name === feesClass ? "–" : b.missing ? `⚠ ${b.missing}` : b.mismatches ? "" : "✓"}
                 {b.mismatches > 0 && <div style={{ fontSize: "11px" }}>⚠ {b.mismatches} amount mismatch</div>}
+                {direction === "out" && ["Owner withdrawal", "Other expense"].includes(b.name) && (() => {
+                  // Running balances: paid vs receipts added to the balance in this period (per the user 2026-11-08).
+                  const rc = receipts[b.name] || { count: 0, eur: 0, byCurrency: {} };
+                  const diff = b.eur - rc.eur;
+                  return (
+                    <div style={{ fontSize: "11px", fontWeight: 400, whiteSpace: "nowrap" }}>
+                      <div style={{ color: "#222" }}>
+                        🧾 receipts {formatMoney(rc.eur, "EUR")} ({rc.count})
+                      </div>
+                      {Object.entries(rc.byCurrency || {}).filter(([c]) => c !== "EUR").map(([c, v]) => (
+                        <div key={c} style={{ color: "#888" }}>= {formatMoney(v, c)}</div>
+                      ))}
+                      <div style={{ color: Math.abs(diff) < 1 ? "#1b7f3b" : "#b00020", fontWeight: 600 }}>
+                        {Math.abs(diff) < 1 ? "✓ covered" : diff > 0 ? `⚠ ${formatMoney(diff, "EUR")} without receipts` : `receipts exceed paid by ${formatMoney(-diff, "EUR")}`}
+                      </div>
+                    </div>
+                  );
+                })()}
               </td>
             </tr>
           ))}
@@ -969,6 +990,215 @@ function SupplierLedgerCheck({ ledger }) {
   );
 }
 
+// Free-text remarks per year (per the user 2026-11-08: "keep remarks in wise
+// page, per year"). PocketBase page_notes, page "wise", note_key = year.
+const LOCAL_API_BASE = "https://amzapi.mandalalifeart.com";
+const NOTE_KEY = import.meta.env.VITE_PROPOSAL_KEY || "";
+
+function YearRemarks({ year }) {
+  const [text, setText] = useState("");
+  const [saved, setSaved] = useState("");
+  const [updated, setUpdated] = useState("");
+  const [status, setStatus] = useState("");
+  useEffect(() => {
+    setText(""); setSaved(""); setUpdated(""); setStatus("");
+    fetch(`${LOCAL_API_BASE}/GetPageNotes?page=wise`)
+      .then((r) => r.json())
+      .then((d) => {
+        const n = (d.notes || {})[String(year)];
+        setText(n?.text || ""); setSaved(n?.text || ""); setUpdated(n?.updated || "");
+      })
+      .catch((e) => setStatus(`Could not load remarks: ${e.message}`));
+  }, [year]);
+  async function save() {
+    setStatus("Saving...");
+    try {
+      const r = await fetch(`${LOCAL_API_BASE}/SetPageNote?key=${encodeURIComponent(NOTE_KEY)}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page: "wise", noteKey: String(year), text }),
+      });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      setSaved(text.trim()); setUpdated(new Date().toISOString()); setStatus("Saved ✓");
+    } catch (e) {
+      setStatus(`Save failed: ${e.message}`);
+    }
+  }
+  return (
+    <div style={{ ...cardStyle(), marginBottom: "16px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap", marginBottom: "6px" }}>
+        <strong style={{ fontSize: "15px" }}>📝 Remarks {year}</strong>
+        {updated && <span style={{ fontSize: "11px", color: "#888" }}>last saved {updated.slice(0, 16).replace("T", " ")}</span>}
+      </div>
+      <textarea value={text} onChange={(e) => setText(e.target.value)} rows={Math.max(3, text.split("\n").length + 1)}
+        placeholder={`Notes for ${year} - open points, decisions, things to tell the accountant...`}
+        style={{ width: "100%", boxSizing: "border-box", padding: "8px", fontFamily: "inherit", fontSize: "13px" }} />
+      <div style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: "6px" }}>
+        <button style={buttonStyle()} onClick={save} disabled={text.trim() === saved}>Save remarks</button>
+        {status && <span style={{ fontSize: "12px", color: status.startsWith("Saved") ? "#2e7d32" : "#b00020" }}>{status}</span>}
+      </div>
+    </div>
+  );
+}
+
+// Documents not linked to any Wise transaction (per the user 2026-11-08):
+// monthly sales invoices, supplier-balance invoices, statements, freight, shipment docs.
+// Collapsible section on the Summary tab (per the user 2026-11-08: all
+// sections collapsed by default). Open = the section's own card + a collapse link.
+function Section({ title, children }) {
+  const [open, setOpen] = useState(false);
+  if (!open)
+    return (
+      <div style={{ ...cardStyle({ padding: "10px 16px" }), cursor: "pointer" }} onClick={() => setOpen(true)}>
+        <strong style={{ fontSize: "15px" }}>▸ {title}</strong>
+      </div>
+    );
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen(false)}
+        style={{ position: "absolute", top: "8px", right: "10px", zIndex: 1, border: "none", background: "none", color: "#1565c0", cursor: "pointer", fontSize: "12px" }}
+      >
+        ▾ collapse
+      </button>
+      {children}
+    </div>
+  );
+}
+
+// Owner withdrawal + Other expense: paid (Wise, excl. fees) vs receipts added
+// to those running balances in the period (per the user 2026-11-08).
+function BalanceReceiptsSummary({ rows, receipts }) {
+  const lines = ["Owner withdrawal", "Other expense"].map((name) => {
+    const paid = rows.filter((r) => r.classification === name).reduce((s, r) => s + ((r.eurAmount ?? 0) - (r.eurFee || 0)), 0);
+    const count = rows.filter((r) => r.classification === name).length;
+    const bal = receipts[name] || { count: 0, eur: 0, byCurrency: {} };
+    // Invoices attached directly to the payments count too (e.g. the owner's tax invoices),
+    // converted at the payment's own EUR rate.
+    let attEur = 0, attCount = 0;
+    for (const r of rows.filter((x) => x.classification === name)) {
+      for (const inv of r.invoices || []) {
+        attCount += 1;
+        const rate = r.amount ? (r.eurAmount ?? 0) / r.amount : 0;
+        attEur += inv.total != null && (!inv.currency || inv.currency === r.currency) ? inv.total * rate : (r.eurAmount ?? 0) - (r.eurFee || 0);
+      }
+    }
+    const rc = { ...bal, count: bal.count + attCount, eur: bal.eur + attEur, attCount, balCount: bal.count };
+    return { name, paid, count, rc, diff: paid - rc.eur };
+  });
+  return (
+    <div style={cardStyle()}>
+      <h3 style={{ margin: "0 0 8px", fontSize: "16px" }}>👤 Owner withdrawal & other expenses - paid vs receipts</h3>
+      <table style={{ borderCollapse: "collapse", width: "100%" }}>
+        <thead>
+          <tr>
+            <th style={headStyle()}>Classification</th>
+            <th style={headStyle({ textAlign: "right" })}>Paid (excl. Wise fees)</th>
+            <th style={headStyle({ textAlign: "right" })}>Receipts</th>
+            <th style={headStyle({ textAlign: "right" })}>Without receipts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l) => (
+            <tr key={l.name}>
+              <td style={tableCellStyle()}>{l.name}</td>
+              <td style={numberCellStyle()}>
+                {formatMoney(l.paid, "EUR")} <span style={{ color: "#888", fontSize: "11px" }}>({l.count})</span>
+              </td>
+              <td style={numberCellStyle()}>
+                {formatMoney(l.rc.eur, "EUR")} <span style={{ color: "#888", fontSize: "11px" }}>({l.rc.count})</span>
+                {l.rc.attCount > 0 && <div style={{ color: "#888", fontSize: "11px" }}>{l.rc.attCount} attached to payments</div>}
+                {l.rc.balCount > 0 && (
+                  <div style={{ color: "#888", fontSize: "11px" }}>
+                    {l.rc.balCount} added to the balance
+                    {Object.entries(l.rc.byCurrency || {}).filter(([c]) => c !== "EUR").map(([c, v]) => ` (${formatMoney(v, c)})`)}
+                  </div>
+                )}
+              </td>
+              <td style={numberCellStyle({ color: Math.abs(l.diff) < 1 ? "#1b7f3b" : "#b00020", fontWeight: 600 })}>
+                {Math.abs(l.diff) < 1 ? "✓ covered" : l.diff > 0 ? formatMoney(l.diff, "EUR") : `receipts exceed by ${formatMoney(-l.diff, "EUR")}`}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p style={{ fontSize: "11px", color: "#999", margin: "6px 0 0" }}>
+        € at the ECB rate of each payment / receipt date. Owner withdrawal here = the whole classification; the owner
+        running balance below counts only transfers to Rafi / Refael Tamir.
+      </p>
+    </div>
+  );
+}
+
+function UnlinkedDocs({ docs }) {
+  const [open, setOpen] = useState(true);
+  const [where, setWhere] = useState("");
+  const groups = [...new Set(docs.map((d) => d.where))];
+  const shown = docs.filter((d) => !where || d.where === where);
+  return (
+    <div style={cardStyle()}>
+      <h3 style={{ margin: 0, fontSize: "16px", cursor: "pointer" }} onClick={() => setOpen(!open)}>
+        {open ? "▾" : "▸"} 📎 Freight invoices not linked to a Wise transaction{" "}
+        <span style={{ fontWeight: 400, color: "#888", fontSize: "13px" }}>({docs.length})</span>
+      </h3>
+      {open && (
+        <div style={{ overflowX: "auto", marginTop: "8px" }}>
+          <label style={{ fontSize: "13px" }}>
+            Show:{" "}
+            <select value={where} onChange={(e) => setWhere(e.target.value)} style={{ fontSize: "13px", color: "#222" }}>
+              <option value="">All ({docs.length})</option>
+              {groups.map((g) => (
+                <option key={g} value={g}>
+                  {g} ({docs.filter((d) => d.where === g).length})
+                </option>
+              ))}
+            </select>
+          </label>
+          <table style={{ borderCollapse: "collapse", width: "100%", marginTop: "8px" }}>
+            <thead>
+              <tr>
+                <th style={headStyle({ whiteSpace: "nowrap" })}>Date</th>
+                <th style={headStyle()}>Supplier / issuer</th>
+                <th style={headStyle()}>Number</th>
+                <th style={headStyle({ textAlign: "right" })}>Amount</th>
+                <th style={headStyle()}>Where it is counted</th>
+                <th style={headStyle()}>File</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((d) => (
+                <tr key={d.id}>
+                  <td style={tableCellStyle({ whiteSpace: "nowrap" })}>{d.date || d.month}</td>
+                  <td style={tableCellStyle()}>{d.vendor}</td>
+                  <td style={tableCellStyle()}>{d.number}</td>
+                  <td style={numberCellStyle()}>{d.total != null && d.currency ? formatMoney(d.total, d.currency) : d.total ?? ""}</td>
+                  <td style={tableCellStyle()}>{d.where}</td>
+                  <td style={tableCellStyle({ fontSize: "12px" })}>
+                    <a href={docUrl(d.id)} style={{ color: "#1565c0" }}>📄 {d.filename}</a>
+                  </td>
+                </tr>
+              ))}
+              {(() => {
+                const byCur = {};
+                for (const d of shown) if (d.total != null && d.currency) byCur[d.currency] = (byCur[d.currency] || 0) + d.total;
+                return (
+                  <tr style={{ borderTop: "2px solid #ccc" }}>
+                    <td style={tableCellStyle({ fontWeight: 700 })} colSpan={3}>Total ({shown.length} invoices)</td>
+                    <td style={numberCellStyle({ fontWeight: 700 })}>
+                      {Object.entries(byCur).map(([c, v]) => <div key={c}>{formatMoney(v, c)}</div>)}
+                    </td>
+                    <td style={tableCellStyle()} colSpan={2} />
+                  </tr>
+                );
+              })()}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // One year of a running balance (per the user 2026-10-03: "show only the
 // selected year"): opening = previous closing, + paid - invoiced that year.
 // A currency with history but no activity this year carries its balance.
@@ -992,7 +1222,7 @@ function balanceYearView(sup, year) {
   };
 }
 
-function SupplierBalances({ onUploaded, onDelete, year }) {
+function SupplierBalances({ onUploaded, onDelete, year, reloadTick = 0 }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
@@ -1012,7 +1242,7 @@ function SupplierBalances({ onUploaded, onDelete, year }) {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [reloadTick]);
 
   async function upload(supplier, files) {
     setBusy(supplier.id);
@@ -1284,10 +1514,411 @@ function SupplierBalances({ onUploaded, onDelete, year }) {
   );
 }
 
+// Last section of the Summary tab (per the user 2026-11-11):
+// TOTAL = Other expenses balance (paid on Wise - receipts) - 50% x home
+// expenses - invoices paid outside Wise. All in EUR (ECB rate of each date).
+const OTHER_EXTRA = [{ key: "other-nonwise", label: "🧾 Invoices not paid through Wise" }];
+
+// Home expenses table (per the user 2026-11-11): months as columns, one row per
+// bill type; every cell = editable amount + its uploaded bill. 50% is counted.
+function HomeExpensesTable({ year, onChanged }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+  const [drafts, setDrafts] = useState({});
+
+  async function load() {
+    try {
+      const response = await fetch(`${API_BASE}/GetHomeExpenses?year=${year}`);
+      const result = await response.json();
+      if (!response.ok || result.error) throw new Error(result?.error || `HTTP ${response.status}`);
+      setData(result);
+    } catch (err) {
+      setError(err.message || "Failed to load home expenses");
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, [year]);
+
+  async function call(path, body) {
+    const response = await fetch(`${API_BASE}/${path}?key=${encodeURIComponent(WISE_REFRESH_KEY)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const result = await response.json();
+    if (!response.ok || result.error) throw new Error(result?.error || `HTTP ${response.status}`);
+    return result;
+  }
+
+  async function save(cat, m, patch) {
+    const id = `${cat}-${m}`;
+    setBusy(id);
+    setError("");
+    try {
+      await call("SetHomeExpense", { year, month: m, category: cat, ...patch });
+      setDrafts((prev) => ({ ...prev, [id]: undefined }));
+      await load();
+      onChanged?.();
+    } catch (err) {
+      setError(`Saving failed: ${err.message || err}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function uploadBill(cat, m, file) {
+    const id = `${cat}-${m}`;
+    setBusy(id);
+    setError("");
+    try {
+      const contentBase64 = await readFileAsBase64(file);
+      await call("UploadWiseInvoice", {
+        groupKey: `home|${cat}`,
+        month: `${year}-${String(m).padStart(2, "0")}`,
+        filename: file.name,
+        contentBase64,
+      });
+      await load();
+      onChanged?.();
+    } catch (err) {
+      setError(`Upload failed: ${err.message || err}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const months = Array.from({ length: 12 }, (_, i) => i + 1);
+  const cell = (cat, m) => data?.cells?.[cat]?.[String(m)] || null;
+  const sumEur = (cells) => cells.reduce((a, c) => a + (c?.eur || 0), 0);
+  const monthTotal = (m) => sumEur((data?.categories || []).map((c) => cell(c.id, m)));
+  const rowTotal = (cat) => sumEur(months.map((m) => cell(cat, m)));
+  const grand = (data?.categories || []).reduce((a, c) => a + rowTotal(c.id), 0);
+  const share = data?.share ?? 0.5;
+  const small = { fontSize: "11px", color: "#888" };
+
+  return (
+    <div style={{ marginBottom: "16px" }}>
+      <h4 style={{ margin: "12px 0 4px", fontSize: "15px" }}>🏠 Home expenses {year} ({Math.round(share * 100)}% counted)</h4>
+      <div style={small}>
+        Amounts in ₪ (ILS). Type an amount and press Enter (or click away) to save it. 📎 uploads the bill, and the bill's
+        amount fills an empty cell. Totals: ₪ and € (ECB rate of the 15th of each month).
+      </div>
+      {error && <div style={{ color: "#b00020", margin: "6px 0" }}>{error}</div>}
+      {!data && !error && <div>Loading...</div>}
+      {data && (
+        <div style={{ overflowX: "auto", marginTop: "6px" }}>
+          <table style={{ borderCollapse: "collapse", fontSize: "12px", tableLayout: "fixed", width: `${130 + 12 * 82 + 110}px` }}>
+            <colgroup>
+              <col style={{ width: "130px" }} />
+              {Array.from({ length: 12 }, (_, i) => (
+                <col key={i} style={{ width: "82px" }} />
+              ))}
+              <col style={{ width: "110px" }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th style={headStyle()}>Bill</th>
+                {months.map((m) => (
+                  <th key={m} style={headStyle({ textAlign: "center" })}>{MONTH_NAMES[m - 1]}</th>
+                ))}
+                <th style={headStyle({ textAlign: "right" })}>Year</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.categories.map((c) => (
+                <tr key={c.id}>
+                  <td style={tableCellStyle({ whiteSpace: "nowrap", fontWeight: 600 })}>{c.label}</td>
+                  {months.map((m) => {
+                    const v = cell(c.id, m);
+                    const id = `${c.id}-${m}`;
+                    const draft = drafts[id];
+                    const value = draft?.amount ?? (v?.amount ? String(v.amount) : "");
+                    const currency = "ILS";
+                    const commit = () => {
+                      if (draft === undefined) return;
+                      save(c.id, m, { amount: Number(value) || 0, currency });
+                    };
+                    return (
+                      <td key={m} style={tableCellStyle({ padding: "3px", verticalAlign: "top" })}>
+                        <input
+                          value={value}
+                          inputMode="decimal"
+                          disabled={busy === id}
+                          onChange={(e) => setDrafts((p) => ({ ...p, [id]: { ...p[id], amount: e.target.value, currency } }))}
+                          onBlur={commit}
+                          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                          title={v?.amount && !v?.docId && c.id !== "rent" ? "No bill uploaded" : undefined}
+                          style={{
+                            width: "100%", boxSizing: "border-box", fontSize: "12px", textAlign: "right",
+                            // Amount without a bill = red (per the user 2026-11-11); rent has no bill.
+                            ...(Number(value) > 0 && !v?.docId && c.id !== "rent" ? { color: "#b00020", borderColor: "#b00020", fontWeight: 600 } : {}),
+                          }}
+                        />
+                        <div style={{ display: "flex", alignItems: "center", gap: "2px", marginTop: "2px" }}>
+                          <span style={{ fontSize: "10px", color: "#888" }}>₪</span>
+                          {v?.docId ? (
+                            <>
+                              <a href={docUrl(v.docId)} title={v.filename} style={{ textDecoration: "none" }}>📄</a>
+                              <button
+                                title="Remove bill"
+                                onClick={() => window.confirm("Remove this bill?") && save(c.id, m, { removeBill: true })}
+                                style={{ border: "none", background: "none", color: "#b00020", cursor: "pointer", padding: 0, fontSize: "11px" }}
+                              >
+                                ✕
+                              </button>
+                            </>
+                          ) : (
+                            <label title="Upload bill" style={{ cursor: "pointer" }}>
+                              📎
+                              <input
+                                type="file"
+                                style={{ display: "none" }}
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0];
+                                  e.target.value = "";
+                                  if (f) uploadBill(c.id, m, f);
+                                }}
+                              />
+                            </label>
+                          )}
+                          {busy === id && <span style={small}>…</span>}
+                        </div>
+                        {v?.amount && v.eur != null ? <div style={small}>€{v.eur.toFixed(2)}</div> : null}
+                        {v?.billTotal && Math.abs(v.billTotal - v.amount) > 0.01 ? (
+                          <div style={{ fontSize: "10px", color: "#e65100" }} title="Amount on the bill differs">
+                            bill {v.billTotal} {v.billCurrency}
+                          </div>
+                        ) : null}
+                      </td>
+                    );
+                  })}
+                  <td style={numberCellStyle({ fontWeight: 600 })}>
+                    {formatMoney(months.reduce((t, m) => t + (cell(c.id, m)?.amount || 0), 0), "ILS")}
+                    <div style={small}>{formatMoney(rowTotal(c.id), "EUR")}</div>
+                  </td>
+                </tr>
+              ))}
+              <tr style={{ borderTop: "2px solid #ccc" }}>
+                <td style={tableCellStyle({ fontWeight: 700 })}>Total (€)</td>
+                {months.map((m) => (
+                  <td key={m} style={numberCellStyle({ fontWeight: 600 })}>{monthTotal(m) ? Math.round(monthTotal(m)).toLocaleString() : ""}</td>
+                ))}
+                <td style={numberCellStyle({ fontWeight: 700 })}>{formatMoney(grand, "EUR")}</td>
+              </tr>
+              <tr>
+                <td style={tableCellStyle({ fontWeight: 700 })}>Counted {Math.round(share * 100)}% (€)</td>
+                {months.map((m) => (
+                  <td key={m} style={numberCellStyle()}>{monthTotal(m) ? Math.round(monthTotal(m) * share).toLocaleString() : ""}</td>
+                ))}
+                <td style={numberCellStyle({ fontWeight: 700 })}>{formatMoney(grand * share, "EUR")}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OtherExpensesTotal({ onDelete, year, reloadTick = 0 }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+  const [show, setShow] = useState("other-nonwise");
+
+  async function load() {
+    try {
+      const response = await fetch(`${API_BASE}/GetWiseOtherExpensesTotal`);
+      const result = await response.json();
+      if (!response.ok || result.error) throw new Error(result?.error || `HTTP ${response.status}`);
+      setData(result);
+    } catch (err) {
+      setError(err.message || "Failed to load");
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, [reloadTick]);
+
+  async function upload(groupKey, files) {
+    setBusy(groupKey);
+    setError("");
+    try {
+      for (const file of files) {
+        const contentBase64 = await readFileAsBase64(file);
+        const response = await fetch(`${API_BASE}/UploadWiseInvoice?key=${encodeURIComponent(WISE_REFRESH_KEY)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ groupKey, filename: file.name, contentBase64 }),
+        });
+        const result = await response.json();
+        if (!response.ok || result.error) throw new Error(`${file.name}: ${result?.error || `HTTP ${response.status}`}`);
+      }
+    } catch (err) {
+      setError(`Upload failed: ${err.message || err}`);
+    } finally {
+      await load();
+      setBusy("");
+    }
+  }
+
+  async function remove(id) {
+    if (!window.confirm("Delete this invoice?")) return;
+    await onDelete(id);
+    await load();
+  }
+
+  const eur = (v) => formatMoney(v || 0, "EUR");
+  const y = String(year);
+  const rows = data ? [...data.years.filter((r) => r.year === y), { ...data.all, year: "All years" }] : [];
+  const docs = (data?.documents || []).filter((d) => d.group === show);
+  return (
+    <div style={cardStyle()}>
+      <h3 style={{ margin: "0 0 4px", fontSize: "16px" }}>💶 Other expenses - total</h3>
+      <div style={{ fontSize: "12px", color: "#888", marginBottom: "10px" }}>
+        TOTAL = Other expenses balance (paid on Wise − receipts) − 50% of home expenses − invoices not paid through Wise.
+        Everything in EUR at the ECB rate of its own date.
+      </div>
+      {error && <div style={{ color: "#b00020", marginBottom: "8px" }}>{error}</div>}
+      {!data && !error && <div>Loading...</div>}
+      {data && (
+        <>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <thead>
+                <tr>
+                  <th style={headStyle()}>Year</th>
+                  <th style={headStyle({ textAlign: "right" })}>Paid on Wise</th>
+                  <th style={headStyle({ textAlign: "right" })}>− Receipts</th>
+                  <th style={headStyle({ textAlign: "right" })}>= Other expenses balance</th>
+                  <th style={headStyle({ textAlign: "right" })}>− Home expenses × 50%</th>
+                  <th style={headStyle({ textAlign: "right" })}>− Not via Wise</th>
+                  <th style={headStyle({ textAlign: "right" })}>= TOTAL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.year} style={r.year === "All years" ? { borderTop: "2px solid #ccc" } : undefined}>
+                    <td style={tableCellStyle({ fontWeight: r.year === "All years" ? 700 : 400 })}>{r.year}</td>
+                    <td style={numberCellStyle()}>{eur(r.paid)}</td>
+                    <td style={numberCellStyle()}>{eur(r.receipts)}</td>
+                    <td style={numberCellStyle()}>{eur(r.balance)}</td>
+                    <td style={numberCellStyle()} title={`Home expenses in full: ${eur(r.home)}`}>
+                      {eur(r.homeCounted)}
+                      {r.home ? <div style={{ fontSize: "11px", color: "#888" }}>of {eur(r.home)}</div> : null}
+                    </td>
+                    <td style={numberCellStyle()}>{eur(r.nonWise)}</td>
+                    <td style={numberCellStyle({ fontWeight: 700 })}>{eur(r.total)}</td>
+                  </tr>
+                ))}
+                {!rows.some((r) => r.year === y) && (
+                  <tr>
+                    <td style={tableCellStyle({ color: "#888" })} colSpan={7}>Nothing in {y}.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <HomeExpensesTable year={year} onChanged={load} />
+          <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", margin: "14px 0 8px" }}>
+            {OTHER_EXTRA.map((g) => (
+              <label key={g.key} style={{ fontSize: "13px" }}>
+                ➕ Upload to {g.label}:{" "}
+                <input
+                  type="file"
+                  multiple
+                  disabled={!!busy}
+                  onChange={(e) => {
+                    const files = [...e.target.files];
+                    e.target.value = "";
+                    if (files.length) upload(g.key, files);
+                  }}
+                />
+                {busy === g.key && <span style={{ color: "#888" }}> reading...</span>}
+              </label>
+            ))}
+          </div>
+          {data.notRead > 0 && (
+            <div style={{ color: "#b00020", fontSize: "12px" }}>
+              {data.notRead} invoice(s) could not be read (no amount) - not counted.
+            </div>
+          )}
+          <div style={{ display: "flex", gap: "8px", margin: "8px 0" }}>
+            {OTHER_EXTRA.map((g) => (
+              <button key={g.key} style={tabStyle(show === g.key)} onClick={() => setShow(g.key)}>
+                {g.label} ({(data.documents || []).filter((d) => d.group === g.key).length})
+              </button>
+            ))}
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <thead>
+                <tr>
+                  <th style={headStyle({ whiteSpace: "nowrap" })}>Date</th>
+                  <th style={headStyle()}>Supplier / issuer</th>
+                  <th style={headStyle()}>Number</th>
+                  <th style={headStyle({ textAlign: "right" })}>Amount</th>
+                  <th style={headStyle({ textAlign: "right" })}>EUR</th>
+                  <th style={headStyle({ textAlign: "right" })}>Counted</th>
+                  <th style={headStyle()}>File</th>
+                  <th style={headStyle()} />
+                </tr>
+              </thead>
+              <tbody>
+                {docs.map((d) => (
+                  <tr key={d.id}>
+                    <td style={tableCellStyle({ whiteSpace: "nowrap" })}>{d.date}</td>
+                    <td style={tableCellStyle()}>{d.vendor}</td>
+                    <td style={tableCellStyle()}>{d.number}</td>
+                    <td style={numberCellStyle()}>{d.total != null && d.currency ? formatMoney(d.total, d.currency) : "not read"}</td>
+                    <td style={numberCellStyle()}>{d.eur != null ? eur(d.eur) : ""}</td>
+                    <td style={numberCellStyle()}>{d.counted != null ? eur(d.counted) : ""}</td>
+                    <td style={tableCellStyle({ fontSize: "12px" })}>
+                      <a href={docUrl(d.id)} style={{ color: "#1565c0" }}>📄 {d.filename}</a>
+                    </td>
+                    <td style={tableCellStyle()}>
+                      {d.freight ? (
+                        <span style={{ fontSize: "11px", color: "#888" }} title="Xhipment freight invoice - also used for product freight cost">
+                          freight
+                        </span>
+                      ) : (
+                        <button onClick={() => remove(d.id)} style={{ border: "none", background: "none", color: "#b00020", cursor: "pointer" }}>
+                          ✕
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {docs.length > 0 && (
+                  <tr style={{ borderTop: "2px solid #ccc" }}>
+                    <td style={tableCellStyle({ fontWeight: 700 })} colSpan={4}>Total ({docs.length} invoices)</td>
+                    <td style={numberCellStyle({ fontWeight: 700 })}>{eur(docs.reduce((a, d) => a + (d.eur || 0), 0))}</td>
+                    <td style={numberCellStyle({ fontWeight: 700 })}>{eur(docs.reduce((a, d) => a + (d.counted || 0), 0))}</td>
+                    <td style={tableCellStyle()} colSpan={2} />
+                  </tr>
+                )}
+                {docs.length === 0 && (
+                  <tr>
+                    <td style={tableCellStyle({ color: "#888" })} colSpan={8}>No invoices uploaded yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // Stock value at a date for the accounts (per the user 2026-11-03: the
 // year-end stock in the annual report was never counted). Backend:
 // StockValuation.py, one saved valuation per date (stock_valuations).
-function StockValuation() {
+function StockValuation({ reloadTick = 0 }) {
   const [list, setList] = useState(null);
   const [asOf, setAsOf] = useState("");
   const [snap, setSnap] = useState(null);
@@ -1301,10 +1932,10 @@ function StockValuation() {
       .then((d) => {
         if (d.error) throw new Error(d.error);
         setList(d.snapshots || []);
-        if (d.snapshots?.length) setAsOf(d.snapshots[0].asOf);
+        if (d.snapshots?.length) setAsOf((cur) => cur || d.snapshots[0].asOf);
       })
       .catch((e) => setError(e.message));
-  }, []);
+  }, [reloadTick]);
 
   useEffect(() => {
     if (!asOf) return;
@@ -1569,6 +2200,8 @@ export default function WisePage() {
   const [uploadingKey, setUploadingKey] = useState("");
   const [hideAmazon, setHideAmazon] = useState(false);
   const [classFilter, setClassFilter] = useState("");
+  // Bumped after every ledger load so the sections that fetch their own data reload too.
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     const root = document.getElementById("root");
@@ -1584,6 +2217,7 @@ export default function WisePage() {
       const result = await response.json();
       if (!response.ok || result.error) throw new Error(result?.error || `HTTP ${response.status}`);
       setData(result);
+      setReloadTick((t) => t + 1);
     } catch (err) {
       setError(err.message || "Failed to load Wise ledger");
     } finally {
@@ -1686,8 +2320,7 @@ export default function WisePage() {
   }
 
   async function classify(direction, counterparty, classification, ledgerKey = "") {
-    const key = `${direction}|${counterparty}`;
-    setSavingKey(key);
+    setSavingKey(ledgerKey || `${direction}|${counterparty}`);
     try {
       const response = await fetch(`${API_BASE}/SetWiseClassificationRule?key=${encodeURIComponent(WISE_REFRESH_KEY)}`, {
         method: "POST",
@@ -1718,8 +2351,10 @@ export default function WisePage() {
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c);
   }, [rows]);
 
-  const showAll = currency === ALL_TAB || !currencies.includes(currency);
-  const activeCurrency = showAll ? "" : currency;
+  const txTab = currency === TX_TAB;
+  const showAll = !txTab && (currency === ALL_TAB || !currencies.includes(currency));
+  const activeCurrency = showAll || txTab ? "" : currency;
+  const inScope = (r) => (txTab ? true : r.currency === activeCurrency);
   // Outgoing rows classified into a "net against income" class (Amazon card
   // charges -> Amazon payout) are shown on the Incoming side as negatives, so
   // the Amazon payout total is net of them instead of booking them as expenses.
@@ -1727,13 +2362,33 @@ export default function WisePage() {
   const isNetted = (r) => r.direction === "out" && nettedClasses.includes(r.classification);
   // Optional filter on the currency tabs: hide everything Amazon-related
   // (payouts, Amazon card charges/refunds netted into them).
-  const HIDDEN_WITH_AMAZON = ["Amazon payout", "Cashback"];
+  const HIDDEN_WITH_AMAZON = ["Amazon payout", "Etsy payout", "Cashback", "Refunded / cancelled", "Currency conversion"];
+  // Incoming side includes the netted Amazon/Etsy card rows (shown there as negatives).
+  const sideOf = (r) => (r.direction === "in" || isNetted(r) ? "in" : "out");
   const amazonFilter = (r) =>
-    (!hideAmazon || !HIDDEN_WITH_AMAZON.includes(r.classification)) && (!classFilter || r.classification === classFilter);
+    (!hideAmazon || !HIDDEN_WITH_AMAZON.includes(r.classification)) && (!classFilter || `${sideOf(r)}|${r.classification}` === classFilter);
   const incoming = rows
-    .filter((r) => r.currency === activeCurrency && (r.direction === "in" || isNetted(r)) && amazonFilter(r))
+    .filter((r) => inScope(r) && (r.direction === "in" || isNetted(r)) && amazonFilter(r))
     .map((r) => (isNetted(r) ? { ...r, amount: -r.amount, netted: true } : r));
-  const outgoing = rows.filter((r) => r.currency === activeCurrency && r.direction === "out" && !isNetted(r) && amazonFilter(r));
+  const outgoing = rows.filter((r) => inScope(r) && r.direction === "out" && !isNetted(r) && amazonFilter(r));
+  // All tab totals: per currency (native) + EUR at the ECB rate of each row's date.
+  const txTotals = (() => {
+    const by = {};
+    let usdIn = 0, usdOut = 0, usdMissing = 0;
+    for (const [list, side] of [[incoming, "in"], [outgoing, "out"]]) {
+      for (const r of list) {
+        const t = (by[r.currency] ||= { in: 0, out: 0, n: 0, usdIn: 0, usdOut: 0 });
+        t[side] += r.amount;
+        t.n += 1;
+        if (r.usdAmount == null) usdMissing += 1;
+        else {
+          const usd = r.netted ? -r.usdAmount : r.usdAmount;
+          if (side === "in") { usdIn += usd; t.usdIn += usd; } else { usdOut += usd; t.usdOut += usd; }
+        }
+      }
+    }
+    return { by, usdIn, usdOut, usdMissing };
+  })();
   // "All (€)" tab: every currency, each row converted to EUR at the ECB rate
   // on its own date (eurAmount/eurFee computed server-side).
   const toEur = (r) => ({ ...r, amount: r.eurAmount, fee: r.eurFee || 0 });
@@ -1799,21 +2454,11 @@ export default function WisePage() {
           ))}
         </select>
         <button style={buttonStyle()} onClick={refresh} disabled={!!busy}>
-          {busy === "refresh" ? "Refreshing..." : "Refresh from Wise"}
+          {busy === "refresh" ? "Refreshing..." : "🔄 Refresh"}
         </button>
 
       </div>
       {note && <p style={{ textAlign: "center", fontSize: "13px", color: "#555", marginBottom: "12px" }}>{note}</p>}
-      {data?.statements?.length > 0 && (
-        <p style={{ textAlign: "center", fontSize: "12px", color: "#555", marginBottom: "12px" }}>
-          Statement{data.statements.length === 1 ? "" : "s"} on file:{" "}
-          {data.statements.map((st) => (
-            <a key={st.id} href={docUrl(st.id)} style={{ color: "#1565c0", marginRight: "10px" }}>
-              📄 {st.month} · {st.filename}
-            </a>
-          ))}
-        </p>
-      )}
       {error && <div style={{ marginBottom: "16px", color: "#b00020", textAlign: "center" }}>{error}</div>}
 
       {(data?.balances || []).some((b) => b.amount) && (
@@ -1828,6 +2473,8 @@ export default function WisePage() {
             ))}
         </div>
       )}
+
+      <YearRemarks year={year} />
 
       {loading && <p style={{ textAlign: "center" }}>Loading...</p>}
 
@@ -1847,9 +2494,14 @@ export default function WisePage() {
         <>
           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "12px", borderBottom: "2px solid #ddd" }}>
             {currencies.length > 0 && (
-              <button onClick={() => setCurrency(ALL_TAB)} style={tabStyle(showAll)}>
-                All (€) {allConfirmed ? "✅" : "⏳"}
-              </button>
+              <>
+                <button onClick={() => setCurrency(ALL_TAB)} style={tabStyle(showAll)}>
+                  Summary (€) {allConfirmed ? "✅" : "⏳"}
+                </button>
+                <button onClick={() => setCurrency(TX_TAB)} style={tabStyle(txTab)}>
+                  All
+                </button>
+              </>
             )}
             {currencies.map((c) => {
               const conf = data?.confirmation?.[c];
@@ -1887,6 +2539,7 @@ export default function WisePage() {
                 <MissingAlert count={allMissing.length} total={allMissingEur} currency="EUR" />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "16px" }}>
+                <Section title="⬇ Incoming by classification">
                 <div style={cardStyle()}>
                   <CurrencySummaryTable
                     onSetCoverage={setCoverage}
@@ -1897,6 +2550,8 @@ export default function WisePage() {
                     feesClass={data.feesClass}
                   />
                 </div>
+                </Section>
+                <Section title="⬆ Outgoing by classification">
                 <div style={cardStyle()}>
                   <CurrencySummaryTable
                     title="⬆ Outgoing by classification"
@@ -1906,7 +2561,9 @@ export default function WisePage() {
                     feesClass={data.feesClass}
                   />
                 </div>
+                </Section>
                 {allMissing.length > 0 && (
+                  <Section title={`⚠ Missing invoices (${allMissing.length})`}>
                   <div style={cardStyle({ borderColor: "#f3b3b3" })}>
                     <LedgerTable
                       title="⚠ Missing invoices (all currencies)"
@@ -1922,10 +2579,24 @@ export default function WisePage() {
                       invoiceProps={invoiceProps}
                     />
                   </div>
+                  </Section>
                 )}
-                <VatSummary rows={data.vatSummary || []} notRead={data.invoicesNotRead || 0} periodLabel={periodLabel} />
-                <SupplierBalances onDelete={deleteDocument} year={year} />
-                <StockValuation />
+                {/* The freight invoices not linked to a Wise transaction moved into the
+                    Other expenses total section (per the user 2026-11-11). */}
+                <Section title={`🧾 VAT / GST paid · ${periodLabel}`}>
+                  <VatSummary rows={data.vatSummary || []} notRead={data.invoicesNotRead || 0} periodLabel={periodLabel} />
+                </Section>
+                <Section title={`🏭 Running balances ${year} - suppliers, owner, other expenses`}>
+                  <BalanceReceiptsSummary rows={nativeOutgoing} receipts={data.balanceReceipts || {}} />
+                  <div style={{ height: "12px" }} />
+                  <SupplierBalances onDelete={deleteDocument} year={year} reloadTick={reloadTick} />
+                </Section>
+                <Section title="📦 Stock value (for the accounts)">
+                  <StockValuation reloadTick={reloadTick} />
+                </Section>
+                <Section title="💶 Other expenses - total (minus home expenses 50% and invoices not via Wise)">
+                  <OtherExpensesTotal onDelete={deleteDocument} year={year} reloadTick={reloadTick} />
+                </Section>
               </div>
               <p style={{ fontSize: "11px", color: "#999", marginTop: "12px" }}>
                 Each transaction is converted to EUR at the ECB reference rate on its own date (weekends use the
@@ -1935,17 +2606,26 @@ export default function WisePage() {
             </>
           )}
 
-          {activeCurrency && (
+          {(activeCurrency || txTab) && (
             <>
               <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "13px", marginBottom: "8px", marginRight: "20px" }}>
                 Classification:
                 <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} style={{ fontSize: "13px", color: "#222" }}>
                   <option value="">All</option>
-                  {[...new Set(rows.filter((r) => r.currency === activeCurrency).map((r) => r.classification))].sort().map((c) => (
-                    <option key={c} value={c}>
-                      {c} ({rows.filter((r) => r.currency === activeCurrency && r.classification === c).length})
-                    </option>
-                  ))}
+                  {[["in", "⬇ Incoming", data.incomeClasses], ["out", "⬆ Outgoing", data.expenseClasses]].map(([side, label, list]) => {
+                    // Full list per side (per the user 2026-11-08), with (0) for unused classes.
+                    const cur = rows.filter((r) => inScope(r) && sideOf(r) === side);
+                    const all = [...new Set([...(list || []), ...cur.map((r) => r.classification)])];
+                    return (
+                      <optgroup key={side} label={label}>
+                        {all.map((c) => (
+                          <option key={c} value={`${side}|${c}`}>
+                            {c} ({cur.filter((r) => r.classification === c).length})
+                          </option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
                 </select>
                 {classFilter && (
                   <button
@@ -1958,13 +2638,59 @@ export default function WisePage() {
               </label>
               <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "13px", marginBottom: "8px", cursor: "pointer" }}>
                 <input type="checkbox" checked={hideAmazon} onChange={(e) => setHideAmazon(e.target.checked)} />
-                Hide Amazon transactions + cashback (payouts, Amazon card charges/refunds, Wise cashback)
+                Hide Amazon and Etsy transactions, cashback, refunded / cancelled payments and currency conversions
                 {hideAmazon && (
                   <span style={{ color: "#b26a00" }}>
-                    {" "}- {rows.filter((r) => r.currency === activeCurrency && !amazonFilter(r)).length} hidden; totals below exclude them
+                    {" "}- {rows.filter((r) => inScope(r) && !amazonFilter(r)).length} hidden; totals below exclude them
                   </span>
                 )}
               </label>
+              {txTab && (
+                <div style={{ ...cardStyle({ padding: "10px 16px" }), marginBottom: "16px", display: "flex", gap: "24px", flexWrap: "wrap", alignItems: "center" }}>
+                  <strong>
+                    All currencies · {periodLabel} · {classFilter ? classFilter.split("|")[1] : "all classifications - pick one above"}
+                  </strong>
+                  <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                    <thead>
+                      <tr>
+                        <th style={headStyle()}>Currency</th>
+                        <th style={headStyle({ textAlign: "right" })}>Transactions</th>
+                        <th style={headStyle({ textAlign: "right" })}>In</th>
+                        <th style={headStyle({ textAlign: "right" })}>Out</th>
+                        <th style={headStyle({ textAlign: "right" })}>Net</th>
+                        <th style={headStyle({ textAlign: "right" })}>Net in $</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(txTotals.by).sort((a, b) => b[1].n - a[1].n).map(([c, t]) => (
+                        <tr key={c}>
+                          <td style={tableCellStyle()}>{c}</td>
+                          <td style={numberCellStyle()}>{t.n}</td>
+                          <td style={numberCellStyle({ color: "#1b7f3b" })}>{formatMoney(t.in, c)}</td>
+                          <td style={numberCellStyle({ color: "#b00020" })}>{formatMoney(t.out, c)}</td>
+                          <td style={numberCellStyle()}>{formatMoney(t.in - t.out, c)}</td>
+                          <td style={numberCellStyle()}>{formatMoney(t.usdIn - t.usdOut, "USD")}</td>
+                        </tr>
+                      ))}
+                      <tr style={{ fontWeight: 700, borderTop: "2px solid #ccc" }}>
+                        <td style={tableCellStyle({ fontWeight: 700 })}>Total in $</td>
+                        <td style={numberCellStyle({ fontWeight: 700 })}>
+                          {Object.values(txTotals.by).reduce((s2, t) => s2 + t.n, 0)}
+                        </td>
+                        <td style={numberCellStyle({ fontWeight: 700, color: "#1b7f3b" })}>{formatMoney(txTotals.usdIn, "USD")}</td>
+                        <td style={numberCellStyle({ fontWeight: 700, color: "#b00020" })}>{formatMoney(txTotals.usdOut, "USD")}</td>
+                        <td style={numberCellStyle({ fontWeight: 700 })}>{formatMoney(txTotals.usdIn - txTotals.usdOut, "USD")}</td>
+                        <td style={numberCellStyle({ fontWeight: 700 })}>{formatMoney(txTotals.usdIn - txTotals.usdOut, "USD")}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  {txTotals.usdMissing > 0 && (
+                    <span style={{ color: "#888", fontSize: "12px" }}>{txTotals.usdMissing} transaction(s) without an ECB rate are not in the $ total.</span>
+                  )}
+                  <span style={{ color: "#888", fontSize: "12px" }}>$ values use the ECB rate of each transaction's date.</span>
+                </div>
+              )}
+              {!txTab && (
               <div
                 style={{
                   ...cardStyle({ padding: "10px 16px" }),
@@ -1994,6 +2720,7 @@ export default function WisePage() {
                   currency={activeCurrency}
                 />
               </div>
+              )}
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "16px" }}>
                 <div style={cardStyle()}>
@@ -2008,7 +2735,7 @@ export default function WisePage() {
                     savingKey={savingKey}
                     invoiceProps={invoiceProps}
                   />
-                  <SummaryTable title="Incoming by classification" rows={incoming} currency={activeCurrency} direction="in" feesClass={data.feesClass} />
+                  {!txTab && <SummaryTable title="Incoming by classification" rows={incoming} currency={activeCurrency} direction="in" feesClass={data.feesClass} />}
                 </div>
                 <div style={cardStyle()}>
                   <LedgerTable
@@ -2022,11 +2749,11 @@ export default function WisePage() {
                     savingKey={savingKey}
                     invoiceProps={invoiceProps}
                   />
-                  <SummaryTable title="Outgoing by classification" rows={outgoing} currency={activeCurrency} direction="out" feesClass={data.feesClass} />
+                  {!txTab && <SummaryTable title="Outgoing by classification" rows={outgoing} currency={activeCurrency} direction="out" feesClass={data.feesClass} />}
                 </div>
               </div>
               <p style={{ fontSize: "11px", color: "#999", marginTop: "12px" }}>
-                Changing a classification applies to every transaction with that payer/payee (past and future).
+                Changing a classification changes only that one transaction.
                 ✓ = confirmed by statement · api = from the Wise API, not yet confirmed · ⚠ = in the API but missing from
                 this month's uploaded statement. Italic payer = inferred from the payment reference (older deposits where
                 Wise's API doesn't give the payer name). Outgoing totals by classification exclude Wise's fee, which is

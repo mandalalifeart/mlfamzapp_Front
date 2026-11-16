@@ -78,8 +78,9 @@ function PriceScenarios({ sku, mp }) {
   );
 }
 
-function PeriodTotals({ sku, asin }) {
-  const [period, setPeriod] = useState("last_3m");
+const PERIODS = { this_month: "This month", last_month: "Last month", last_3m: "Last 3 months", ytd: "This year", last_12m: "Last 12 months", last_year: "Last year" };
+
+function PeriodTotals({ sku, asin, period }) {
   const [result, setResult] = useState({ period: null });
 
   useEffect(() => {
@@ -96,7 +97,6 @@ function PeriodTotals({ sku, asin }) {
 
   const th = { padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap", background: "#f3f3f3" };
   const td = { padding: "5px 8px", textAlign: "right", borderTop: "1px solid #eee", whiteSpace: "nowrap" };
-  const periods = data?.periods || { last_month: "Last month", last_3m: "Last 3 months", ytd: "This year", last_12m: "Last 12 months", last_year: "Last year" };
   const cols = [
     ["units", "Units", (v) => v],
     ["refunded", "Refunded", (v) => v || "—"],
@@ -131,18 +131,6 @@ function PeriodTotals({ sku, asin }) {
         <h4 style={{ margin: 0, flex: "1 1 auto" }}>
           Totals per period (USD){data?.months?.length ? ` · ${data.months[0]} – ${data.months.at(-1)}` : ""}
         </h4>
-        {Object.entries(periods).map(([k, label]) => (
-          <button
-            key={k}
-            onClick={() => setPeriod(k)}
-            style={{
-              padding: "3px 10px", borderRadius: "12px", border: "1px solid #ccc", cursor: "pointer", fontSize: "12px",
-              background: period === k ? "#1f5fbf" : "#fff", color: period === k ? "#fff" : "#333",
-            }}
-          >
-            {label}
-          </button>
-        ))}
       </div>
       {error && <div style={{ color: "#b00020" }}>{error}</div>}
       {!error && !data && <div style={{ color: "#777" }}>Loading...</div>}
@@ -181,15 +169,18 @@ export default function ProductCostCard({ sku, asin, cardStyle }) {
   const [error, setError] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [openMp, setOpenMp] = useState(null);
+  const [period, setPeriod] = useState("last_3m");
 
   useEffect(() => {
     if (!sku && !asin) return;
+    setData(null);
+    setError("");
     const q = sku ? `sku=${encodeURIComponent(sku)}` : `asin=${encodeURIComponent(asin)}`;
-    fetch(`${API_BASE}/GetProductCost?${q}`)
+    fetch(`${API_BASE}/GetProductCost?${q}&period=${period}`)
       .then((r) => r.json())
-      .then((d) => (d.error ? setError(d.error) : setData(d)))
+      .then((d) => (d.error ? setError(d.error) : setData(d.period === period ? d : null)))
       .catch((e) => setError(e.message));
-  }, [sku, asin]);
+  }, [sku, asin, period]);
 
   const th = { padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap", background: "#f3f3f3" };
   const td = { padding: "5px 8px", textAlign: "right", borderTop: "1px solid #eee", whiteSpace: "nowrap" };
@@ -197,7 +188,25 @@ export default function ProductCostCard({ sku, asin, cardStyle }) {
 
   return (
     <div style={cardStyle}>
-      <h3 style={{ marginTop: 0 }}>Product Cost &amp; Profit</h3>
+      <h3 style={{ marginTop: 0, marginBottom: "8px" }}>Product Cost &amp; Profit</h3>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center", alignItems: "center", marginBottom: "6px" }}>
+        <b style={{ fontSize: "13px" }}>Period:</b>
+        {Object.entries(PERIODS).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setPeriod(k)}
+            style={{
+              padding: "3px 12px", borderRadius: "12px", border: "1px solid #ccc", cursor: "pointer", fontSize: "13px",
+              background: period === k ? "#1f5fbf" : "#fff", color: period === k ? "#fff" : "#333",
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div style={{ fontSize: "13px", color: "#666", marginBottom: "12px" }}>
+        {PERIODS[period]}{data?.months?.length ? ` (${data.months[0]}${data.months.length > 1 ? ` – ${data.months.at(-1)}` : ""})` : ""}: per-unit table at today&apos;s price with TACOS, returns and storage of this period · totals below for the same period · purchase price from the latest supplier invoice
+      </div>
       {error && <div style={{ color: "#b00020" }}>{error}</div>}
       {!error && !data && <div style={{ color: "#777" }}>Loading...</div>}
       {data && (
@@ -274,7 +283,7 @@ export default function ProductCostCard({ sku, asin, cardStyle }) {
                     <th style={th}>Referral</th>
                     <th style={th}>FBA fee</th>
                     <th style={th}>Landed cost</th>
-                    <th style={th} title="Per unit sold, last 3 full months: returns (refund - 80% referral back + processing fee - product back if sellable) + FBA storage + AWD">Returns + storage</th>
+                    <th style={th} title="Per unit sold in the selected period: returns (refund - 80% referral back + processing fee - product back if sellable) + FBA storage + AWD">Returns + storage</th>
                     <th style={th} title="Net price - fees - landed cost - returns/storage/AWD">Profit before ads</th>
                     <th style={{ ...th, borderLeft: "2px solid #ddd" }} title="SP+SD ad spend on this product / its sales">Product TACOS</th>
                     <th style={th}>Ad cost</th>
@@ -344,11 +353,11 @@ export default function ProductCostCard({ sku, asin, cardStyle }) {
               </table>
             </div>
           )}
-          <PeriodTotals sku={sku} asin={asin} />
+          <PeriodTotals sku={sku} asin={asin} period={period} />
           <div style={{ fontSize: "11px", color: "#888", marginTop: "6px" }}>
             Per-unit table above: at the current price. Profit = price without VAT − referral − FBA fee − landed cost − ad cost. Product ad cost = SP+SD TACOS × price + SB share per unit
             (section SB spend ÷ section units sold, same marketplace). TACOS over {data.months?.[0]} – {data.months?.at(-1)}. The department
-            TACOS includes SB. Fees are Amazon&apos;s estimate. Returns + storage + AWD per unit are averaged over the same 3 months. Coupon discounts are in the period totals (real prices paid).
+            TACOS includes SB. Fees are Amazon&apos;s estimate. Returns + storage + AWD per unit are averaged over the same period. Coupon discounts are in the period totals (real prices paid).
           </div>
         </>
       )}

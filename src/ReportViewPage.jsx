@@ -1002,6 +1002,13 @@ export default function ReportViewPage() {
   }, [mergedMpCounts]);
 
 
+  // Always open at the top (per the user 2026-11-07: it opened at the footer,
+  // where the button on the previous page was).
+  useEffect(() => {
+    if ("scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
+    window.scrollTo(0, 0);
+  }, []);
+
   useEffect(() => {
     function handleResize() {
       setIsMobile(window.innerWidth <= 768);
@@ -1306,8 +1313,16 @@ export default function ReportViewPage() {
         width: "100%",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "12px", marginBottom: "4px", flexWrap: "wrap" }}>
-        <h2 style={{ margin: 0, color: "#1976d2" }}>Report View</h2>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: isMobile ? "8px" : "12px", marginBottom: "4px", flexWrap: "wrap" }}>
+        {/* on mobile the 3 buttons share one line and the title goes below */}
+        <div style={{ display: "flex", gap: isMobile ? "8px" : "12px", width: isMobile ? "100%" : "auto" }}>
+          {[["🏠 Home", "/"], ["Today", "/?preset=today"], ["Yesterday", "/?preset=yesterday"]].map(([label, href]) => {
+            const style = isMobile ? { ...buttonStyle(), minWidth: 0, flex: 1, padding: "10px 6px" } : buttonStyle();
+            // Home auto-requests the reports for ?preset=... and comes back here
+            return href === "/" ? <Link key={href} to="/" style={style}>{label}</Link> : <a key={href} href={href} style={style}>{label}</a>;
+          })}
+        </div>
+        <h2 style={{ margin: 0, color: "#1976d2", width: isMobile ? "100%" : "auto", textAlign: "center" }}>Report View</h2>
       </div>
 
       <div
