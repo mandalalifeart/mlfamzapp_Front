@@ -110,7 +110,7 @@ export default function ProductResearchPage() {
   }
 
   const ideas = useMemo(() => {
-    const kindOf = (i) => (i.kind === "bundle" ? "bundle" : i.id.startsWith("mushroom") || i.id.startsWith("groovy") || i.id.startsWith("cottagecore") ? "mushroom" : "other");
+    const kindOf = (i) => (i.kind === "bundle" ? "bundle" : i.kind === "lamp" ? "lamp" : i.id.startsWith("mushroom") || i.id.startsWith("groovy") || i.id.startsWith("cottagecore") ? "mushroom" : "other");
     const val = (i) => (sortKey === "score" ? i.score?.score : (i.research || {})[sortKey]) ?? -1;
     const sorted = (l) => l.sort((a, b) => val(b) - val(a));
     const all = data?.ideas || [];
@@ -164,6 +164,7 @@ export default function ProductResearchPage() {
                         {idea.score?.score ?? "–"}
                       </td>
                       <td style={cell} onClick={() => setOpen((o) => ({ ...o, [idea.id]: !o[idea.id] }))}>
+                        {idea.images?.[0] && <img src={idea.images[0]} alt="" style={{ width: "48px", height: "48px", objectFit: "cover", borderRadius: "4px", float: "right", marginLeft: "6px" }} />}
                         <b>{isOpen ? "▾" : "▸"} {idea.name}</b>
                         {idea.kind === "bundle" && <span style={{ marginLeft: "6px", fontSize: "11px", background: "#fff3cd", border: "1px solid #e0c46c", borderRadius: "4px", padding: "0 4px" }}>BUNDLE</span>}
                         <div style={{ color: "#555", fontSize: "12px", marginTop: "3px" }}>{idea.notes}</div>
@@ -190,10 +191,26 @@ export default function ProductResearchPage() {
                     {isOpen && (
                       <tr>
                         <td colSpan={12} style={{ ...cell, background: "#fafafa" }}>
+                          {(idea.images || []).length > 0 && (
+                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "8px" }}>
+                              {idea.images.map((src) => (
+                                <a key={src} href={src} target="_blank" rel="noreferrer">
+                                  <img src={src} alt={idea.name} style={{ width: "160px", height: "160px", objectFit: "cover", borderRadius: "6px", border: "1px solid #ddd" }} />
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                          {(idea.findings || []).length > 0 && (
+                            <ul style={{ margin: "0 0 10px", paddingLeft: "18px", fontSize: "13px", color: "#333" }}>
+                              {idea.findings.map((f, k) => (
+                                <li key={k} style={{ marginBottom: "3px" }}>{f}</li>
+                              ))}
+                            </ul>
+                          )}
                           <table style={{ borderCollapse: "collapse", width: "100%" }}>
                             <thead>
                               <tr>
-                                <th style={head}>H&amp;K rank</th>
+                                <th style={head}>{idea.kind === "lamp" ? "Category rank" : "H&K rank"}</th>
                                 <th style={head}>Sub-category rank</th>
                                 <th style={head}>Price</th>
                                 <th style={head}>Brand</th>
@@ -204,7 +221,7 @@ export default function ProductResearchPage() {
                             <tbody>
                               {(r.competitors || []).map((c) => (
                                 <tr key={c.asin} style={{ background: c.ours ? "#eef7ee" : undefined }}>
-                                  <td style={num}>{c.rankCategory === "Home & Kitchen" ? fmtRank(c.rank) : c.rank ? `${fmtRank(c.rank)} ${c.rankCategory}` : "–"}</td>
+                                  <td style={num}>{c.rankCategory === "Home & Kitchen" && idea.kind !== "lamp" ? fmtRank(c.rank) : c.rank ? `${fmtRank(c.rank)} ${c.rankCategory}` : "–"}</td>
                                   <td style={num}>{c.subRank ? `${fmtRank(c.subRank)} ${c.subCategory}` : "–"}</td>
                                   <td style={num}>{fmtUsd(c.price)}</td>
                                   <td style={cell}>{c.brand}</td>
@@ -247,7 +264,7 @@ export default function ProductResearchPage() {
         retro themed ("mushroom brown" colour products are left out). Click a row for the competitors.
       </p>
       <div style={{ display: "flex", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
-        {[["all", "All ideas"], ["mushroom", "Mushroom / retro"], ["other", "Other fabric products"], ["bundle", `Bundles pool (${(data?.ideas || []).filter((i) => i.pool !== "main").length})`]].map(([k, label]) => (
+        {[["all", "All ideas"], ["mushroom", "Mushroom / retro"], ["lamp", "Lamps"], ["other", "Other fabric products"], ["bundle", `Bundles pool (${(data?.ideas || []).filter((i) => i.pool !== "main").length})`]].map(([k, label]) => (
           <button
             key={k}
             onClick={() => setKind(k)}
