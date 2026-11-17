@@ -200,6 +200,15 @@ export default function ProductResearchPage() {
                               ))}
                             </div>
                           )}
+                          {(idea.links || []).length > 0 && (
+                            <div style={{ marginBottom: "8px", fontSize: "13px" }}>
+                              {idea.links.map((l) => (
+                                <div key={l.url}>
+                                  🔗 <a href={l.url} target="_blank" rel="noreferrer">{l.label || l.url}</a>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                           {(idea.findings || []).length > 0 && (
                             <ul style={{ margin: "0 0 10px", paddingLeft: "18px", fontSize: "13px", color: "#333" }}>
                               {idea.findings.map((f, k) => (
