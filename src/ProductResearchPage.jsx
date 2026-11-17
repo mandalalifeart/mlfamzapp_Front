@@ -21,6 +21,35 @@ function fmtUsd(v) {
 
 const POOL_LABELS = { main: "Main list", option: "Bundle pool: option", addon: "Bundle pool: add-on", ready: "Bundle pool: ready bundle" };
 
+function MarkStar({ idea, onSaved }) {
+  const [marked, setMarked] = useState(!!idea.marked);
+  async function toggle(e) {
+    e.stopPropagation();
+    const next = !marked;
+    setMarked(next);
+    try {
+      const r = await fetch(`${API_BASE}/SetProductResearchStatus`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: idea.id, marked: next }),
+      });
+      if (!r.ok) throw new Error();
+      onSaved(idea.id, next);
+    } catch {
+      setMarked(!next);
+    }
+  }
+  return (
+    <span
+      onClick={toggle}
+      title={marked ? "Marked - click to unmark" : "Mark this idea (we go for it)"}
+      style={{ cursor: "pointer", fontSize: "20px", color: marked ? "#f5a623" : "#ccc", marginRight: "6px", userSelect: "none" }}
+    >
+      {marked ? "★" : "☆"}
+    </span>
+  );
+}
+
 function StatusCell({ idea, statuses, onSaved }) {
   const [status, setStatus] = useState(idea.status);
   const [notes, setNotes] = useState(idea.userNotes || "");
@@ -82,7 +111,7 @@ export default function ProductResearchPage() {
   const [open, setOpen] = useState({});
   const [running, setRunning] = useState(false);
   const [sortKey, setSortKey] = useState("score");
-  const [kind, setKind] = useState("all");
+  const [kind, setKind] = useState("marked");
 
   async function load() {
     try {
@@ -116,6 +145,9 @@ export default function ProductResearchPage() {
     const all = data?.ideas || [];
     if (kind === "bundle") {
       return { ready: sorted(all.filter((i) => i.pool === "ready")), option: sorted(all.filter((i) => i.pool === "option")), addon: sorted(all.filter((i) => i.pool === "addon")) };
+    }
+    if (kind === "marked") {
+      return { main: sorted(all.filter((i) => i.marked)) };
     }
     return { main: sorted(all.filter((i) => i.pool === "main" && (kind === "all" || kindOf(i) === kind))) };
   }, [data, sortKey, kind]);
@@ -156,7 +188,10 @@ export default function ProductResearchPage() {
                 return (
                   <Fragment key={idea.id}>
                     <tr style={{ cursor: "pointer", background: isOpen ? "#f5f9ff" : undefined }}>
-                      <td style={{ ...num, fontWeight: 700 }}>{idea.rank ?? "–"}</td>
+                      <td style={{ ...num, fontWeight: 700 }}>
+                        <MarkStar key={`${idea.id}-${idea.marked}`} idea={idea} onSaved={(id, v) => setData((d) => ({ ...d, ideas: d.ideas.map((x) => (x.id === id ? { ...x, marked: v } : x)) }))} />
+                        {idea.rank ?? "–"}
+                      </td>
                       <td
                         style={{ ...num, fontWeight: 700, fontSize: "16px", color: (idea.score?.score ?? 0) >= 60 ? "#2e7d32" : (idea.score?.score ?? 0) >= 35 ? "#b26a00" : "#888" }}
                         title={idea.score ? `Demand ${idea.score.demand}/35\nStrong sellers ${idea.score.strong}/20\nPrice ${idea.score.price}/25\nOur ads proof ${idea.score.ours}/20` : ""}
@@ -273,7 +308,7 @@ export default function ProductResearchPage() {
         retro themed ("mushroom brown" colour products are left out). Click a row for the competitors.
       </p>
       <div style={{ display: "flex", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
-        {[["all", "All ideas"], ["mushroom", "Mushroom / retro"], ["lamp", "Lamps"], ["other", "Other fabric products"], ["bundle", `Bundles pool (${(data?.ideas || []).filter((i) => i.pool !== "main").length})`]].map(([k, label]) => (
+        {[["marked", `★ Marked (${(data?.ideas || []).filter((i) => i.marked).length})`], ["all", "All ideas"], ["mushroom", "Mushroom / retro"], ["lamp", "Lamps"], ["other", "Other fabric products"], ["bundle", `Bundles pool (${(data?.ideas || []).filter((i) => i.pool !== "main").length})`]].map(([k, label]) => (
           <button
             key={k}
             onClick={() => setKind(k)}
