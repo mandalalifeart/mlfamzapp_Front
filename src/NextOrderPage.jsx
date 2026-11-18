@@ -44,6 +44,17 @@ function setShownOptionalRegions(shown) {
 // Reco + DoS only show when the region is expanded (2026-10-31, per the user:
 // not in the normal all-regions view).
 const REGION_COL_WEIGHTS = [3, 3, 4];
+// Expanded region (2026-11-18, per the user): the Bal column is replaced by
+// one column per stock location of that country (same parts as the backend's
+// BALANCE_PARTS in GetNextOrderData.py).
+const BALANCE_PARTS = { usa: ["fba", "awd"], uk: ["fba", "awd"], de: ["fba", "awd", "lg"], au: ["fba"], jp: ["fba"] };
+const PART_LABELS = { fba: "FBA", awd: "AWD", lg: "LG" };
+function balanceParts(region) {
+  return BALANCE_PARTS[region] || ["fba"];
+}
+function focusRegionWeights(region) {
+  return [...balanceParts(region).map(() => 3), 3, 4];
+}
 const REGION_FOCUS_COL_WEIGHTS = [6, 6];
 const EXTRA_COL_WEIGHTS = [4, 4, 4, 5, 5, 5, 4];
 const GENERAL_COL_WEIGHTS = [3, 3, 4, 5, 5];
@@ -55,14 +66,14 @@ const GENERAL_EXTRA_LABELS = ["Supplier SKU", "Stock all (Bal+OTW)"];
 function regionColumnCount(region, focusRegion) {
   if (!focusRegion) return REGION_COL_WEIGHTS.length;
   if (focusRegion === "general") return 0;
-  return region === focusRegion ? REGION_COL_WEIGHTS.length + REGION_FOCUS_COL_WEIGHTS.length + EXTRA_COL_WEIGHTS.length : 0;
+  return region === focusRegion ? focusRegionWeights(region).length + REGION_FOCUS_COL_WEIGHTS.length + EXTRA_COL_WEIGHTS.length : 0;
 }
 
 function columnWeights(showAsin, focusRegion) {
   const lead = showAsin ? [3, 8, 3] : [3, 11];
   const regions = REGIONS.flatMap((r) => {
     if (!focusRegion) return REGION_COL_WEIGHTS;
-    return r.key === focusRegion ? [...REGION_COL_WEIGHTS, ...REGION_FOCUS_COL_WEIGHTS, ...EXTRA_COL_WEIGHTS] : [];
+    return r.key === focusRegion ? [...focusRegionWeights(r.key), ...REGION_FOCUS_COL_WEIGHTS, ...EXTRA_COL_WEIGHTS] : [];
   });
   if (focusRegion === "general") return [...lead, ...GENERAL_COL_WEIGHTS, ...GENERAL_EXTRA_COL_WEIGHTS];
   return [...lead, ...regions, ...(focusRegion ? [] : GENERAL_COL_WEIGHTS)];
@@ -279,10 +290,12 @@ function TableHeader({ showAsin, focusRegion, onFocusRegion, salesYears }) {
     if (focusRegion && r.key !== focusRegion) {
       // hidden while another region is expanded
     } else {
-      row2.push(...REGION_SUBLABELS);
       if (r.key === focusRegion) {
+        row2.push(...balanceParts(r.key).map((p) => PART_LABELS[p] || p.toUpperCase()), "OTW", "Next");
         row2.push(...REGION_FOCUS_SUBLABELS);
         row2.push(`${years[0] ?? ""} (YTD)`, `${years[1] ?? ""}`, `${years[2] ?? ""}`, "Ads ACOS (YTD)", "Sold via ads (YTD)", "TACOS (YTD)", "Malani Bal");
+      } else {
+        row2.push(...REGION_SUBLABELS);
       }
     }
   });
@@ -459,9 +472,17 @@ function RegionBlock({ item, region, balanceField, otwField, nextField, onSave, 
   const yearly = item[`${region}_yearly_sales`] || [];
   return (
     <>
-      <td style={valueCellStyle(cellStyle)} title={balanceTooltip(item[`${region}_balance_parts`])}>
-        {formatUnits(item[balanceField])}
-      </td>
+      {focusRegion === region ? (
+        balanceParts(region).map((p) => (
+          <td key={p} style={valueCellStyle(cellStyle)} title={`${PART_LABELS[p] || p} stock (total balance ${formatUnits(item[balanceField])})`}>
+            {formatUnits((item[`${region}_balance_parts`] || {})[p])}
+          </td>
+        ))
+      ) : (
+        <td style={valueCellStyle(cellStyle)} title={balanceTooltip(item[`${region}_balance_parts`])}>
+          {formatUnits(item[balanceField])}
+        </td>
+      )}
       <td style={valueCellStyle(cellStyle)}>{formatUnits(item[otwField])}</td>
       {nextCell}
       {focusRegion === region && (
