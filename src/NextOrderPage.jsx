@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { buttonStyle, ghostButtonStyle } from "./buttonStyle";
 import FamilySection from "./FamilySection";
@@ -976,6 +976,80 @@ export default function NextOrderPage() {
   const exportSelected = exportOptions.filter(([k]) => multiExport[k]);
   exportSupplierTag = supplier === "all" ? "" : `-${supplier}`;
 
+  // Loading in phases (2026-11-19, per the user): products + stock first,
+  // then the recommendations of the shown regions, and the ads columns of a
+  // region only once it is expanded (or exported). phaseRef caches one
+  // promise per "<phase>:<region>"; genRef drops answers of an older load.
+  const phaseRef = useRef({});
+  const genRef = useRef(0);
+  const [phaseLoading, setPhaseLoading] = useState(0);
+  const [baseLoaded, setBaseLoaded] = useState(0);
+  const shownKey = REGIONS.map((r) => r.key).join(",");
+
+  function loadPhase(phase, regions) {
+    const gen = genRef.current;
+    const todo = regions.filter((r) => !phaseRef.current[`${phase}:${r}`]);
+    if (todo.length) {
+      setPhaseLoading((n) => n + 1);
+      const promise = fetch(`${API_BASE}/GetNextOrderData`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parts: [phase], regions: todo }),
+      })
+        .then(async (response) => {
+          const data = await response.json();
+          if (!response.ok || data?.error) throw new Error(data?.error || `HTTP ${response.status}`);
+          const items = data.items || {};
+          if (gen === genRef.current) {
+            setGroups((prev) =>
+              prev.map((g) => ({ ...g, items: g.items.map((it) => (items[it.sku] ? { ...it, ...items[it.sku] } : it)) })),
+            );
+            if (phase === "reco") setRecommendedDates(data.recommendedShipmentDates || {});
+          }
+          return items;
+        })
+        .catch((err) => {
+          if (gen === genRef.current) {
+            todo.forEach((r) => delete phaseRef.current[`${phase}:${r}`]);
+            setError(err.message || `Failed to load ${phase}`);
+          }
+          return {};
+        })
+        .finally(() => setPhaseLoading((n) => n - 1));
+      todo.forEach((r) => {
+        phaseRef.current[`${phase}:${r}`] = promise;
+      });
+    }
+    return Promise.all(regions.map((r) => phaseRef.current[`${phase}:${r}`]));
+  }
+
+  useEffect(() => {
+    if (baseLoaded) loadPhase("reco", shownKey.split(","));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseLoaded, shownKey]);
+
+  useEffect(() => {
+    if (baseLoaded && focusRegion && focusRegion !== "general") loadPhase("extra", [focusRegion]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseLoaded, focusRegion]);
+
+  useEffect(() => {
+    if (baseLoaded && filterReco) loadPhase("reco", ["usa", "de", "uk"]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseLoaded, filterReco]);
+
+  // Export needs every column of the exported regions - load them first.
+  async function exportWithData(selected) {
+    const keys = selected.map(([k]) => k).filter((k) => k !== "general");
+    const recoKeys = selected.some(([k]) => k === "general") ? [...new Set([...keys, ...REGIONS.map((r) => r.key)])] : keys;
+    const maps = [...(await loadPhase("reco", recoKeys)), ...(await loadPhase("extra", keys))];
+    const merged = visibleGroups.map((g) => ({
+      ...g,
+      items: g.items.map((it) => Object.assign({}, it, ...maps.map((m) => m[it.sku] || {}))),
+    }));
+    await exportSelectedXlsx(merged, selected, salesYears);
+  }
+
   async function loadData() {
     setLoading(true);
     setError("");
@@ -984,7 +1058,7 @@ export default function NextOrderPage() {
       const response = await fetch(`${API_BASE}/GetNextOrderData`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ parts: ["base"] }),
       });
 
       const data = await response.json();
@@ -992,11 +1066,13 @@ export default function NextOrderPage() {
         throw new Error(data?.error || `HTTP ${response.status}`);
       }
 
+      genRef.current += 1;
+      phaseRef.current = {};
       setGroups(data.groups || []);
+      setBaseLoaded((n) => n + 1);
       setNextShipmentDate(data.nextShipmentDate || "");
       setNextShipmentDates(data.nextShipmentDates || {});
       setCoverMonths(data.coverMonths || {});
-      setRecommendedDates(data.recommendedShipmentDates || {});
       setSalesYears(data.salesYears || []);
       const allCollapsed = {};
       (data.groups || []).forEach((g) => {
@@ -1319,6 +1395,26 @@ export default function NextOrderPage() {
                   </td>
                   <td style={{ ...cell, color: "#555", maxWidth: "520px", whiteSpace: "normal" }}>
                     {recommended?.why || "No sales in the last 12 months - nothing to calculate yet."}
+                    {recommended?.products?.length > 0 && (
+                      <details style={{ marginTop: "4px" }}>
+                        <summary style={{ cursor: "pointer", color: "#1565c0" }}>show the {recommended.products.length} products</summary>
+                        <table style={{ borderCollapse: "collapse", marginTop: "4px" }}>
+                          <tbody>
+                            {recommended.products.map((p) => (
+                              <tr key={p.sku}>
+                                <td style={{ padding: "1px 8px 1px 0" }}>
+                                  <Link to={`/product?sku=${encodeURIComponent(p.sku)}`}>{p.sku}</Link>
+                                </td>
+                                <td style={{ padding: "1px 8px", color: p.runOut ? "#333" : "#b00020" }}>
+                                  {p.runOut ? `runs out ${p.runOut}` : "out of stock now"}
+                                </td>
+                                <td style={{ padding: "1px 0", color: "#777" }}>{p.perMonth}/month</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </details>
+                    )}
                   </td>
                 </tr>
               );
@@ -1363,6 +1459,7 @@ export default function NextOrderPage() {
           </button>
         )}
         </div>
+        {phaseLoading > 0 && <span style={{ color: "#888" }}>Loading recommendations...</span>}
         {dateSaveStatus === "saving" && <span style={{ color: "#888" }}>Saving...</span>}
         {dateSaveStatus === "saved" && <span style={{ color: SAVE_OK_COLOR }}>Saved</span>}
         <span style={{ color: "#777" }}>
@@ -1413,7 +1510,7 @@ export default function NextOrderPage() {
               ))}
               <button
                 disabled={!exportSelected.length}
-                onClick={() => exportSelectedXlsx(visibleGroups, exportSelected, salesYears)}
+                onClick={() => exportWithData(exportSelected)}
                 style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #1565c0", background: "#1565c0", color: "#fff", fontWeight: 600, fontSize: "13px", cursor: "pointer", opacity: exportSelected.length ? 1 : 0.4 }}
               >
                 Export
