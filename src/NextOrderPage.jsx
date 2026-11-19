@@ -36,6 +36,11 @@ const ALL_REGIONS = [
 // JP (2026-10-30, per the user "same as au") works the same way: hidden
 // until it has stock or "show JP" is clicked.
 const ACACIA_GROUP = "PAREO_ACA";
+// Dates shown as DD/MM/YYYY (per the user 2026-11-19, same as the date pickers).
+function euDate(iso) {
+  const [y, m, d] = String(iso).slice(0, 10).split("-");
+  return d && m && y ? `${d}/${m}/${y}` : iso;
+}
 let REGIONS = ALL_REGIONS.filter((r) => r.key !== "au" && r.key !== "jp");
 
 // UK and GENERAL (2026-11-19, per the user) are hidden by default too, with
@@ -751,7 +756,7 @@ function RecoExplanation({ nextShipmentDate, exampleItem }) {
       {exampleItem && debug && (
         <div style={{ marginTop: "12px", padding: "12px", background: "#f7f7f7", borderRadius: "6px", fontSize: "13px", lineHeight: 1.7, whiteSpace: "pre-line" }}>
           <strong>
-            Worked example - {exampleItem.sku} USA (next shipment {nextShipmentDate})
+            Worked example - {exampleItem.sku} USA (next shipment {euDate(nextShipmentDate)})
           </strong>
           {"\n"}
           {recoTooltipFor(exampleItem, "usa")}
@@ -1393,7 +1398,7 @@ export default function NextOrderPage() {
                     style={{ ...cell, color: recommended?.date && value && recommended.date < value ? "#b00020" : "#333", fontWeight: 600 }}
                     title={recommended?.why || "No sales in the last 12 months"}
                   >
-                    {recommended?.date || "—"}
+                    {recommended?.date ? euDate(recommended.date) : "—"}
                     {recommended?.date && value && recommended.date < value && (
                       <span style={{ fontWeight: 400 }}> ({Math.round((new Date(value) - new Date(recommended.date)) / 864e5)}d before the planned date)</span>
                     )}
@@ -1411,7 +1416,7 @@ export default function NextOrderPage() {
                                   <Link to={`/product?sku=${encodeURIComponent(p.sku)}`}>{p.sku}</Link>
                                 </td>
                                 <td style={{ padding: "1px 8px", color: p.runOut ? "#333" : "#b00020" }}>
-                                  {p.runOut ? `runs out ${p.runOut}` : "out of stock now"}
+                                  {p.runOut ? `runs out ${euDate(p.runOut)}` : "out of stock now"}
                                 </td>
                                 <td style={{ padding: "1px 0", color: "#777" }}>{p.perMonth}/month</td>
                               </tr>
