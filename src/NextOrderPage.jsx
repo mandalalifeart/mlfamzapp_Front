@@ -1395,7 +1395,7 @@ export default function NextOrderPage() {
                     <span style={{ color: "#777" }}>months</span>
                   </td>
                   <td
-                    style={{ ...cell, color: recommended?.date && value && recommended.date < value ? "#b00020" : "#333", fontWeight: 600 }}
+                    style={{ ...cell, color: recommended?.date && value && (new Date(value) - new Date(recommended.date)) / 864e5 >= 14 ? "#b00020" : "#333", fontWeight: 600 }}
                     title={recommended?.why || "No sales in the last 12 months"}
                   >
                     {recommended?.date ? euDate(recommended.date) : "—"}
