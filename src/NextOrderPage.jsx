@@ -1419,7 +1419,9 @@ export default function NextOrderPage() {
                                 <td style={{ padding: "1px 8px", color: p.runOut ? "#333" : "#b00020" }}>
                                   {p.runOut ? `runs out ${euDate(p.runOut)}` : "out of stock now"}
                                 </td>
-                                <td style={{ padding: "1px 0", color: "#777" }}>{p.perMonth}/month</td>
+                                <td style={{ padding: "1px 0", color: "#777" }}>
+                                  {p.perMonth}/month{p.valuePerMonth != null && ` · ${p.valuePerMonth.toLocaleString()} ${{ usa: "$", de: "€", uk: "£", au: "A$", jp: "¥" }[region] || ""}/month`}
+                                </td>
                               </tr>
                             ))}
                           </tbody>
