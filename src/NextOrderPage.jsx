@@ -1322,6 +1322,7 @@ export default function NextOrderPage() {
             })}
           </tbody>
         </table>
+        <div style={{ flexBasis: "100%", display: "flex", justifyContent: "center", gap: "10px" }}>
         <button
           onClick={() => {
             if (showUk && focusRegion === "uk") setFocusRegion(null);
@@ -1358,6 +1359,7 @@ export default function NextOrderPage() {
             {showJpManual ? "hide JP" : "show JP"}
           </button>
         )}
+        </div>
         {dateSaveStatus === "saving" && <span style={{ color: "#888" }}>Saving...</span>}
         {dateSaveStatus === "saved" && <span style={{ color: SAVE_OK_COLOR }}>Saved</span>}
         <span style={{ color: "#777" }}>
