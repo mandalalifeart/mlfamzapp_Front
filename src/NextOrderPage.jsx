@@ -1265,7 +1265,7 @@ export default function NextOrderPage() {
         <table style={{ borderCollapse: "collapse", background: "#fff", border: "1px solid #ddd", fontSize: "13px" }}>
           <thead>
             <tr style={{ background: "#e8e8e8" }}>
-              {["Country", "Next Shipment Arriving Date", "Enough for", "Recommended date for next shipment"].map((h) => (
+              {["Country", "Next Shipment Arriving Date", "Enough for", "Recommended date for next shipment", "Remark"].map((h) => (
                 <th key={h} style={{ padding: "6px 10px", border: "1px solid #ddd", textAlign: "left" }}>{h}</th>
               ))}
             </tr>
@@ -1316,6 +1316,9 @@ export default function NextOrderPage() {
                     {recommended?.date && value && recommended.date < value && (
                       <span style={{ fontWeight: 400 }}> ({Math.round((new Date(value) - new Date(recommended.date)) / 864e5)}d before the planned date)</span>
                     )}
+                  </td>
+                  <td style={{ ...cell, color: "#555", maxWidth: "520px", whiteSpace: "normal" }}>
+                    {recommended?.why || "No sales in the last 12 months - nothing to calculate yet."}
                   </td>
                 </tr>
               );
