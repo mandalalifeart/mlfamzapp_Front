@@ -1404,6 +1404,7 @@ export default function NextOrderPage() {
                     )}
                   </td>
                   <td style={{ ...cell, color: "#555", maxWidth: "520px", whiteSpace: "normal" }}>
+                    <b>{supplier === "all" ? "All suppliers" : supplier === "malani" ? "Malani only (without Acacia pareos)" : "Acacia pareos only"}: </b>
                     {recommended?.why || "No sales in the last 12 months - nothing to calculate yet."}
                     {recommended?.products?.length > 0 && (
                       <details style={{ marginTop: "4px" }}>
