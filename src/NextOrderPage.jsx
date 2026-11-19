@@ -955,6 +955,8 @@ export default function NextOrderPage() {
   const [coverMonths, setCoverMonths] = useState({});
   // Recommended next-shipment date per region (formula pending the user's OK).
   const [recommendedDates, setRecommendedDates] = useState({});
+  // Per supplier filter (2026-11-19, per the user): Malani without Acacia's pareos, Acacia only them.
+  const [recommendedBySupplier, setRecommendedBySupplier] = useState({});
   const [dateSaveStatus, setDateSaveStatus] = useState("idle"); // idle | saving | saved | error
   // Pareo / Home Decor family sections - collapsed by default, same as /sales.
   const [expandedFamilies, setExpandedFamilies] = useState({});
@@ -1004,7 +1006,10 @@ export default function NextOrderPage() {
             setGroups((prev) =>
               prev.map((g) => ({ ...g, items: g.items.map((it) => (items[it.sku] ? { ...it, ...items[it.sku] } : it)) })),
             );
-            if (phase === "reco") setRecommendedDates(data.recommendedShipmentDates || {});
+            if (phase === "reco") {
+              setRecommendedDates(data.recommendedShipmentDates || {});
+              setRecommendedBySupplier(data.recommendedShipmentDatesBySupplier || {});
+            }
           }
           return items;
         })
@@ -1350,7 +1355,7 @@ export default function NextOrderPage() {
             {ALL_REGIONS.map((r) => r.key).map((region) => {
               const value = nextShipmentDates[region] || "";
               const left = value ? Math.max(0, Math.round((new Date(`${value}T00:00:00`) - new Date(new Date().toDateString())) / 864e5)) : null;
-              const recommended = recommendedDates[region];
+              const recommended = (supplier === "all" ? recommendedDates : recommendedBySupplier[supplier] || {})[region];
               const cell = { padding: "4px 10px", border: "1px solid #ddd" };
               return (
                 <tr key={region}>
