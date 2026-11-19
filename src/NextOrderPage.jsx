@@ -38,8 +38,12 @@ const ALL_REGIONS = [
 const ACACIA_GROUP = "PAREO_ACA";
 let REGIONS = ALL_REGIONS.filter((r) => r.key !== "au" && r.key !== "jp");
 
+// UK and GENERAL (2026-11-19, per the user) are hidden by default too, with
+// "show UK" / "show GENERAL" buttons at the top.
+let SHOW_GENERAL = false;
 function setShownOptionalRegions(shown) {
-  REGIONS = ALL_REGIONS.filter((r) => (r.key !== "au" && r.key !== "jp") || shown[r.key]);
+  REGIONS = ALL_REGIONS.filter((r) => !["uk", "au", "jp"].includes(r.key) || shown[r.key]);
+  SHOW_GENERAL = !!shown.general;
 }
 // Reco + DoS only show when the region is expanded (2026-10-31, per the user:
 // not in the normal all-regions view).
@@ -76,7 +80,7 @@ function columnWeights(showAsin, focusRegion) {
     return r.key === focusRegion ? [...focusRegionWeights(r.key), ...REGION_FOCUS_COL_WEIGHTS, ...EXTRA_COL_WEIGHTS] : [];
   });
   if (focusRegion === "general") return [...lead, ...GENERAL_COL_WEIGHTS, ...GENERAL_EXTRA_COL_WEIGHTS];
-  return [...lead, ...regions, ...(focusRegion ? [] : GENERAL_COL_WEIGHTS)];
+  return [...lead, ...regions, ...(focusRegion || !SHOW_GENERAL ? [] : GENERAL_COL_WEIGHTS)];
 }
 
 function cardStyle() {
@@ -299,7 +303,7 @@ function TableHeader({ showAsin, focusRegion, onFocusRegion, salesYears }) {
       }
     }
   });
-  if (!focusRegion || focusRegion === "general") row2.push(...GENERAL_SUBLABELS);
+  if ((!focusRegion && SHOW_GENERAL) || focusRegion === "general") row2.push(...GENERAL_SUBLABELS);
   if (focusRegion === "general") {
     row2.push(...GENERAL_EXTRA_LABELS, `Sold ${years[0] ?? ""} (YTD)`, `Sold ${years[1] ?? ""}`, `Sold ${years[2] ?? ""}`);
   }
@@ -326,7 +330,7 @@ function TableHeader({ showAsin, focusRegion, onFocusRegion, salesYears }) {
             </th>
           );
         })}
-        {(!focusRegion || focusRegion === "general") && (
+        {((!focusRegion && SHOW_GENERAL) || focusRegion === "general") && (
           <th
             colSpan={GENERAL_SUBLABELS.length + (focusRegion === "general" ? GENERAL_EXTRA_COL_WEIGHTS.length : 0)}
             onClick={() => onFocusRegion(focusRegion === "general" ? null : "general")}
@@ -555,7 +559,7 @@ function ItemRow({ item, showAsin, onSave, focusRegion, onAddToMalani }) {
         />
       ))}
 
-      {(!focusRegion || focusRegion === "general") && (
+      {((!focusRegion && SHOW_GENERAL) || focusRegion === "general") && (
         <>
           <td style={valueCellStyle()}>{formatUnits(item.malani_balance)}</td>
           <td style={valueCellStyle()}>{formatUnits(item.malani_order)}</td>
@@ -949,6 +953,8 @@ export default function NextOrderPage() {
   const [nextShipmentDates, setNextShipmentDates] = useState({});
   // Per-region months the goods must last after arrival (2026-10-18, default 3).
   const [coverMonths, setCoverMonths] = useState({});
+  // Recommended next-shipment date per region (formula pending the user's OK).
+  const [recommendedDates, setRecommendedDates] = useState({});
   const [dateSaveStatus, setDateSaveStatus] = useState("idle"); // idle | saving | saved | error
   // Pareo / Home Decor family sections - collapsed by default, same as /sales.
   const [expandedFamilies, setExpandedFamilies] = useState({});
@@ -963,7 +969,9 @@ export default function NextOrderPage() {
   const [multiExport, setMultiExport] = useState({});
   const [supplier, setSupplier] = useState("all");
   const jpHasStock = groups.some((g) => g.items.some((i) => (i.jp_balance || 0) > 0));
-  setShownOptionalRegions({ au: auHasStock || showAuManual, jp: jpHasStock || showJpManual });
+  const [showUk, setShowUk] = useState(false);
+  const [showGeneral, setShowGeneral] = useState(false);
+  setShownOptionalRegions({ uk: showUk, au: auHasStock || showAuManual, jp: jpHasStock || showJpManual, general: showGeneral || focusRegion === "general" });
   const exportOptions = [...REGIONS.map((r) => [r.key, r.label]), ["general", "GENERAL"]];
   const exportSelected = exportOptions.filter(([k]) => multiExport[k]);
   exportSupplierTag = supplier === "all" ? "" : `-${supplier}`;
@@ -988,6 +996,7 @@ export default function NextOrderPage() {
       setNextShipmentDate(data.nextShipmentDate || "");
       setNextShipmentDates(data.nextShipmentDates || {});
       setCoverMonths(data.coverMonths || {});
+      setRecommendedDates(data.recommendedShipmentDates || {});
       setSalesYears(data.salesYears || []);
       const allCollapsed = {};
       (data.groups || []).forEach((g) => {
@@ -1253,42 +1262,78 @@ export default function NextOrderPage() {
           fontSize: "14px",
         }}
       >
-        <span style={{ fontWeight: 600 }}>Next Shipment Arriving Date:</span>
-        {REGIONS.map((r) => r.key).map((region) => {
-          const value = nextShipmentDates[region] || "";
-          const left = value ? Math.max(0, Math.round((new Date(`${value}T00:00:00`) - new Date(new Date().toDateString())) / 864e5)) : null;
-          return (
-            <label key={region} style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-              <b>{region.toUpperCase()}</b>
-              <input
-                type="date"
-                value={value}
-                onChange={(e) => e.target.value && saveNextShipmentDate(e.target.value, region)}
-                style={{
-                  padding: "4px 8px",
-                  borderRadius: "4px",
-                  border: `1px solid ${STATUS_BORDER[dateSaveStatus]}`,
-                  colorScheme: "light",
-                  fontSize: "14px",
-                }}
-              />
-              {left !== null && <span style={{ color: "#333" }}>({left}d)</span>}
-              <span style={{ color: "#777" }}>enough for</span>
-              <input
-                type="number"
-                min="1"
-                max="24"
-                key={`${region}-${coverMonths[region] || 3}`}
-                defaultValue={coverMonths[region] || 3}
-                title="How many months after arrival this shipment must last"
-                onBlur={(e) => Number(e.target.value) !== (coverMonths[region] || 3) && saveCoverMonths(e.target.value, region)}
-                onKeyDown={(e) => e.key === "Enter" && e.target.blur()}
-                style={{ width: "48px", padding: "4px 6px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "13px" }}
-              />
-              <span style={{ color: "#777" }}>months</span>
-            </label>
-          );
-        })}
+        <table style={{ borderCollapse: "collapse", background: "#fff", border: "1px solid #ddd", fontSize: "13px" }}>
+          <thead>
+            <tr style={{ background: "#e8e8e8" }}>
+              {["Country", "Next Shipment Arriving Date", "Enough for", "Recommended date for next shipment"].map((h) => (
+                <th key={h} style={{ padding: "6px 10px", border: "1px solid #ddd", textAlign: "left" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ALL_REGIONS.map((r) => r.key).map((region) => {
+              const value = nextShipmentDates[region] || "";
+              const left = value ? Math.max(0, Math.round((new Date(`${value}T00:00:00`) - new Date(new Date().toDateString())) / 864e5)) : null;
+              const recommended = recommendedDates[region];
+              const cell = { padding: "4px 10px", border: "1px solid #ddd" };
+              return (
+                <tr key={region}>
+                  <td style={{ ...cell, fontWeight: 700 }}>{region.toUpperCase()}</td>
+                  <td style={cell}>
+                    <input
+                      type="date"
+                      value={value}
+                      onChange={(e) => e.target.value && saveNextShipmentDate(e.target.value, region)}
+                      style={{
+                        padding: "3px 6px",
+                        borderRadius: "4px",
+                        border: `1px solid ${STATUS_BORDER[dateSaveStatus]}`,
+                        colorScheme: "light",
+                        fontSize: "13px",
+                      }}
+                    />
+                    {left !== null && <span style={{ color: "#333", marginLeft: "6px" }}>({left}d)</span>}
+                  </td>
+                  <td style={cell}>
+                    <input
+                      type="number"
+                      min="1"
+                      max="24"
+                      key={`${region}-${coverMonths[region] || 3}`}
+                      defaultValue={coverMonths[region] || 3}
+                      title="How many months after arrival this shipment must last"
+                      onBlur={(e) => Number(e.target.value) !== (coverMonths[region] || 3) && saveCoverMonths(e.target.value, region)}
+                      onKeyDown={(e) => e.key === "Enter" && e.target.blur()}
+                      style={{ width: "48px", padding: "3px 6px", borderRadius: "4px", border: "1px solid #ccc", fontSize: "13px" }}
+                    />{" "}
+                    <span style={{ color: "#777" }}>months</span>
+                  </td>
+                  <td style={cell} title={recommended?.why || "Formula waiting for the user's OK"}>
+                    {recommended?.date || "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <button
+          onClick={() => {
+            if (showUk && focusRegion === "uk") setFocusRegion(null);
+            setShowUk((v) => !v);
+          }}
+          style={{ background: "none", border: "none", color: "#1565c0", cursor: "pointer", textDecoration: "underline", fontSize: "13px" }}
+        >
+          {showUk ? "hide UK" : "show UK"}
+        </button>
+        <button
+          onClick={() => {
+            if (showGeneral && focusRegion === "general") setFocusRegion(null);
+            setShowGeneral((v) => !v);
+          }}
+          style={{ background: "none", border: "none", color: "#1565c0", cursor: "pointer", textDecoration: "underline", fontSize: "13px" }}
+        >
+          {showGeneral ? "hide GENERAL" : "show GENERAL"}
+        </button>
         {!auHasStock && (
           <button
             onClick={() => setShowAuManual((v) => !v)}
