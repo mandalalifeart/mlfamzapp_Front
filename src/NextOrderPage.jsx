@@ -85,6 +85,7 @@ function columnWeights(showAsin, focusRegion) {
     return r.key === focusRegion ? [...focusRegionWeights(r.key), ...REGION_FOCUS_COL_WEIGHTS, ...EXTRA_COL_WEIGHTS] : [];
   });
   if (focusRegion === "general") return [...lead, ...GENERAL_COL_WEIGHTS, ...GENERAL_EXTRA_COL_WEIGHTS];
+  if (focusRegion === "all") return [...lead, ...ALL_REGIONS.map(() => 3), ...SHOW_ALL_COL_WEIGHTS];
   return [...lead, ...regions, ...(focusRegion || !SHOW_GENERAL ? [] : GENERAL_COL_WEIGHTS)];
 }
 
@@ -263,6 +264,10 @@ function EditableCell({ item, field, onSave }) {
 const REGION_SUBLABELS = ["Bal", "OTW", "Next"];
 const REGION_FOCUS_SUBLABELS = ["Reco (A/B/C)", "DoS (A/B/C)"];
 const GENERAL_SUBLABELS = ["Malani Bal", "Malani Ord", "Needed", "Missing", "Next Order"];
+// "show all" (2026-11-20, per the user): one compact view = Next of every
+// marketplace + Malani Order + Malani Balance + Needed + Missing + Next Order.
+const SHOW_ALL_LABELS = ["Malani Order", "Malani Bal", "Needed", "Missing", "Next Order"];
+const SHOW_ALL_COL_WEIGHTS = [3, 3, 3, 3, 4];
 
 function ColGroup({ showAsin, focusRegion }) {
   const weights = columnWeights(showAsin, focusRegion);
@@ -294,6 +299,25 @@ function TableHeader({ showAsin, focusRegion, onFocusRegion, salesYears }) {
   const leadingLabels = showAsin ? ["Image", "SKU", "ASIN"] : ["Image", "SKU"];
   const groupHeaderStyle = numberCellStyle({ background: "#e8e8e8", textAlign: "center", fontWeight: 700 });
   const years = salesYears || [];
+  if (focusRegion === "all") {
+    return (
+      <thead>
+        <tr>
+          {leadingLabels.map((label) => (
+            <th key={label} rowSpan={2} style={tableCellStyle({ background: "#f4f4f4" })}>{label}</th>
+          ))}
+          <th colSpan={ALL_REGIONS.length} onClick={() => onFocusRegion(null)} title="Click to go back to the normal view"
+            style={{ ...groupHeaderStyle, cursor: "pointer", userSelect: "none", background: "#d6e4f5" }}>Next ▾ (click to go back)</th>
+          <th colSpan={SHOW_ALL_LABELS.length} style={groupHeaderStyle}>GENERAL</th>
+        </tr>
+        <tr>
+          {[...ALL_REGIONS.map((r) => r.label), ...SHOW_ALL_LABELS].map((label, i) => (
+            <th key={i} style={HEADER_WRAP_STYLE}>{label}</th>
+          ))}
+        </tr>
+      </thead>
+    );
+  }
   const row2 = [];
   REGIONS.forEach((r) => {
     if (focusRegion && r.key !== focusRegion) {
@@ -529,6 +553,23 @@ function GeneralExtraCells({ item }) {
 function ItemRow({ item, showAsin, onSave, focusRegion, onAddToMalani }) {
   const needed = computeNeeded(item);
   const missing = computeMissing(item);
+  const nextOrderCell = (
+    <td style={numberCellStyle()}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
+        <EditableCell key={`no-${item.next_order}`} item={item} field="next_order" onSave={onSave} />
+        {Number(item.next_order || 0) > 0 && (
+          <button
+            onClick={() => onAddToMalani(item)}
+            title={`Add ${item.next_order} to Malani Order (then Next Order = 0)`}
+            style={{ border: "none", background: "none", cursor: "pointer", padding: 0, fontSize: "13px", lineHeight: 1 }}
+          >
+            ➕
+          </button>
+        )}
+      </span>
+    </td>
+  );
+  const showAll = focusRegion === "all";
 
   return (
     <tr>
@@ -551,7 +592,21 @@ function ItemRow({ item, showAsin, onSave, focusRegion, onAddToMalani }) {
         <td style={tableCellStyle({ fontFamily: "monospace", fontSize: "10px" })}>{item.asin}</td>
       )}
 
-      {REGIONS.map((r) => (
+      {showAll && ALL_REGIONS.map((r) => (
+        <td key={r.key} style={numberCellStyle()}>
+          <EditableCell item={item} field={r.nextField} onSave={onSave} />
+        </td>
+      ))}
+      {showAll && (
+        <>
+          <td style={valueCellStyle()}>{formatUnits(item.malani_order)}</td>
+          <td style={valueCellStyle()}>{formatUnits(item.malani_balance)}</td>
+          <td style={valueCellStyle({ fontWeight: 700 })}>{formatUnits(needed)}</td>
+          <td style={valueCellStyle({ fontWeight: 700, color: missing > 0 ? SAVE_ERROR_COLOR : undefined })}>{formatUnits(missing)}</td>
+          {nextOrderCell}
+        </>
+      )}
+      {!showAll && REGIONS.map((r) => (
         <RegionBlock
           key={r.key}
           item={item}
@@ -574,20 +629,7 @@ function ItemRow({ item, showAsin, onSave, focusRegion, onAddToMalani }) {
             {formatUnits(missing)}
           </td>
 
-          <td style={numberCellStyle()}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
-              <EditableCell key={`no-${item.next_order}`} item={item} field="next_order" onSave={onSave} />
-              {Number(item.next_order || 0) > 0 && (
-                <button
-                  onClick={() => onAddToMalani(item)}
-                  title={`Add ${item.next_order} to Malani Order (then Next Order = 0)`}
-                  style={{ border: "none", background: "none", cursor: "pointer", padding: 0, fontSize: "13px", lineHeight: 1 }}
-                >
-                  ➕
-                </button>
-              )}
-            </span>
-          </td>
+          {nextOrderCell}
         </>
       )}
       {focusRegion === "general" && <GeneralExtraCells item={item} />}
@@ -1039,7 +1081,7 @@ export default function NextOrderPage() {
   }, [baseLoaded, shownKey]);
 
   useEffect(() => {
-    if (baseLoaded && focusRegion && focusRegion !== "general") loadPhase("extra", [focusRegion]);
+    if (baseLoaded && focusRegion && focusRegion !== "general" && focusRegion !== "all") loadPhase("extra", [focusRegion]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseLoaded, focusRegion]);
 
@@ -1239,7 +1281,7 @@ export default function NextOrderPage() {
   // "Next > 0" filter (2026-10-03, per the user): the expanded marketplace's
   // Next column, or any marketplace's when none is expanded.
   function itemHasNextAbove0(item) {
-    const regions = focusRegion && focusRegion !== "general" ? [focusRegion] : REGIONS.map((r) => r.key);
+    const regions = focusRegion === "all" ? ALL_REGIONS.map((r) => r.key) : focusRegion && focusRegion !== "general" ? [focusRegion] : REGIONS.map((r) => r.key);
     return regions.some((r) => Number(item[`${r}_next_shipment`] || 0) > 0);
   }
 
@@ -1453,6 +1495,13 @@ export default function NextOrderPage() {
         >
           {showGeneral ? "hide GENERAL" : "show GENERAL"}
         </button>
+        <button
+          onClick={() => setFocusRegion((f) => (f === "all" ? null : "all"))}
+          title="Next of every marketplace + Malani Order + Malani Balance + Needed + Missing + Next Order"
+          style={{ background: "none", border: "none", color: "#1565c0", cursor: "pointer", textDecoration: "underline", fontSize: "13px", fontWeight: focusRegion === "all" ? 700 : 400 }}
+        >
+          {focusRegion === "all" ? "hide all" : "show all"}
+        </button>
         {!auHasStock && (
           <button
             onClick={() => setShowAuManual((v) => !v)}
@@ -1550,7 +1599,7 @@ export default function NextOrderPage() {
             <FilterChip active={filterMissing} onClick={toggleFilterMissing} label="Missing > 0" />
             <FilterChip active={filterNextOrder} onClick={toggleFilterNextOrder} label="Next Order > 0" />
             <FilterChip active={filterReco} onClick={toggleFilterReco} label="Any Reco > 0" />
-            <FilterChip active={filterNext} onClick={toggleFilterNext} label={focusRegion && focusRegion !== "general" ? `${focusRegion.toUpperCase()} Next > 0` : "Next > 0 (any marketplace)"} />
+            <FilterChip active={filterNext} onClick={toggleFilterNext} label={focusRegion && focusRegion !== "general" && focusRegion !== "all" ? `${focusRegion.toUpperCase()} Next > 0` : "Next > 0 (any marketplace)"} />
             {anyFilterActive && (
               <button
                 onClick={() => {
