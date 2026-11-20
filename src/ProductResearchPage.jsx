@@ -19,6 +19,76 @@ function fmtUsd(v) {
   return v === null || v === undefined ? "–" : `$${Number(v).toFixed(2)}`;
 }
 
+// Profit calculator per marked idea (2026-11-20, per the user). Same shape as
+// ProductCost.py: landed = cost + freight + duty% x (cost + freight); per unit
+// profit = price - landed - referral% x price - FBA fee - ads% x price - returns% x price.
+// Inputs are saved per idea (SetProductResearchStatus calc).
+const FBA_DEFAULT = { bag: 6.5, lamp: 7.5 };
+const CALC_FIELDS = [
+  ["price", "Sale price ($)"],
+  ["cost", "Unit cost ($, supplier)"],
+  ["freight", "Freight / unit ($)"],
+  ["dutyPct", "Import duty %"],
+  ["referralPct", "Amazon referral %"],
+  ["fba", "FBA fee ($)"],
+  ["adsPct", "Ads % of price"],
+  ["returnsPct", "Returns % of price"],
+];
+function priceGuess(idea) {
+  const r = idea.research || {};
+  if (r.onThemeMedianPrice) return r.onThemeMedianPrice;
+  const m = String(idea.price || "").match(/\$?(\d+(?:\.\d+)?)\s*-\s*\$?(\d+(?:\.\d+)?)/);
+  return m ? Math.round(((+m[1] + +m[2]) / 2) * 100) / 100 : 29.99;
+}
+function calcDefaults(idea) {
+  return { price: priceGuess(idea), cost: "", freight: idea.kind === "lamp" ? 2 : 1, dutyPct: 10, referralPct: 15,
+    fba: FBA_DEFAULT[idea.kind] ?? 6.5, adsPct: 20, returnsPct: 5 };
+}
+function ProfitCalc({ idea }) {
+  const [v, setV] = useState({ ...calcDefaults(idea), ...(idea.calc || {}) });
+  const [saved, setSaved] = useState("");
+  const n = (k) => Number(v[k]) || 0;
+  const landed = n("cost") + n("freight") + (n("dutyPct") / 100) * (n("cost") + n("freight"));
+  const referral = (n("referralPct") / 100) * n("price");
+  const ads = (n("adsPct") / 100) * n("price");
+  const returns = (n("returnsPct") / 100) * n("price");
+  const profit = n("price") - landed - referral - n("fba") - ads - returns;
+  const margin = n("price") ? (profit / n("price")) * 100 : 0;
+  const pctOfPrice = n("referralPct") + n("adsPct") + n("returnsPct");
+  const breakEven = pctOfPrice < 100 ? (landed + n("fba")) / (1 - pctOfPrice / 100) : null;
+  async function save() {
+    try {
+      const calc = Object.fromEntries(CALC_FIELDS.map(([k]) => [k, v[k]]).filter(([, x]) => x !== "" && x !== null));
+      await fetch(`${API_BASE}/SetProductResearchStatus`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: idea.id, calc }) });
+      setSaved("saved");
+      setTimeout(() => setSaved(""), 1500);
+    } catch {
+      setSaved("not saved");
+    }
+  }
+  const box = { border: "1px solid #ddd", borderRadius: "6px", padding: "6px 8px", background: "#fff" };
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "flex-end", fontSize: "12px" }}>
+      <b style={{ alignSelf: "center", fontSize: "13px" }}>💰 Profit calculator</b>
+      {CALC_FIELDS.map(([k, label]) => (
+        <label key={k} style={{ display: "flex", flexDirection: "column", gap: "2px", color: "#555" }}>
+          {label}
+          <input type="number" step="0.01" value={v[k]} onChange={(e) => setV((o) => ({ ...o, [k]: e.target.value }))} onBlur={save}
+            style={{ width: "80px", padding: "3px 5px", border: k === "cost" && !v.cost ? "1px solid #e53935" : "1px solid #ccc", borderRadius: "4px" }} />
+        </label>
+      ))}
+      <div style={box} title={`Landed = cost + freight + duty: ${fmtUsd(landed)}\nReferral ${fmtUsd(referral)} · FBA ${fmtUsd(n("fba"))} · Ads ${fmtUsd(ads)} · Returns ${fmtUsd(returns)}`}>
+        Landed <b>{fmtUsd(landed)}</b> · Amazon+ads+returns <b>{fmtUsd(referral + n("fba") + ads + returns)}</b>
+        <div style={{ fontSize: "15px", marginTop: "2px" }}>
+          Profit <b style={{ color: profit > 0 ? "#2e7d32" : "#c62828" }}>{fmtUsd(profit)}</b> / unit · margin <b>{margin.toFixed(0)}%</b>
+        </div>
+        <div style={{ color: "#666" }}>Break-even price {breakEven ? fmtUsd(breakEven) : "–"}{!v.cost && " · enter the unit cost"}</div>
+      </div>
+      {saved && <span style={{ color: saved === "saved" ? "#2e7d32" : "#c62828" }}>{saved}</span>}
+    </div>
+  );
+}
+
 const POOL_LABELS = { main: "Main list", option: "Bundle pool: option", addon: "Bundle pool: add-on", ready: "Bundle pool: ready bundle" };
 
 function MarkStar({ idea, onSaved }) {
@@ -223,6 +293,13 @@ export default function ProductResearchPage() {
                       </td>
                       <StatusCell key={idea.pool} idea={idea} statuses={data.statuses || []} onSaved={load} />
                     </tr>
+                    {idea.marked && (
+                      <tr>
+                        <td colSpan={12} style={{ ...cell, background: "#fffdf3" }}>
+                          <ProfitCalc key={idea.id} idea={idea} />
+                        </td>
+                      </tr>
+                    )}
                     {isOpen && (
                       <tr>
                         <td colSpan={12} style={{ ...cell, background: "#fafafa" }}>
