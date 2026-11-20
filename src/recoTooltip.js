@@ -7,6 +7,11 @@
 function days(w) {
   if (!w) return "";
   if (w.source === "fallback_recent") return "no sales history then - recent rate used";
+  if (w.source === "actual_partial") return `first sales ${w.months?.[0]} - only months since then: ${daysPlain(w)}`;
+  return daysPlain(w);
+}
+
+function daysPlain(w) {
   if (w.allDaysUsed) return `${w.units} units / ${w.totalDays} days (fewer than 7 in-stock days - all days used)`;
   if (w.inStockDays === w.totalDays) return `${w.units} units / ${w.totalDays} days, always in stock`;
   return `${w.units} units / ${w.inStockDays} in-stock days of ${w.totalDays}`;
