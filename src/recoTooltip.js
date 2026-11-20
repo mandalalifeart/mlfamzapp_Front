@@ -31,7 +31,7 @@ export function buildRecoTooltip(debug, { bal, otw, region, recos }) {
   const line = (name, v, shown) =>
     `${name}: QA ${v.qa}, QB ${v.qb} → at arrival ${v.left} left → order ${v.qb} − ${v.left} = ${v.reco}${zero(v, shown)}`;
   return (
-    `PA = today → arrival: ${debug.xDays} days · PB = 3 months after arrival: ${debug.pbDays} days\n` +
+    `PA = today → arrival: ${debug.xDays} days · PB = ${debug.pbMonths || 3} months after arrival: ${debug.pbDays} days\n` +
     `H = Bal ${bal} + OTW ${otw} = ${debug.have} (Next column not counted)\n` +
     `Next shipment = QB − max(H − QA, 0) - running out before arrival is not re-ordered\n\n` +
     `Sales per day (only days with stock in ${r}):\n` +
